@@ -63,6 +63,46 @@ detections are observations of people in that building, so they are
 bearer-gated and `no-store`. A gate checks both directions and checks that
 nothing operator-scoped can be served cacheable.
 
+## Decoding: parse the IDL, cross-check with the tables
+
+This is the binding's decoding path, and it is normative rather than a local
+preference. Two things settled it, both measured rather than reasoned about.
+
+**Wire layout comes from the IDL.** Not from the published serializer tables:
+they describe `double[3]` and `sequence<string,32>` identically, as
+`{"t":"array"}`. That is right for emitting JSON, where both become JSON
+arrays, and fatal for reading CDR, where one carries a length prefix and the
+other does not. The distinction the tables erase is exactly the one the wire
+needs, so anything that reads SpatialDDS off a bus or out of a recording has to
+read the IDL. *This is a generator defect in the specification repository, not
+a workaround here:* the generator knows the collection's nature when it walks
+the AST and does not record it. Finding 8.
+
+**The IDL to parse is the original, not a recording's flattened copy.** An MCAP
+schema record says in its own preamble that it is "a single self-contained
+translation unit", and `idlc -l py` segfaults on it while compiling the
+specification's `events.idl` without complaint. Reproduced on all three
+distinct payloads in the sample recording, with comments stripped and intact;
+the `types.idl` section alone compiles. So a consumer cannot rebuild types from
+a recording with the reference toolchain, which is the main thing
+self-description is for. Finding 9.
+
+What this repository therefore does: it parses the IDL text the recording
+carries to build a wire model — field order, array bounds against sequence
+bounds, `@key`, `@value`, `@extensibility` — and then checks that model against
+the published serializer tables, which were generated upstream by a different
+program walking a different representation. `gates/wire_model.py` requires the
+two readings to agree on every type's kind, field order, enum members and union
+cases before anything is served. The tables are the cross-check; they are not
+the source.
+
+The one thing the tables are authoritative for is a union's empty branch.
+`CovMatrix` declares `case COV_NONE: uint8 none;`, a real byte that is on the
+wire and must be consumed, while `MAPPING.md` says an empty branch is
+`{"type":"COV_NONE"}` with no member. That the placeholder is padding rather
+than information is recorded only in the generated tables, as a `null` branch
+type, and no rule over the IDL recovers it. Finding 12.
+
 ## The contract is not ours
 
 Paths, the four event names, the envelope fields, the ordering contract and the

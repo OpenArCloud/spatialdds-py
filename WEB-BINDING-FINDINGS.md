@@ -252,9 +252,11 @@ flattening format as such.
 The consequence is concrete: a consumer cannot rebuild types from a recording
 using the reference toolchain, which is the main thing self-description is for.
 
-*Smallest change:* upstream bug report against the compiler. Separately, worth
-deciding whether the flattened payload is meant to be compilable at all, and
-saying so in the recording guidance either way.
+*Smallest change:* upstream bug report against the compiler. Drafted but
+**not filed**, pending James's word, on the same footing as the Foxglove
+deserializer issue: nothing goes to another project's tracker without it.
+Separately, worth deciding whether the flattened payload is meant to be
+compilable at all, and saying so in the recording guidance either way.
 
 ### 10. Eleven published schemas carry Python-mangled member names
 
@@ -273,9 +275,18 @@ So the discovery types are affected, and the specification contradicts itself:
 conforming producer's `global` is ignored as unknown and `required` reports
 `_global` missing.
 
-*Smallest change:* map the mangled names back before emitting. The sidecar's
-generator already derives that mapping for its own bindings, so the inverse is
-available where the rename happens.
+*Characterised:* `gen.py` reflects over the Python classes `idlc` produced and
+reads their member names, so it reads `idlc`'s renames rather than the IDL's own
+identifiers. The AST carries the original names; the generator is looking in the
+wrong place.
+
+*Smallest change, spec-side:* emit verbatim names from the AST's original
+identifiers, regenerate all 112 schemas, and **add a generator gate asserting
+that no schema property name begins with an underscore unless the IDL member
+does.** That assertion is not belt-and-braces. `additionalProperties: true`
+makes the mismatch silent in both directions — a conforming producer's `global`
+is ignored as unknown, and `_global` is reported missing by `required` — so the
+tolerant reader cannot be the detector. Something has to assert it.
 
 ### 11. A recording carries types but not QoS
 
@@ -308,3 +319,82 @@ This one consults the tables for union shape, and only for that.
 *Smallest change:* an annotation on the placeholder member, or one sentence in
 MAPPING.md naming the convention a generator applies, so the rule is in the
 contract rather than only in its output.
+
+## A defect class, named because it has now happened twice
+
+### An instrument that cannot report what it claims to measure
+
+Two in two days, in work that was otherwise careful, and they are the same
+thing:
+
+* A check written `joined_would_differ == 0 or True`, as a hedge while the
+  number was unknown. It could not fail. It sat in a gate reporting `ok` on
+  every run.
+* A validation loop that collected decode errors into a list capped at five
+  entries and then reported `len(errs)` as the error count. It printed
+  "decode errors: 5" when the true figure was in the thousands, and the
+  accompanying "JSON differences: none" was true only of the handful that had
+  decoded. The result was reported as near-perfect. It was near-meaningless.
+
+Neither was caught by review. The first was caught by asking what the number
+actually was; the second by a figure that did not fit — a two-camera scene
+advertising four camera topics — several steps later.
+
+What they share is that the instrument was never tested. A gate's assertions
+get fault-injected as a matter of course in this work; the *counters and
+summaries that report on those assertions* were not treated as needing the same
+treatment, and both defects lived there rather than in the logic being checked.
+
+**The rule, stated so it can be applied: a check or a counter is
+fault-injected, or it is decorative.** Before trusting a number, make the thing
+it measures go wrong and confirm the number moves. A cap, a truncation, a
+`[:5]`, a `break`, a default of zero, an `or True` — each is a place where an
+instrument stops measuring and starts reassuring.
+
+The honest figure for this build, from an instrument that was made real first:
+15,676 of 15,676 messages decoded and projected byte-identical against a
+CycloneDDS reader.
+
+### A readiness probe that cannot tell "mine" from "something"
+
+The same class, in a different costume. The gateway was started on a fixed port
+and checked with a loop that fetched a URL until it answered. It answered
+immediately, every time, because a gateway from an hour earlier still held the
+port: every later start died with `EADDRINUSE` and every verification
+afterwards ran against code from before the fixes it was meant to verify.
+
+The probe was not wrong about the server being up. It could not distinguish
+*the server I started* from *a server*. `tools/run_gateway.py` now refuses a
+bound port rather than failing softly, and the readiness check confirms the
+listening process is the one it started. `gates/harness.py` avoids the question
+entirely: bind port 0 and be handed the port once the socket is listening, so
+there is nothing to poll.
+
+## Dispositions, findings 8 to 12, 2026-10-07
+
+**8, the serializer tables cannot drive a decoder.** A generator defect in the
+specification repository, not a local workaround. Travels to the spec agent
+with the evidence above. The decoding path it forces is ratified and documented
+in this repository's README as normative: parse the IDL for wire layout, use
+the tables as the cross-check.
+
+**9, `idlc` segfaults on a flattened schema payload.** Possible upstream
+report, drafted and held pending James's word, like the Foxglove deserializer
+issue.
+
+**10, Python-mangled member names in eleven published schemas.** The headline.
+Characterised as a generator bug: `gen.py` reads names off the classes `idlc`
+emitted rather than off the AST's original identifiers. Fixed spec-side, all
+112 schemas regenerated, plus the underscore assertion, because
+`additionalProperties: true` means the tolerant reader cannot be the detector.
+
+**11, a recording carries types but not QoS.** Adopted with the one-string
+fix: the SceneScape adapter's MCAP writer adds durability to channel metadata
+on its next touch, beside the `spatialdds_type` and `spatialdds_version` it
+already writes. Queued in that repository's lane, not urgent; declaring
+durability from the specification's QoS table is correct in the interim, which
+is what this gateway does.
+
+**12, the empty-union-branch rule is not derivable from the IDL.** Stands as
+reported. This gateway consults the tables for union shape and only for that,
+documented where it happens.
