@@ -1,0 +1,394 @@
+"""Gateway state, built from a typed SpatialDDS MCAP.
+
+The recording is the interface. This reads an MCAP, builds a wire model from
+the IDL embedded in its schema records, decodes every message, projects each to
+the binding's JSON, and indexes the result as web resources. Nothing here knows
+what produced the recording.
+
+**What a recording tells us, and what it does not.** It carries the types, the
+field layout, the `@key` of every keyed type, the topic names and the message
+order. All of that is read rather than configured: the key of a latched
+resource is the member the IDL marks `@key`, not a name this file knows.
+
+It does **not** carry QoS. There is nothing in an MCAP that says a topic was
+TRANSIENT_LOCAL, and the binding's whole shape depends on that split: latched
+state is a GET resource, a stream is a WebSocket. So durability is declared
+here, per type, from the specification's QoS table rather than inferred from
+the file. That is a real gap in what a recording can describe, and it is
+written up as a finding.
+
+**Access classes.** One rule, and it is worth stating plainly: *configuration
+is public, observation is operator-scoped.* Zones, crossing lines, frames and
+georeferences are a site's drawn layout, cacheable by anyone. Entities, tracks,
+events and detections are observations of people in that site, so they are
+bearer-scoped and never cacheable. Declared per type in `DURABILITY`, so the
+split cannot drift from what the headers say.
+"""
+from __future__ import annotations
+
+import hashlib
+import json
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any, Iterable
+
+from mcap.reader import make_reader
+
+from spatialdds_web import idlmodel, webjson, xcdr2
+
+PUBLIC = "public-cacheable"
+OPERATOR = "operator-scoped"
+PUBLIC_MAX_AGE = 300
+
+# type FQN -> (latched, access class). Durability comes from the
+# specification's QoS table; a recording does not carry it. A type absent here
+# is served as a stream with the cautious class, because an unknown
+# observation is still an observation.
+DURABILITY: dict[str, tuple[bool, str]] = {
+    "spatial.events.SpatialZone":        (True,  PUBLIC),
+    "spatial.events.CrossingLine":       (True,  PUBLIC),
+    "spatial.core.GeoAnchor":            (True,  PUBLIC),
+    "spatial.core.FrameTransform":       (True,  PUBLIC),
+    "spatial.disco.Announce":            (True,  PUBLIC),
+    "spatial.owm.Entity":                (True,  OPERATOR),
+    "spatial.semantics.FusedTrackSet":   (False, OPERATOR),
+    "spatial.semantics.Detection2DSet":  (False, OPERATOR),
+    "spatial.semantics.Detection3DSet":  (False, OPERATOR),
+    "spatial.events.SpatialEvent":       (False, OPERATOR),
+    "spatial.owm.ModelPose":             (False, OPERATOR),
+}
+
+
+@dataclass
+class Resource:
+    """One topic as a web resource, named by its §3.3.1 segments."""
+    scene: str
+    stream: str
+    type_seg: str
+    version: str
+    topic: str
+    fqn: str
+    key: str
+    access: str
+    latched: bool
+
+    @property
+    def path(self) -> str:
+        return f"/{self.scene}/{self.stream}/{self.type_seg}/{self.version}"
+
+
+@dataclass
+class Instance:
+    key: str
+    data: dict
+    etag: str
+
+
+@dataclass
+class State:
+    """Everything the gateway serves.
+
+    Two latched sets at two instants, and the difference is deliberate.
+    `latched` is the set as of the END of the recorded window and is what a GET
+    returns: the gateway's knowledge of the recording is complete, so its
+    current state is the state the recording finished in.
+    `latched_initial` is the set as of the START and is what a WebSocket
+    subscriber replays before the marker, because a subscriber is watching the
+    window play out. Replaying the final set and then streaming the history
+    that produced it would hand a client the ending before the middle.
+    """
+    resources: dict[str, Resource] = field(default_factory=dict)
+    latched: dict[str, dict[str, Instance]] = field(default_factory=dict)
+    latched_initial: dict[str, dict[str, Instance]] = field(default_factory=dict)
+    live: dict[str, list[dict]] = field(default_factory=dict)
+    scenes: list[str] = field(default_factory=list)
+    counts: dict[str, int] = field(default_factory=dict)
+    source: str = ""
+    source_sha256: str = ""
+    model: idlmodel.Model | None = None
+
+    def resource_for(self, path: str) -> Resource | None:
+        return self.resources.get(path.rstrip("/"))
+
+
+def wire_model(path: Path) -> idlmodel.Model:
+    """The wire model, from the IDL the recording carries for its own types."""
+    texts: dict[str, str] = {}
+    with open(path, "rb") as f:
+        for _sid, sch in sorted(make_reader(f).get_summary().schemas.items()):
+            if sch.encoding != "omgidl":
+                continue
+            texts.setdefault(hashlib.sha256(sch.data).hexdigest(),
+                             sch.data.decode())
+    if not texts:
+        raise SystemExit(f"{path} embeds no omgidl schemas, so its types "
+                         f"cannot be read from the file itself")
+    model = idlmodel.Model()
+    for text in texts.values():
+        m = idlmodel.parse(text)
+        model.aggregates.update(m.aggregates)
+        model.typedefs.update(m.typedefs)
+    model._leaves = None
+    return model
+
+
+def split_topic(topic: str) -> tuple[str, str, str, str] | None:
+    """`spatialdds/<domain>/<stream>/<type>/<version>` per §3.3.1."""
+    parts = topic.split("/")
+    if len(parts) != 5 or parts[0] != "spatialdds":
+        return None
+    return parts[1], parts[2], parts[3], parts[4]
+
+
+def build_state(path: Path) -> State:
+    model = wire_model(path)
+    tables = json.loads((Path(__file__).resolve().parent.parent
+                         / "webjson" / "serializer_tables.json").read_text())
+    dec = xcdr2.Decoder(model)
+    proj = webjson.Projector(model, tables)
+
+    st = State(source=str(path), model=model,
+               source_sha256=hashlib.sha256(path.read_bytes()).hexdigest())
+    # Which latched instances were in force when the window opened. A
+    # recording does not carry QoS, so "the latched set at t0" is not stated
+    # anywhere in the file; what it does carry is log times, and a definition
+    # published once at the start of the window is exactly an instance whose
+    # first sample shares the earliest log time on its topic. Instances that
+    # appear later -- a tracked person arriving -- are live traffic, not
+    # latched state a late joiner at t0 would have received. Documented as an
+    # inference rather than a reading.
+    first_seen: dict[tuple[str, str], int] = {}
+    topic_first: dict[str, int] = {}
+    initial_data: dict[tuple[str, str], dict] = {}
+
+    with open(path, "rb") as f:
+        for sch, ch, msg in make_reader(f).iter_messages():
+            fqn = sch.name.replace("::", ".")
+            seg = split_topic(ch.topic)
+            if seg is None:
+                st.counts[f"unnamed:{ch.topic}"] = \
+                    st.counts.get(f"unnamed:{ch.topic}", 0) + 1
+                continue
+            scene, stream, type_seg, version = seg
+            res = st.resources.get(f"/{scene}/{stream}/{type_seg}/{version}")
+            if res is None:
+                agg = model.get(fqn)
+                keys = [m.name for m in (agg.members if agg else [])
+                        if m.is_key]
+                latched, access = DURABILITY.get(fqn, (False, OPERATOR))
+                res = Resource(scene, stream, type_seg, version, ch.topic, fqn,
+                               keys[0] if keys else "", access, latched)
+                st.resources[res.path] = res
+                st.latched.setdefault(ch.topic, {})
+                st.live.setdefault(ch.topic, [])
+            data = proj.project(fqn, dec.decode(fqn, msg.data))
+            lt = msg.log_time
+            key = str(data.get(res.key, "")) if res.key else ""
+            if res.latched:
+                st.latched[ch.topic][key] = Instance(
+                    key, data, webjson.digest(data))
+                first_seen.setdefault((ch.topic, key), lt)
+                topic_first[ch.topic] = min(topic_first.get(ch.topic, lt), lt)
+                if (ch.topic, key) not in initial_data:
+                    initial_data[(ch.topic, key)] = data
+            st.live[ch.topic].append(
+                {"event": "sample", "topic": ch.topic, "key": key,
+                 "data": data})
+            st.counts[ch.topic] = st.counts.get(ch.topic, 0) + 1
+
+            # §2.14 removal: the terminal sample, then a dispose for the same
+            # key. A lifecycle state of RETIRED is that terminal sample, so
+            # the dispose is derived from the sample rather than from a signal
+            # the recording does not carry.
+            if data.get("state") == "RETIRED":
+                st.live[ch.topic].append(
+                    {"event": "dispose", "topic": ch.topic, "key": key,
+                     "reason": data.get("state_reason") or "retired"})
+                st.latched[ch.topic].pop(key, None)
+
+    st.scenes = sorted({r.scene for r in st.resources.values()})
+
+    for topic, res in ((r.topic, r) for r in st.resources.values()):
+        if not res.latched:
+            continue
+        t0 = topic_first.get(topic)
+        st.latched_initial[topic] = {
+            k: Instance(k, initial_data[(topic, k)],
+                        webjson.digest(initial_data[(topic, k)]))
+            for (tp, k), when in first_seen.items()
+            if tp == topic and when == t0}
+        # Latched definitions are state, not traffic: a subscriber replays
+        # them before the marker rather than receiving them again after it.
+        keep = []
+        emitted: set[str] = set()
+        for ev in st.live[topic]:
+            if (ev["event"] == "sample"
+                    and ev["key"] in st.latched_initial[topic]
+                    and ev["key"] not in emitted):
+                emitted.add(ev["key"])
+                continue
+            keep.append(ev)
+        st.live[topic] = keep
+    return st
+
+
+# ---- the envelope ----------------------------------------------------------
+
+def replay_messages(st: State, topic: str) -> list[dict]:
+    return [{"event": "sample", "topic": topic, "key": i.key, "data": i.data}
+            for i in st.latched_initial.get(topic, {}).values()]
+
+
+def end_of_replay(topic: str, n: int) -> dict:
+    """Exactly the pinned shape. No other fields."""
+    return {"event": "end_of_replay", "topic": topic, "replayed": n}
+
+
+def liveliness(topic: str, key: str, alive: bool) -> dict:
+    return {"event": "liveliness", "topic": topic, "key": key, "alive": alive}
+
+
+# ---- geohash ---------------------------------------------------------------
+# §3.3.0's search binding takes a geohash and expands it to a bounding box, so
+# the gateway needs the expansion. A fixed published encoding, twenty lines, so
+# it is implemented rather than taken as a dependency.
+
+_GEOHASH32 = "0123456789bcdefghjkmnpqrstuvwxyz"
+
+
+def geohash_bbox(gh: str) -> tuple[float, float, float, float]:
+    """A geohash cell as `(west, south, east, north)`, the §3.3.0 bbox order."""
+    lat_lo, lat_hi, lon_lo, lon_hi = -90.0, 90.0, -180.0, 180.0
+    even = True
+    for ch in gh.lower():
+        idx = _GEOHASH32.find(ch)
+        if idx < 0:
+            raise ValueError(f"not a geohash character: {ch!r}")
+        for mask in (16, 8, 4, 2, 1):
+            if even:
+                mid = (lon_lo + lon_hi) / 2
+                lon_lo, lon_hi = (mid, lon_hi) if idx & mask else (lon_lo, mid)
+            else:
+                mid = (lat_lo + lat_hi) / 2
+                lat_lo, lat_hi = (mid, lat_hi) if idx & mask else (lat_lo, mid)
+            even = not even
+    return lon_lo, lat_lo, lon_hi, lat_hi
+
+
+def intersects(a: tuple[float, float, float, float],
+               b: tuple[float, float, float, float]) -> bool:
+    """The §3.3.0 *intersects* predicate, as `CoverageQuery` uses it."""
+    return not (a[2] < b[0] or b[2] < a[0] or a[3] < b[1] or b[3] < a[1])
+
+
+# ---- discovery -------------------------------------------------------------
+
+def scene_bbox(st: State, scene: str) -> tuple[float, float, float, float] | None:
+    """A scene's earth-fixed footprint, from a `GeoAnchor` in the recording.
+
+    Degenerate by construction: a `GeoAnchor` is a point, so the box is that
+    point. A recording with no georeference has no earth-fixed footprint and
+    this returns None rather than inventing one, which means a geohash query
+    matches nothing. A service that does not know where it is should publish no
+    coverage, not a coverage of everywhere.
+    """
+    for res in st.resources.values():
+        if res.scene != scene or res.fqn != "spatial.core.GeoAnchor":
+            continue
+        for inst in st.latched.get(res.topic, {}).values():
+            lat = inst.data.get("lat_deg")
+            lon = inst.data.get("lon_deg")
+            if lat is None or lon is None:
+                continue
+            return float(lon), float(lat), float(lon), float(lat)
+    return None
+
+
+def service_manifest(st: State, scene: str, base: str) -> dict:
+    """The §8.2.3 service manifest for one scene.
+
+    `service.connection` is deliberately absent: it carries DDS connection
+    hints and there is no DDS domain behind this endpoint. §8.2.3 makes the
+    block optional, so omitting it is schema-legal; §3.3.0's rule that a client
+    MUST be able to extract it and join a domain cannot hold for a web-native
+    service, which is a reported finding rather than something to paper over
+    with a fabricated domain id.
+
+    Each topic entry carries its own `url`. `TopicMeta` has no URL field, so
+    that is an addition, and it is the one that turns discovery into hypermedia:
+    a client follows a link instead of rebuilding a path by string surgery on a
+    topic name.
+    """
+    topics_block = []
+    for path, res in sorted(st.resources.items()):
+        if res.scene != scene:
+            continue
+        topics_block.append({
+            "name": res.topic,
+            "type": res.type_seg,
+            "version": res.version,
+            "qos_profile": "TRANSIENT_LOCAL" if res.latched else "LIVE",
+            "access": res.access,
+            "url": base + path,
+        })
+    man: dict[str, Any] = {
+        "id": f"spatialdds://spatialdds-web.local/{scene}/service/gateway",
+        "profile": "spatial.manifest/1.8",
+        "rtype": "service",
+        "service": {
+            "service_id": f"spatialdds-web-{scene[:8]}",
+            "kind": "SEMANTICS",
+            "name": f"SpatialDDS web gateway, domain {scene}",
+            "org": "spatialdds-web.local",
+            "version": "web-binding/step5",
+            "topics": topics_block,
+        },
+        "caps": {
+            "supported_profiles": [
+                {"name": "spatial.core", "major": 1, "min_minor": 8,
+                 "max_minor": 8},
+                {"name": "spatial.events", "major": 1, "min_minor": 8,
+                 "max_minor": 8},
+                {"name": "spatial.semantics", "major": 1, "min_minor": 8,
+                 "max_minor": 8},
+            ],
+            # The provisional module is a feature, not a profile range:
+            # independently versioned and exempt from the 1.x additive
+            # guarantee, so claiming a range would overstate the promise.
+            "features": ["spatial.owm/0.1", "web-binding/json"],
+        },
+    }
+    bbox = scene_bbox(st, scene)
+    if bbox is not None:
+        man["coverage"] = {"frame_ref": {"uuid": "", "fqn": "earth-fixed"},
+                           "has_bbox": True, "bbox": list(bbox),
+                           "global": False}
+    return man
+
+
+def search(st: State, base: str, geohash: str | None = None,
+           kinds: list[str] | None = None,
+           coverage: list[dict] | None = None) -> dict:
+    """The §3.3.0 search response: `{"results": [...], "next_page_token": ""}`."""
+    wanted: list[tuple[float, float, float, float]] = []
+    if geohash:
+        wanted.append(geohash_bbox(geohash))
+    for el in (coverage or []):
+        if el.get("global"):
+            wanted = []
+            break
+        if el.get("has_bbox") or el.get("bbox"):
+            b = el["bbox"]
+            wanted.append((float(b[0]), float(b[1]), float(b[2]), float(b[3])))
+    results = []
+    for scene in st.scenes:
+        man = service_manifest(st, scene, base)
+        if kinds and man["service"]["kind"] not in kinds:
+            continue
+        if wanted:
+            cov = man.get("coverage")
+            if not cov or not any(intersects(tuple(cov["bbox"]), w)
+                                  for w in wanted):
+                continue
+        results.append(man)
+    return {"results": results, "next_page_token": ""}

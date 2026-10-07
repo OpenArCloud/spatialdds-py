@@ -1,0 +1,35 @@
+# Where everything vendored here came from.
+#
+# Two kinds of thing, from two places, both copies and both pinned.
+#
+# The web-binding artifacts are generated in the SpatialDDS specification
+# repository by web-binding/gen.py, which is a pure function of the IDL. They
+# are vendored so this repository runs and its gates check without a second
+# checkout. Upstream is authoritative; nothing here is hand-edited.
+
+repository = https://github.com/OpenArCloud/SpatialDDS-spec
+commit = 2204ee81c9323c6fdbcccd4e998384db7b3e04e9
+source_tree = web-binding/
+
+mapping.file = webjson/MAPPING.md
+mapping.sha256 = c0e1cea519a8ea3d890924632c0ee13fcaef6fdcd2b387c42648f72e9df72880
+serializer_tables.file = webjson/serializer_tables.json
+serializer_tables.sha256 = f95b62ff861fe944c2678a4eb8537cb8e07e7770ddbc7e4a48be7030ff65a470
+schemas.count = 112
+schemas.set_sha256 = eeeb796f9263c11a3f17f63dd66941dbb1268291e11413850ce44e2774265110
+golden.count = 4
+
+# The recording. This is the data interface: a typed SpatialDDS 1.8 MCAP,
+# carrying its own IDL in its schema records, which is the only description
+# of the wire this repository needs. It was produced by a SceneScape adapter
+# and published in that adapter's repository; nothing here depends on that
+# adapter's code, and this gateway serves any recording of the same shape.
+
+recording.repository = https://github.com/OpenArCloud/spatialdds-scenescape
+recording.file = samples/queuing-retail-sample.mcap
+recording.sha256 = 44eb689d3e4e029582ab84be7f7e06c7aaf2ebe046202f974fa63663fe345154
+recording.bytes = 1407451
+recording.messages = 15676
+recording.topics = 11
+recording.summary.file = samples/queuing-retail-sample.summary.json
+recording.summary.sha256 = e56d26cd6eca1442bdd83e897684d2e62842f6f8098c5e340ff7d7a773d7bbe3

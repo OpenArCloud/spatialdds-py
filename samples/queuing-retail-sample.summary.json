@@ -1,0 +1,386 @@
+{
+ "counts": {
+  "spatialdds/302cf49a-97ec-402d-a324-c5077b280b7b/regions/spatial_zone/v1": 2,
+  "spatialdds/302cf49a-97ec-402d-a324-c5077b280b7b/regions/crossing_line/v1": 1,
+  "spatialdds/302cf49a-97ec-402d-a324-c5077b280b7b/model/entity/v0": 48,
+  "spatialdds/302cf49a-97ec-402d-a324-c5077b280b7b/tracker/fused_track/v1": 2871,
+  "spatialdds/3bc091c7-e449-46a0-9540-29c499bca18c/tracker/fused_track/v1": 3076,
+  "spatialdds/302cf49a-97ec-402d-a324-c5077b280b7b/atag-qcam2/detection2d/v1": 2380,
+  "spatialdds/302cf49a-97ec-402d-a324-c5077b280b7b/atag-qcam1/detection2d/v1": 2380,
+  "spatialdds/3bc091c7-e449-46a0-9540-29c499bca18c/camera2/detection2d/v1": 2398,
+  "spatialdds/3bc091c7-e449-46a0-9540-29c499bca18c/camera1/detection2d/v1": 2396,
+  "spatialdds/3bc091c7-e449-46a0-9540-29c499bca18c/model/entity/v0": 44,
+  "spatialdds/302cf49a-97ec-402d-a324-c5077b280b7b/events/spatial_event/v1": 80
+ },
+ "stats": {
+  "corpus_start_ns": 1791004157281000000,
+  "branch:302cf49a": 0,
+  "branch:3bc091c7": 0,
+  "in:data/camera": 9554,
+  "in:data/region": 1058,
+  "in:event": 80,
+  "in:regulated/scene": 5947,
+  "dwell_measurements": 15,
+  "owm:entities_created": 49,
+  "owm:entities_retired": 43,
+  "dwell_misses": 0,
+  "retirements_detected": 43
+ },
+ "dropped": {
+  "image-camera": "base64 JPEG frames; not northbound semantics (census \u00a77 MISMATCH)",
+  "data-scene": "per-thing_type duplicate of regulated/scene; the regulated superset is the contract (census \u00a71)",
+  "external": "scene-composition input; expressible as guidance, not a type (census \u00a78, EXPRESSIBLE)",
+  "data-sensor": "scalar sensor readings; refused with a mapping (\u00a72.15)",
+  "analytics-clusters": "analytics aggregates; refused with a mapping (\u00a72.15)",
+  "autocalib-cam-pose": "camera pose; declared but unpublished at this pin (census Revision 3)",
+  "sys-child-status": "child-scene health; composition guidance (\u00a72.17)"
+ },
+ "retirements": [
+  {
+   "scene_id": "302cf49a-97ec-402d-a324-c5077b280b7b",
+   "track_id": "191c7060-ef98-472e-be3c-7117005e05d2",
+   "last_seen_s": 1791004157.378,
+   "gone_for_s": 5.003000020980835,
+   "state_reason": "absent from regulated/scene for 5.0s (retention 5.0s); last reid_state pending_collection",
+   "typed_home": "owm::Entity (provisional, not published here)"
+  },
+  {
+   "scene_id": "3bc091c7-e449-46a0-9540-29c499bca18c",
+   "track_id": "5661f308-9b3f-47d7-8dab-b2306c230743",
+   "last_seen_s": 1791004171.531,
+   "gone_for_s": 5.015000104904175,
+   "state_reason": "absent from regulated/scene for 5.0s (retention 5.0s); last reid_state pending_collection",
+   "typed_home": "owm::Entity (provisional, not published here)"
+  },
+  {
+   "scene_id": "3bc091c7-e449-46a0-9540-29c499bca18c",
+   "track_id": "2a7726d0-1fdc-43cf-9e46-d2a8b90b1306",
+   "last_seen_s": 1791004171.95,
+   "gone_for_s": 5.080999851226807,
+   "state_reason": "absent from regulated/scene for 5.1s (retention 5.0s); last reid_state pending_collection",
+   "typed_home": "owm::Entity (provisional, not published here)"
+  },
+  {
+   "scene_id": "302cf49a-97ec-402d-a324-c5077b280b7b",
+   "track_id": "0fc8ac63-2285-4697-8065-8468ab159500",
+   "last_seen_s": 1791004172.88,
+   "gone_for_s": 5.004999876022339,
+   "state_reason": "absent from regulated/scene for 5.0s (retention 5.0s); last reid_state pending_collection",
+   "typed_home": "owm::Entity (provisional, not published here)"
+  },
+  {
+   "scene_id": "302cf49a-97ec-402d-a324-c5077b280b7b",
+   "track_id": "eb8d6cca-dc6f-4425-91b8-bc86be817ef3",
+   "last_seen_s": 1791004180.514,
+   "gone_for_s": 5.064000129699707,
+   "state_reason": "absent from regulated/scene for 5.1s (retention 5.0s); last reid_state pending_collection",
+   "typed_home": "owm::Entity (provisional, not published here)"
+  },
+  {
+   "scene_id": "302cf49a-97ec-402d-a324-c5077b280b7b",
+   "track_id": "e41cfe69-5641-45ed-aa6b-066f2966a675",
+   "last_seen_s": 1791004186.678,
+   "gone_for_s": 5.00600004196167,
+   "state_reason": "absent from regulated/scene for 5.0s (retention 5.0s); last reid_state pending_collection",
+   "typed_home": "owm::Entity (provisional, not published here)"
+  },
+  {
+   "scene_id": "302cf49a-97ec-402d-a324-c5077b280b7b",
+   "track_id": "cd7acee2-d96e-48ea-976e-211e3bd4fb98",
+   "last_seen_s": 1791004189.38,
+   "gone_for_s": 5.051999807357788,
+   "state_reason": "absent from regulated/scene for 5.1s (retention 5.0s); last reid_state pending_collection",
+   "typed_home": "owm::Entity (provisional, not published here)"
+  },
+  {
+   "scene_id": "3bc091c7-e449-46a0-9540-29c499bca18c",
+   "track_id": "bbec0f3a-9ac9-4799-a478-2f981c05bfb9",
+   "last_seen_s": 1791004190.129,
+   "gone_for_s": 5.019999980926514,
+   "state_reason": "absent from regulated/scene for 5.0s (retention 5.0s); last reid_state pending_collection",
+   "typed_home": "owm::Entity (provisional, not published here)"
+  },
+  {
+   "scene_id": "302cf49a-97ec-402d-a324-c5077b280b7b",
+   "track_id": "d261f7a3-b5af-4f9e-8c0e-29a815776795",
+   "last_seen_s": 1791004211.586,
+   "gone_for_s": 5.0950000286102295,
+   "state_reason": "absent from regulated/scene for 5.1s (retention 5.0s); last reid_state pending_collection",
+   "typed_home": "owm::Entity (provisional, not published here)"
+  },
+  {
+   "scene_id": "3bc091c7-e449-46a0-9540-29c499bca18c",
+   "track_id": "b5b6d189-21f5-4942-8963-df2ec7ace076",
+   "last_seen_s": 1791004212.63,
+   "gone_for_s": 5.101999998092651,
+   "state_reason": "absent from regulated/scene for 5.1s (retention 5.0s); last reid_state pending_collection",
+   "typed_home": "owm::Entity (provisional, not published here)"
+  },
+  {
+   "scene_id": "3bc091c7-e449-46a0-9540-29c499bca18c",
+   "track_id": "6c1c590a-f638-4aec-a88d-ca59df7d6e07",
+   "last_seen_s": 1791004224.431,
+   "gone_for_s": 5.002000093460083,
+   "state_reason": "absent from regulated/scene for 5.0s (retention 5.0s); last reid_state pending_collection",
+   "typed_home": "owm::Entity (provisional, not published here)"
+  },
+  {
+   "scene_id": "302cf49a-97ec-402d-a324-c5077b280b7b",
+   "track_id": "b5082095-979a-42ca-b165-51bf0d7f11d4",
+   "last_seen_s": 1791004227.08,
+   "gone_for_s": 5.006999969482422,
+   "state_reason": "absent from regulated/scene for 5.0s (retention 5.0s); last reid_state pending_collection",
+   "typed_home": "owm::Entity (provisional, not published here)"
+  },
+  {
+   "scene_id": "3bc091c7-e449-46a0-9540-29c499bca18c",
+   "track_id": "b1ac7def-b7c3-4435-a6da-4bc07dbe2aa4",
+   "last_seen_s": 1791004227.53,
+   "gone_for_s": 5.022000074386597,
+   "state_reason": "absent from regulated/scene for 5.0s (retention 5.0s); last reid_state pending_collection",
+   "typed_home": "owm::Entity (provisional, not published here)"
+  },
+  {
+   "scene_id": "302cf49a-97ec-402d-a324-c5077b280b7b",
+   "track_id": "0793e927-e7d4-4466-8810-f48a1053468d",
+   "last_seen_s": 1791004234.578,
+   "gone_for_s": 5.003000020980835,
+   "state_reason": "absent from regulated/scene for 5.0s (retention 5.0s); last reid_state pending_collection",
+   "typed_home": "owm::Entity (provisional, not published here)"
+  },
+  {
+   "scene_id": "3bc091c7-e449-46a0-9540-29c499bca18c",
+   "track_id": "a09885a3-c167-49cb-b322-2141cf3796f6",
+   "last_seen_s": 1791004240.329,
+   "gone_for_s": 5.101999998092651,
+   "state_reason": "absent from regulated/scene for 5.1s (retention 5.0s); last reid_state pending_collection",
+   "typed_home": "owm::Entity (provisional, not published here)"
+  },
+  {
+   "scene_id": "3bc091c7-e449-46a0-9540-29c499bca18c",
+   "track_id": "393507e3-c541-4f52-9acd-18b0343590b1",
+   "last_seen_s": 1791004240.63,
+   "gone_for_s": 5.101999998092651,
+   "state_reason": "absent from regulated/scene for 5.1s (retention 5.0s); last reid_state pending_collection",
+   "typed_home": "owm::Entity (provisional, not published here)"
+  },
+  {
+   "scene_id": "302cf49a-97ec-402d-a324-c5077b280b7b",
+   "track_id": "4e2523d1-0392-4745-acc5-82d33ec1cc1e",
+   "last_seen_s": 1791004240.878,
+   "gone_for_s": 5.104000091552734,
+   "state_reason": "absent from regulated/scene for 5.1s (retention 5.0s); last reid_state pending_collection",
+   "typed_home": "owm::Entity (provisional, not published here)"
+  },
+  {
+   "scene_id": "302cf49a-97ec-402d-a324-c5077b280b7b",
+   "track_id": "d92ed41d-4650-4bc1-9598-520ccdf7c19c",
+   "last_seen_s": 1791004243.581,
+   "gone_for_s": 5.099999904632568,
+   "state_reason": "absent from regulated/scene for 5.1s (retention 5.0s); last reid_state pending_collection",
+   "typed_home": "owm::Entity (provisional, not published here)"
+  },
+  {
+   "scene_id": "3bc091c7-e449-46a0-9540-29c499bca18c",
+   "track_id": "0b92daec-5349-4246-be91-bf90c0b2a66b",
+   "last_seen_s": 1791004256.638,
+   "gone_for_s": 5.091000080108643,
+   "state_reason": "absent from regulated/scene for 5.1s (retention 5.0s); last reid_state pending_collection",
+   "typed_home": "owm::Entity (provisional, not published here)"
+  },
+  {
+   "scene_id": "3bc091c7-e449-46a0-9540-29c499bca18c",
+   "track_id": "d60a97f0-ef45-49b6-8a05-1fcae3154989",
+   "last_seen_s": 1791004256.638,
+   "gone_for_s": 5.091000080108643,
+   "state_reason": "absent from regulated/scene for 5.1s (retention 5.0s); last reid_state pending_collection",
+   "typed_home": "owm::Entity (provisional, not published here)"
+  },
+  {
+   "scene_id": "302cf49a-97ec-402d-a324-c5077b280b7b",
+   "track_id": "8ca3fb43-e881-4af5-b53c-5741b73e36e9",
+   "last_seen_s": 1791004265.281,
+   "gone_for_s": 5.0990002155303955,
+   "state_reason": "absent from regulated/scene for 5.1s (retention 5.0s); last reid_state pending_collection",
+   "typed_home": "owm::Entity (provisional, not published here)"
+  },
+  {
+   "scene_id": "3bc091c7-e449-46a0-9540-29c499bca18c",
+   "track_id": "5c3ea854-f859-4aee-908d-ed9b6644a850",
+   "last_seen_s": 1791004273.83,
+   "gone_for_s": 5.013000011444092,
+   "state_reason": "absent from regulated/scene for 5.0s (retention 5.0s); last reid_state pending_collection",
+   "typed_home": "owm::Entity (provisional, not published here)"
+  },
+  {
+   "scene_id": "3bc091c7-e449-46a0-9540-29c499bca18c",
+   "track_id": "a6c8d344-6d78-43a3-be95-65ae19078800",
+   "last_seen_s": 1791004279.538,
+   "gone_for_s": 5.002999782562256,
+   "state_reason": "absent from regulated/scene for 5.0s (retention 5.0s); last reid_state pending_collection",
+   "typed_home": "owm::Entity (provisional, not published here)"
+  },
+  {
+   "scene_id": "302cf49a-97ec-402d-a324-c5077b280b7b",
+   "track_id": "3349ae9f-e23c-441a-bed8-61dc7f0bc9ea",
+   "last_seen_s": 1791004280.978,
+   "gone_for_s": 5.005000114440918,
+   "state_reason": "absent from regulated/scene for 5.0s (retention 5.0s); last reid_state pending_collection",
+   "typed_home": "owm::Entity (provisional, not published here)"
+  },
+  {
+   "scene_id": "302cf49a-97ec-402d-a324-c5077b280b7b",
+   "track_id": "f26a25a1-6f8e-4c7b-a2cc-3835fb1deb25",
+   "last_seen_s": 1791004288.68,
+   "gone_for_s": 5.004999876022339,
+   "state_reason": "absent from regulated/scene for 5.0s (retention 5.0s); last reid_state pending_collection",
+   "typed_home": "owm::Entity (provisional, not published here)"
+  },
+  {
+   "scene_id": "302cf49a-97ec-402d-a324-c5077b280b7b",
+   "track_id": "a3fc7947-a687-4b57-a902-8933f178f681",
+   "last_seen_s": 1791004294.78,
+   "gone_for_s": 5.0980000495910645,
+   "state_reason": "absent from regulated/scene for 5.1s (retention 5.0s); last reid_state pending_collection",
+   "typed_home": "owm::Entity (provisional, not published here)"
+  },
+  {
+   "scene_id": "3bc091c7-e449-46a0-9540-29c499bca18c",
+   "track_id": "264f2597-cad8-455f-b006-cb4cdb1a4a1b",
+   "last_seen_s": 1791004294.686,
+   "gone_for_s": 5.059999942779541,
+   "state_reason": "absent from regulated/scene for 5.1s (retention 5.0s); last reid_state pending_collection",
+   "typed_home": "owm::Entity (provisional, not published here)"
+  },
+  {
+   "scene_id": "302cf49a-97ec-402d-a324-c5077b280b7b",
+   "track_id": "b000f78d-ca83-49e8-99f7-a745939dfc20",
+   "last_seen_s": 1791004297.38,
+   "gone_for_s": 5.051999807357788,
+   "state_reason": "absent from regulated/scene for 5.1s (retention 5.0s); last reid_state pending_collection",
+   "typed_home": "owm::Entity (provisional, not published here)"
+  },
+  {
+   "scene_id": "3bc091c7-e449-46a0-9540-29c499bca18c",
+   "track_id": "d2312c44-e0a0-494c-b15a-3b73aae02030",
+   "last_seen_s": 1791004306.33,
+   "gone_for_s": 5.101000070571899,
+   "state_reason": "absent from regulated/scene for 5.1s (retention 5.0s); last reid_state pending_collection",
+   "typed_home": "owm::Entity (provisional, not published here)"
+  },
+  {
+   "scene_id": "3bc091c7-e449-46a0-9540-29c499bca18c",
+   "track_id": "7e32b178-3a8b-4cae-a3d4-5c9a2e03393d",
+   "last_seen_s": 1791004317.418,
+   "gone_for_s": 5.0290000438690186,
+   "state_reason": "absent from regulated/scene for 5.0s (retention 5.0s); last reid_state pending_collection",
+   "typed_home": "owm::Entity (provisional, not published here)"
+  },
+  {
+   "scene_id": "302cf49a-97ec-402d-a324-c5077b280b7b",
+   "track_id": "e0a6097a-187a-4cf0-8c63-c88d03930607",
+   "last_seen_s": 1791004319.481,
+   "gone_for_s": 5.1000001430511475,
+   "state_reason": "absent from regulated/scene for 5.1s (retention 5.0s); last reid_state pending_collection",
+   "typed_home": "owm::Entity (provisional, not published here)"
+  },
+  {
+   "scene_id": "3bc091c7-e449-46a0-9540-29c499bca18c",
+   "track_id": "35c06612-1aa4-46e1-b533-73f3c5e55cf9",
+   "last_seen_s": 1791004333.53,
+   "gone_for_s": 5.102999925613403,
+   "state_reason": "absent from regulated/scene for 5.1s (retention 5.0s); last reid_state pending_collection",
+   "typed_home": "owm::Entity (provisional, not published here)"
+  },
+  {
+   "scene_id": "3bc091c7-e449-46a0-9540-29c499bca18c",
+   "track_id": "45de4175-940d-4dbd-b199-c1dcb4edb363",
+   "last_seen_s": 1791004333.832,
+   "gone_for_s": 5.0980000495910645,
+   "state_reason": "absent from regulated/scene for 5.1s (retention 5.0s); last reid_state pending_collection",
+   "typed_home": "owm::Entity (provisional, not published here)"
+  },
+  {
+   "scene_id": "302cf49a-97ec-402d-a324-c5077b280b7b",
+   "track_id": "7eb1919a-8689-454e-a2b6-4231a59dba89",
+   "last_seen_s": 1791004335.082,
+   "gone_for_s": 5.003000020980835,
+   "state_reason": "absent from regulated/scene for 5.0s (retention 5.0s); last reid_state pending_collection",
+   "typed_home": "owm::Entity (provisional, not published here)"
+  },
+  {
+   "scene_id": "302cf49a-97ec-402d-a324-c5077b280b7b",
+   "track_id": "fb199c2a-8134-4b69-a16c-274d18aee9b0",
+   "last_seen_s": 1791004342.68,
+   "gone_for_s": 5.003999948501587,
+   "state_reason": "absent from regulated/scene for 5.0s (retention 5.0s); last reid_state pending_collection",
+   "typed_home": "owm::Entity (provisional, not published here)"
+  },
+  {
+   "scene_id": "302cf49a-97ec-402d-a324-c5077b280b7b",
+   "track_id": "54c5aa20-41df-4e8a-97e9-93d35a02ddb0",
+   "last_seen_s": 1791004348.781,
+   "gone_for_s": 5.0970001220703125,
+   "state_reason": "absent from regulated/scene for 5.1s (retention 5.0s); last reid_state pending_collection",
+   "typed_home": "owm::Entity (provisional, not published here)"
+  },
+  {
+   "scene_id": "3bc091c7-e449-46a0-9540-29c499bca18c",
+   "track_id": "c235e615-71ff-42bc-a183-ce53d83c79a4",
+   "last_seen_s": 1791004349.629,
+   "gone_for_s": 5.001000165939331,
+   "state_reason": "absent from regulated/scene for 5.0s (retention 5.0s); last reid_state pending_collection",
+   "typed_home": "owm::Entity (provisional, not published here)"
+  },
+  {
+   "scene_id": "3bc091c7-e449-46a0-9540-29c499bca18c",
+   "track_id": "701fdba4-a257-46db-93fe-71172a41d2da",
+   "last_seen_s": 1791004350.529,
+   "gone_for_s": 5.001999855041504,
+   "state_reason": "absent from regulated/scene for 5.0s (retention 5.0s); last reid_state pending_collection",
+   "typed_home": "owm::Entity (provisional, not published here)"
+  },
+  {
+   "scene_id": "302cf49a-97ec-402d-a324-c5077b280b7b",
+   "track_id": "ce6eb20b-c05b-496d-a665-be56559ce121",
+   "last_seen_s": 1791004351.382,
+   "gone_for_s": 5.045000076293945,
+   "state_reason": "absent from regulated/scene for 5.0s (retention 5.0s); last reid_state pending_collection",
+   "typed_home": "owm::Entity (provisional, not published here)"
+  },
+  {
+   "scene_id": "3bc091c7-e449-46a0-9540-29c499bca18c",
+   "track_id": "451b1489-c898-4925-9ae8-686ca9c61a87",
+   "last_seen_s": 1791004368.731,
+   "gone_for_s": 5.1000001430511475,
+   "state_reason": "absent from regulated/scene for 5.1s (retention 5.0s); last reid_state pending_collection",
+   "typed_home": "owm::Entity (provisional, not published here)"
+  },
+  {
+   "scene_id": "302cf49a-97ec-402d-a324-c5077b280b7b",
+   "track_id": "8b4056a2-7043-40c4-8b78-3c46433e6a72",
+   "last_seen_s": 1791004373.281,
+   "gone_for_s": 5.101999998092651,
+   "state_reason": "absent from regulated/scene for 5.1s (retention 5.0s); last reid_state pending_collection",
+   "typed_home": "owm::Entity (provisional, not published here)"
+  },
+  {
+   "scene_id": "302cf49a-97ec-402d-a324-c5077b280b7b",
+   "track_id": "b2285bd8-3769-473e-87ce-899be3c84d53",
+   "last_seen_s": 1791004389.082,
+   "gone_for_s": 5.098999977111816,
+   "state_reason": "absent from regulated/scene for 5.1s (retention 5.0s); last reid_state pending_collection",
+   "typed_home": "owm::Entity (provisional, not published here)"
+  },
+  {
+   "scene_id": "3bc091c7-e449-46a0-9540-29c499bca18c",
+   "track_id": "4630d759-c2b5-496a-b1e7-35d67d2db210",
+   "last_seen_s": 1791004391.353,
+   "gone_for_s": 5.127000093460083,
+   "state_reason": "absent from regulated/scene for 5.1s (retention 5.0s); last reid_state pending_collection",
+   "typed_home": "owm::Entity (provisional, not published here)"
+  }
+ ],
+ "content_sha256": "34cb9775e45820d8b72e533a0db39ffa65c556c3cc444b1e5133509760c4f355",
+ "messages": 15676
+}

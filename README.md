@@ -1,0 +1,165 @@
+# spatialdds-web
+
+The SpatialDDS web binding's standalone reference implementation: a recorded
+SpatialDDS stream served over HTTPS GET and a WebSocket, with no DDS anywhere
+in the path. A client with `fetch` and a WebSocket reads typed SpatialDDS
+without a DDS library, a domain, or a discovery handshake.
+
+This is also where the binding's client library will live.
+
+```sh
+pip install aiohttp websockets jsonschema mcap
+python3 tools/run_gateway.py
+```
+
+Then, in another terminal, the whole client:
+
+```sh
+$ python3 samples/hello_spatial.py
+RESTRICTED       Keep-Out Zone        821266db-5c13-414b-91e0-7d2d4c2c307a
+MONITORING       Queue Region         ac869071-2efa-47d2-bf77-fa0c7248593e
+latched set complete: 2 zone(s)
+```
+
+`samples/hello_spatial.py` is ten lines of `requests` and `websockets`. It asks
+the discovery endpoint what is here, picks a topic out of the service manifest
+it gets back, and subscribes to that topic's own URL. Only the base URL is
+hardcoded: the path is followed, not constructed.
+
+## What it serves
+
+Any typed SpatialDDS 1.8 MCAP whose schema records carry omgidl. The recording
+is the input and the interface. Nothing here is specific to what produced it.
+
+```sh
+python3 tools/run_gateway.py --mcap /path/to/your.mcap
+```
+
+**The recording describes itself, and this reads it.** The wire layout comes
+from the IDL embedded in the file's schema records. The instance key of a
+latched resource is the member that IDL marks `@key`. The resource paths are
+the topic names. Enum values are read from their declared `@value`, which is
+not their position: `CovarianceType` runs 0, 3, 6, 9, 12, and decoding by
+position would mislabel every covariance in the file.
+
+One thing a recording does not carry is QoS. Nothing in an MCAP says a topic
+was TRANSIENT_LOCAL, and the binding's shape depends on that split, so
+durability is declared per type in `spatialdds_web/gateway.py` from the
+specification's QoS table. That gap is a finding.
+
+A latched topic is a GET resource at the on-bus topic name with `spatialdds/`
+removed, so `spatialdds/<domain>/regions/spatial_zone/v1` is served at
+`/<domain>/regions/spatial_zone/v1`, and one instance at `.../<zone_id>`. A
+WebSocket to the collection URL replays the latched set, sends exactly one
+`end_of_replay` carrying the count, then streams live. That marker is what the
+web binding adds: on a bus "you now hold the whole latched set" is implicit in
+the QoS, and over a WebSocket a client cannot otherwise tell a slow replay from
+a quiet topic.
+
+**Configuration is public, observation is not.** Zones, crossing lines, frame
+transforms and georeferences describe a building and contain no person, so they
+are served without auth and are cacheable. Entities, tracks, events and camera
+detections are observations of people in that building, so they are
+bearer-gated and `no-store`. A gate checks both directions and checks that
+nothing operator-scoped can be served cacheable.
+
+## The contract is not ours
+
+Paths, the four event names, the envelope fields, the ordering contract and the
+exact `end_of_replay` shape are pinned in the specification repository's
+`web-binding/conformance/README.md`. The JSON comes from schemas and
+serializer tables generated there, vendored under `webjson/` and pinned by
+content digest in `webjson/PROVENANCE` along with the recording.
+
+Where the pinned surface could not be implemented as written, this gateway
+follows it and the gap is written up:
+[`WEB-BINDING-FINDINGS.md`](WEB-BINDING-FINDINGS.md). Two of those findings
+matter more than the rest, because two normative rules assume a DDS domain
+behind the endpoint and so cannot hold for the standalone shape the conformance
+suite exists to certify.
+
+There is no command lane. A POST surface needs something to accept a verb for,
+and a recording has nothing to command.
+
+## Evidence
+
+```
+$ python3 gates/run_all.py
+
+  PASS     wire_model       the recording's IDL and the published tables agree
+  PASS     golden_json      the JSON projection matches the authored vectors
+  PASS     decode_fidelity  every message decodes and the counts are the recording's
+  PASS     determinism      two builds serve byte-identical latched resources
+  PASS     replay_order     latched replay, exactly one end_of_replay, then live
+  PASS     removal_parity   every removal is a terminal sample then a dispose
+  PASS     schema_fidelity  the endpoint publishes and obeys the generated schemas
+  PASS     access_classes   configuration is public, observation is bearer-gated
+
+8 gates: 8 passed, 0 failed, 0 skipped
+```
+
+Expected values come from the recording, not from this gateway: per-topic
+counts and the total from its own `summary.json`, the file digest from
+`webjson/PROVENANCE`, the retirement count counted directly over the decoded
+messages, and the replay counts from the instances in force when the window
+opened. Asking the gateway how many samples it found and then checking it
+served that many would pass for any gateway, including a broken one.
+
+| gate | what it shows |
+|---|---|
+| `wire_model` | the model parsed from the recording's embedded IDL agrees with the published serializer tables on every type's kind, field order, enum members and union cases, for all 71 shared types |
+| `golden_json` | the JSON projection reproduces the four vectors the specification authored by hand, and the ECMA-262 number rule is checked as text, because comparing parsed values cannot see it |
+| `decode_fidelity` | all 15,676 messages decode, every per-topic count matches the recording's summary, and every decoded sample validates against its published schema |
+| `determinism` | two independent builds serve byte-identical latched bodies and identical ETags, and the conditional GET contract holds in both directions |
+| `replay_order` | every replayed sample precedes exactly one `end_of_replay`, whose count matches both the samples sent and the instances in force at the window's start |
+| `removal_parity` | all 43 removals arrive as a terminal `RETIRED` sample immediately followed by a `dispose` with a reason, and no disposed key is still served over GET |
+| `schema_fidelity` | the schemas endpoint serves 112 files identical to the vendored copies, the vendored set matches its recorded digest, and everything served validates against them |
+| `access_classes` | public resources are served without auth and cacheable, gated ones are refused without a token and never cacheable, on both GET and WebSocket |
+
+During development the decoder was additionally checked against a
+CycloneDDS-based reader on every message in the recording: all 15,676 decoded
+and projected to byte-identical JSON. That comparison needed a DDS runtime and
+so is not a gate here; what replaced it is `wire_model` plus per-message schema
+validation, which need nothing but this repository.
+
+## Standing it up from a harness
+
+The backend-blind conformance suite takes a base URL and a bearer token, so it
+needs to start one of these itself.
+
+```sh
+python3 tools/run_gateway.py --mcap <file> --port 8787 --token <token>
+```
+
+Both are explicit so nothing has to be scraped from the output; without
+`--token` one is generated and printed. The gateway refuses a port already in
+use rather than failing softly. **Check readiness by confirming the listening
+process is the one you started**, not by fetching a URL until it answers: a URL
+that answers only tells you something is there. In-process is simpler where the
+harness is Python, and `gates/harness.py` shows it: bind port 0 and be handed
+the port once the socket is listening, so there is nothing to poll.
+
+## Layout
+
+```
+spatialdds_web/   idlmodel (wire model from embedded IDL), xcdr2 (reader),
+                  webjson (canonical JSON), gateway (state, discovery),
+                  gw_http (the pinned HTTP and WebSocket surface)
+webjson/          schemas, serializer tables, golden vectors, MAPPING, PROVENANCE
+samples/          the recording, its summary, and the ten-line client
+gates/            everything above
+tools/            run_gateway.py
+```
+
+## Status
+
+The recording is SpatialDDS 1.8, produced by a SceneScape adapter and published
+in [`OpenArCloud/spatialdds-scenescape`][sc]. There is no code dependency on
+that adapter in either direction; the MCAP is the whole interface. A live MQTT
+or DDS source is a later backend behind the same seam.
+
+Not soaked. Nothing here tells you about memory over hours, many concurrent
+subscribers, or a recording larger than memory: the whole file is decoded at
+startup and held.
+
+[sc]: https://github.com/OpenArCloud/spatialdds-scenescape
