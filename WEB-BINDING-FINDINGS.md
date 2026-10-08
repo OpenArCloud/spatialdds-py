@@ -152,10 +152,15 @@ declared here rather than left to be discovered:
 
 3. **The shape of error bodies.** 401, 404 and 400 bodies are JSON objects with
    an `error` key. The pinned surface fixes status codes, not bodies.
-   *Provisional, with a step-7 task attached:* evaluate RFC 7807
-   `application/problem+json` before formalizing anything here, and adopt the
-   standard shape if it fits. Align-before-invent covers error bodies too, and
-   this one was invented without checking whether a standard already existed.
+   *Resolved at step 7.* The evaluation came out for adoption: RFC 7807's
+   members map cleanly onto what these bodies already carried, so Appendix N.8
+   adopts `application/problem+json` and deprecates the ad-hoc shape. This
+   gateway migrated with it — `type`, `title`, `status`, `detail`, with the old
+   context kept as RFC 7807 extension members, and a local gate asserting the
+   shape so it is not merely believed. Nothing was invented at the
+   specification level: RFC 7807 problem types belong to the service that
+   raises them, so the `urn:spatialdds-web:problem:` namespace is this
+   gateway's own.
 
 ## Out of scope, stated rather than stubbed
 
@@ -398,3 +403,31 @@ is what this gateway does.
 **12, the empty-union-branch rule is not derivable from the IDL.** Stands as
 reported. This gateway consults the tables for union shape and only for that,
 documented where it happens.
+
+## Closed by the spec-side batch and this one, 2026-10-07
+
+**8 and 10 are fixed upstream.** `gen.py` now reverses `idlc`'s Python-keyword
+renames, so the eleven schemas carry `global` and `from` verbatim; and a
+serializer table distinguishes a fixed array from a bounded sequence, `length`
+against `bound`, including for octet payloads where base64 had hidden the
+difference completely. Both carry a new generator gate, `gate_names.py`
+asserting that no published property name begins with an underscore unless an
+IDL member does. This repository re-vendored `webjson/` at the fixed head and
+repinned every digest; `gates/wire_model.py` no longer reconciles the two
+spellings but **fails** on the mangled one, across all 161 vendored table
+entries rather than only the ones this recording's IDL also declares — the
+intersection could not see the discovery types, which is exactly where the
+defect had been.
+
+**A third, found by one review question and fixed by removal.** The first draft
+of Appendix N.7 required `qos_profile` to carry `TRANSIENT_LOCAL` or `LIVE`.
+`LIVE` appeared nowhere else in the specification, and `qos_profile` is already
+a free-form profile *name* in §3.3.2 (`VIDEO_LIVE`, `POSE_RT`), so durability
+carried there collided with an established use. Final N.7 gives durability its
+own member taking the DDS kinds verbatim, `"VOLATILE"` or `"TRANSIENT_LOCAL"`,
+inventing no vocabulary at all. This gateway emits it and omits `qos_profile`,
+having no deployment profile name to put there.
+
+**11 remains open**, in the adapter's lane: a recording still carries types but
+not QoS, so durability is declared here from the specification's QoS table
+rather than read from the file.

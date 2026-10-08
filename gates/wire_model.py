@@ -31,12 +31,6 @@ from harness import MCAP, report                               # noqa: E402
 from spatialdds_web import gateway                             # noqa: E402
 
 TABLES = ROOT / "webjson" / "serializer_tables.json"
-# idlc renames IDL members that collide with Python keywords, and the upstream
-# generator reflects over its output, so the published tables carry `_global`
-# and `_from` where the IDL says `global` and `from`. MAPPING.md requires the
-# verbatim IDL name, so this parse is right and the tables are not; the pair is
-# reconciled here and reported as a finding rather than silently accepted.
-PY_KEYWORD_RENAMES = {"_global": "global", "_from": "from"}
 
 
 def main() -> int:
@@ -59,12 +53,13 @@ def main() -> int:
             continue
         if agg.kind == "struct":
             mine = [m.name for m in agg.members]
-            theirs = []
-            for n, _ in tbl["fields"]:
-                if n in PY_KEYWORD_RENAMES:
-                    renamed.append(f"{fqn}.{n}")
-                    n = PY_KEYWORD_RENAMES[n]
-                theirs.append(n)
+            theirs = [n for n, _ in tbl["fields"]]
+            # A leading underscore here is a code generator's identifier, not
+            # the specification's: IDL identifiers cannot begin with one.
+            # MAPPING.md requires verbatim IDL names, and the upstream
+            # generator was publishing `_global` and `_from` until that was
+            # fixed. This no longer reconciles the two spellings -- it fails on
+            # the mangled one, so a regression to it cannot pass.
             if mine != theirs:
                 order_bad.append(f"{fqn}: {mine[:4]} vs {theirs[:4]}")
         elif agg.kind == "enum":
@@ -101,11 +96,22 @@ def main() -> int:
                    f"({len(keyed)} keyed types)",
                    len(keyed) >= 6, f"only {len(keyed)} keyed types found"))
 
-    if renamed:
-        print(f"  note the published tables carry {len(set(renamed))} "
-              f"Python-mangled member name(s) where the IDL has the plain "
-              f"name: {sorted(set(renamed))[:4]}")
-        print("       reconciled here; see WEB-BINDING-FINDINGS.md\n")
+    # Scanned over *every* vendored table entry, not only the ones this
+    # recording's IDL also declares. The intersection above cannot see a type
+    # the recording does not carry, and the mangled names that prompted this
+    # check all lived in the discovery types, which this recording has none of:
+    # asserting only over the intersection would have been an assertion that
+    # could not fail where the defect actually was.
+    renamed = [f"{fqn}.{n}"
+               for fqn, spec in tables.items() if spec.get("kind") == "struct"
+               for n, _ in spec["fields"] if n.startswith("_")]
+    renamed += [f"{fqn}.{c[1]}"
+                for fqn, spec in tables.items() if spec.get("kind") == "union"
+                for c in spec["cases"] if c[1] and c[1].startswith("_")]
+    checks.append((f"no table field carries a code generator's mangled name, "
+                   f"across all {len(tables)} vendored entries "
+                   f"(MAPPING.md requires verbatim IDL names)",
+                   not renamed, f"{sorted(set(renamed))[:4]}"))
 
     return report(f"wire model from {MCAP.name}", checks,
                   "the recording's IDL and the published tables agree")

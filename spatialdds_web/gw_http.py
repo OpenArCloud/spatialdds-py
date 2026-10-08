@@ -46,6 +46,35 @@ def _etag(doc: Any) -> str:
     return f'"sha256:{webjson.digest(doc)}"'
 
 
+PROBLEM = "application/problem+json"
+PROBLEM_NS = "urn:spatialdds-web:problem:"
+
+
+def _problem(status: int, slug: str, title: str, detail: str,
+             instance: str | None = None, **extra) -> web.Response:
+    """An RFC 7807 problem document.
+
+    Appendix N.8 adopts `application/problem+json` and deprecates the ad-hoc
+    object this gateway used to return. Aligning with an existing standard
+    beats inventing a shape, and carrying two error stories at once is the
+    §3.3.0 lesson over again.
+
+    `type` is a service-scoped URN. RFC 7807 problem types belong to the
+    service that raises them rather than to the protocol, so the binding
+    defines none and naming these here invents nothing at the specification
+    level. Any member beyond the five is an RFC 7807 extension member, which
+    is where the context the old bodies carried now lives.
+    """
+    doc: dict[str, Any] = {"type": PROBLEM_NS + slug, "title": title,
+                           "status": status, "detail": detail}
+    if instance:
+        doc["instance"] = instance
+    doc.update(extra)
+    return web.Response(body=_body(doc), status=status,
+                        content_type=PROBLEM,
+                        headers={"Cache-Control": "no-store"})
+
+
 def _cache_headers(access: str) -> dict[str, str]:
     if access == gateway.PUBLIC:
         return {"Cache-Control": f"public, max-age={gateway.PUBLIC_MAX_AGE}"}
@@ -60,13 +89,13 @@ def _authorized(request: web.Request, token: str | None) -> bool:
     return got.startswith("Bearer ") and got[7:] == token
 
 
-def _unauthorized() -> web.Response:
-    return web.json_response(
-        {"error": "operator-scoped resource requires a bearer token",
-         "access": gateway.OPERATOR},
-        status=401,
-        headers={"WWW-Authenticate": 'Bearer realm="spatialdds"',
-                 "Cache-Control": "no-store"})
+def _unauthorized(instance: str | None = None) -> web.Response:
+    r = _problem(401, "operator-scoped", "Operator-scoped resource",
+                 "This resource is an observation rather than configuration, "
+                 "so it requires a bearer credential and is never cacheable.",
+                 instance=instance, access=gateway.OPERATOR)
+    r.headers["WWW-Authenticate"] = 'Bearer realm="spatialdds"'
+    return r
 
 
 def _json_response(request: web.Request, doc: Any, access: str,
@@ -97,8 +126,12 @@ async def schema_one(request: web.Request) -> web.Response:
         if webjson.schema_file_for(fqn) == name:
             return _json_response(request, schema, gateway.PUBLIC)
     raise web.HTTPNotFound(
-        body=_body({"error": "no such schema", "type": name}),
-        content_type="application/json")
+        body=_body({"type": PROBLEM_NS + "no-such-schema",
+                    "title": "No such schema", "status": 404,
+                    "detail": f"This endpoint publishes no schema named {name!r}. The index at "
+                              f"{WELL_KNOWN}/schemas lists every one it has.",
+                    "instance": str(request.rel_url)}),
+        content_type=PROBLEM)
 
 
 async def search(request: web.Request) -> web.Response:
@@ -112,12 +145,19 @@ async def search(request: web.Request) -> web.Response:
             req = await request.json()
         except Exception:
             raise web.HTTPBadRequest(
-                body=_body({"error": "malformed JSON body"}),
-                content_type="application/json")
+                body=_body({"type": PROBLEM_NS + "malformed-body",
+                            "title": "Malformed request body", "status": 400,
+                            "detail": "The request body is not valid JSON.",
+                            "instance": str(request.rel_url)}),
+                content_type=PROBLEM)
         if not isinstance(req, dict):
             raise web.HTTPBadRequest(
-                body=_body({"error": "body must be a JSON object"}),
-                content_type="application/json")
+                body=_body({"type": PROBLEM_NS + "malformed-body",
+                            "title": "Malformed request body", "status": 400,
+                            "detail": "A search body must be a JSON object, "
+                                      "per §3.3.0.",
+                            "instance": str(request.rel_url)}),
+                content_type=PROBLEM)
         geohash = req.get("geohash")
         kinds = list(req.get("kind") or [])
         coverage = list(req.get("coverage") or [])
@@ -129,8 +169,12 @@ async def search(request: web.Request) -> web.Response:
         doc = gateway.search(st, base, geohash=geohash, kinds=kinds,
                              coverage=coverage)
     except ValueError as e:
-        raise web.HTTPBadRequest(body=_body({"error": str(e)}),
-                                 content_type="application/json")
+        raise web.HTTPBadRequest(
+            body=_body({"type": PROBLEM_NS + "bad-query",
+                        "title": "Malformed discovery query", "status": 400,
+                        "detail": str(e),
+                        "instance": str(request.rel_url)}),
+            content_type=PROBLEM)
     # Discovery is public; §3.3.0 suggests a short cache for geohash queries.
     return _json_response(request, doc, gateway.PUBLIC)
 
@@ -146,13 +190,14 @@ async def no_dds(request: web.Request) -> web.Response:
     See WEB-BINDING-FINDINGS.md: the conformance suite must not require these
     of a standalone endpoint, or the backend-blind invariant cannot hold.
     """
-    return web.json_response(
-        {"error": "not supported by this authority",
-         "reason": ("this endpoint is a standalone web-binding gateway with no "
-                    "DDS domain behind it, so it has no bootstrap parameters "
-                    "to publish"),
-         "served": [f"{WELL_KNOWN}/search", f"{WELL_KNOWN}/schemas"]},
-        status=404, headers={"Cache-Control": "no-store"})
+    return _problem(
+        404, "no-dds-domain", "Not supported by this authority",
+        "This endpoint is a standalone web-binding gateway with no DDS domain "
+        "behind it, so it has no bootstrap parameters to publish. Appendix "
+        "N.2: these paths are required only of an endpoint that offers DDS "
+        "access, and a 404 from them is conformant.",
+        instance=str(request.rel_url),
+        served=[f"{WELL_KNOWN}/search", f"{WELL_KNOWN}/schemas"])
 
 
 # ---- latched resources -----------------------------------------------------
@@ -164,8 +209,11 @@ def _resolve(request: web.Request) -> tuple[str, gateway.Resource]:
     res = st.resource_for(path)
     if res is None:
         raise web.HTTPNotFound(
-            body=_body({"error": "no such resource", "path": path}),
-            content_type="application/json")
+            body=_body({"type": PROBLEM_NS + "no-such-resource",
+                        "title": "No such resource", "status": 404,
+                        "detail": f"This endpoint serves no topic at {path}.",
+                        "instance": str(request.rel_url)}),
+            content_type=PROBLEM)
     return res.topic, res
 
 
@@ -176,7 +224,7 @@ async def collection(request: web.Request) -> web.Response:
     topic, res = _resolve(request)
     if res.access == gateway.OPERATOR and not _authorized(
             request, request.app["token"]):
-        return _unauthorized()
+        return _unauthorized(str(request.rel_url))
     doc = [inst.data for inst in st.latched.get(topic, {}).values()]
     return _json_response(request, doc, res.access,
                           {"X-SpatialDDS-Topic": topic,
@@ -189,14 +237,18 @@ async def instance(request: web.Request) -> web.Response:
     topic, res = _resolve(request)
     if res.access == gateway.OPERATOR and not _authorized(
             request, request.app["token"]):
-        return _unauthorized()
+        return _unauthorized(str(request.rel_url))
     key = request.match_info["key"]
     inst = st.latched.get(topic, {}).get(key)
     if inst is None:
         raise web.HTTPNotFound(
-            body=_body({"error": "no such instance", "topic": topic,
-                        "key": key}),
-            content_type="application/json")
+            body=_body({"type": PROBLEM_NS + "no-such-instance",
+                        "title": "No such instance", "status": 404,
+                        "detail": f"Topic {topic} holds no instance keyed "
+                                  f"{key!r}.",
+                        "instance": str(request.rel_url),
+                        "topic": topic, "key": key}),
+            content_type=PROBLEM)
     return _json_response(request, inst.data, res.access,
                           {"X-SpatialDDS-Topic": topic,
                            "X-SpatialDDS-Type": res.fqn,
@@ -217,7 +269,7 @@ async def subscribe(request: web.Request) -> web.StreamResponse:
     topic, res = _resolve(request)
     if res.access == gateway.OPERATOR and not _authorized(
             request, request.app["token"]):
-        return _unauthorized()
+        return _unauthorized(str(request.rel_url))
 
     ws = web.WebSocketResponse(heartbeat=None)
     await ws.prepare(request)
@@ -255,13 +307,15 @@ async def subscribe(request: web.Request) -> web.StreamResponse:
 async def root(request: web.Request) -> web.Response:
     """No index endpoint is invented; this is a 404 that says where to look."""
     base = request.app["base"]
-    return web.json_response(
-        {"error": "no resource at /",
-         "well_known": [f"{base}{WELL_KNOWN}/search",
-                        f"{base}{WELL_KNOWN}/schemas"],
-         "resources": sorted(base + p
-                             for p in request.app["state"].resources)},
-        status=404, headers={"Cache-Control": "no-store"})
+    return _problem(
+        404, "no-resource-at-root", "No resource at /",
+        "This endpoint invents no index endpoint. The well-known paths and the "
+        "topic resources it serves are listed below, and the service manifest "
+        "at the search path carries each topic's own URL.",
+        instance="/",
+        well_known=[f"{base}{WELL_KNOWN}/search",
+                    f"{base}{WELL_KNOWN}/schemas"],
+        resources=sorted(base + p for p in request.app["state"].resources))
 
 
 def make_app(state: gateway.State, base: str,

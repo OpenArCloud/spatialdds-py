@@ -327,7 +327,14 @@ def service_manifest(st: State, scene: str, base: str) -> dict:
             "name": res.topic,
             "type": res.type_seg,
             "version": res.version,
-            "qos_profile": "TRANSIENT_LOCAL" if res.latched else "LIVE",
+            # Appendix N.7: durability is its own member, carrying the DDS
+            # kinds verbatim. It was briefly a `qos_profile` value, which was
+            # wrong twice: `qos_profile` is a free-form profile *name* in
+            # §3.3.2 (VIDEO_LIVE, POSE_RT), and the token this gateway used for
+            # "not latched" appeared nowhere in the specification.
+            # `qos_profile` is omitted rather than reused: this gateway has no
+            # deployment profile name to put there.
+            "durability": "TRANSIENT_LOCAL" if res.latched else "VOLATILE",
             "access": res.access,
             "url": base + path,
         })

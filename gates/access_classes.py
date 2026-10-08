@@ -105,6 +105,36 @@ async def run() -> int:
         checks.append(("the same subscription succeeds with the token",
                        allowed, "the token was rejected"))
 
+    # Appendix N.8: errors are RFC 7807 problem documents. Checked here
+    # because a refusal is the error this endpoint raises most often, and a
+    # body nothing reads is a body with no coverage.
+    async with aiohttp.ClientSession() as s:
+        op_path = next((p for p, r in sorted(st.resources.items())
+                        if r.access == gateway.OPERATOR), None)
+        async with s.get(gw.base + op_path) as r:
+            ctype = r.headers.get("Content-Type", "")
+            body = await r.read()
+        doc = json.loads(body)
+        checks.append(("a refusal is served as application/problem+json",
+                       ctype.startswith("application/problem+json"),
+                       f"Content-Type: {ctype!r}"))
+        missing = [k for k in ("type", "title", "status", "detail")
+                   if k not in doc]
+        checks.append(("the problem document carries type, title, status and "
+                       "detail", not missing, f"missing {missing}"))
+        checks.append((f"status in the body matches the status line "
+                       f"({doc.get('status')})", doc.get("status") == 401,
+                       f"body says {doc.get('status')}, line said 401"))
+        checks.append(("no deprecated ad-hoc error member survives",
+                       "error" not in doc, f"keys {sorted(doc)}"))
+        async with s.get(gw.base + "/no/such/topic/v1") as r:
+            nf_ctype = r.headers.get("Content-Type", "")
+            nf = json.loads(await r.read())
+        checks.append(("a 404 is a problem document too",
+                       nf_ctype.startswith("application/problem+json")
+                       and nf.get("status") == 404,
+                       f"{nf_ctype!r}, status {nf.get('status')}"))
+
     await gw.stop()
     checks.append((f"both classes are present ({npub} public, {nop} gated)",
                    npub > 0 and nop > 0, "one class is unrepresented"))
