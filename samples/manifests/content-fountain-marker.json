@@ -1,0 +1,59 @@
+{
+  "id": "spatialdds://austin.openarcloud.example/south-mall/content/fountain-marker",
+  "profile": "spatial.manifest/1.8",
+  "rtype": "content",
+  "content": {
+    "content_id": "content/fountain-marker",
+    "title": "Littlefield Fountain marker",
+    "summary": "A small glTF marker mesh placed at the fountain plaque.",
+    "tags": [
+      "marker",
+      "landmark",
+      "memorial"
+    ],
+    "class_id": "https://schema.org/LandmarksOrHistoricalBuildings"
+  },
+  "assets": [
+    {
+      "uri": "https://raw.githubusercontent.com/OpenArCloud/spatialdds-web/main/samples/assets/fountain-marker.gltf",
+      "media_type": "model/gltf+json",
+      "hash": "sha256:26c80427c7cbfc9626b57b1a4e25bcf6004332b3758c0ab0e3e73bc1dd53a6cf",
+      "meta": [
+        {
+          "namespace": "spatialdds-web",
+          "json": "",
+          "entries": [
+            {
+              "key": "committed_path",
+              "value": "samples/assets/fountain-marker.gltf"
+            },
+            {
+              "key": "bytes",
+              "value": "954"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "coverage": {
+    "frame_ref": {
+      "uuid": "",
+      "fqn": "earth-fixed"
+    },
+    "has_bbox": false,
+    "global": false,
+    "has_circle": true,
+    "circle_center": [
+      -97.73932919,
+      30.28496797,
+      158.0
+    ],
+    "circle_radius_m": 6.0
+  },
+  "stamp": {
+    "sec": "1791559800",
+    "nanosec": 0
+  },
+  "ttl_sec": 86400
+}

@@ -1,0 +1,163 @@
+#!/usr/bin/env python3
+"""The gateway serves the anchor recording unmodified, and discovery finds it.
+
+The recording is handed to the existing gateway with no changes to it, which is
+the claim: a second recording of different types needs no new serving code.
+Checked here: anchors and content announces appear as latched GET resources,
+each instance addressable by its `@key`, every response carrying an ETag that
+is its content digest, every served instance validating against its published
+schema, and a geohash query over the fountain's own cell returning the service.
+
+The geohash is computed from the recording's anchors rather than written down,
+so the query under test is the one a client with a GPS fix would actually form.
+
+Usage:  gates/anchor_serve.py
+"""
+from __future__ import annotations
+
+import asyncio
+import json
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / "gates"))
+
+import aiohttp                                                 # noqa: E402
+import jsonschema                                              # noqa: E402
+from urllib.parse import quote                                 # noqa: E402
+from yarl import URL                                           # noqa: E402
+
+from harness import Gateway, report, state                     # noqa: E402
+from spatialdds_web import gateway, webjson                     # noqa: E402
+
+MCAP = ROOT / "samples" / "fountain-anchors.mcap"
+INPUT = ROOT / "samples" / "fountain-anchors.input.json"
+
+
+async def run() -> int:
+    doc = json.loads(INPUT.read_text())
+    st = state(MCAP)
+    gw = await Gateway(st).start()
+    checks: list[tuple[str, bool, str]] = []
+    schemas = webjson.schemas()
+
+    async with aiohttp.ClientSession() as s:
+        anchors = [r for r in st.resources.values()
+                   if r.fqn == "spatial.core.GeoAnchor"]
+        content = [r for r in st.resources.values()
+                   if r.fqn == "spatial.disco.ContentAnnounce"]
+        checks.append(("the recording yields one anchor resource and one "
+                       "content resource",
+                       len(anchors) == 1 and len(content) == 1,
+                       f"{len(anchors)} anchor, {len(content)} content"))
+        checks.append(("both are latched, so both are GET resources",
+                       all(r.latched for r in anchors + content), ""))
+        checks.append(("both are public, needing no credential: an anchor and "
+                       "a content announce describe places, not people",
+                       all(r.access == gateway.PUBLIC
+                           for r in anchors + content), ""))
+
+        n_inst = n_valid = 0
+        bad_etag, bad_valid, bad_instance = [], [], []
+        for res in anchors + content:
+            async with s.get(gw.base + res.path) as r:
+                code = r.status
+                coll_etag = r.headers.get("ETag", "")
+                coll = await r.json()
+            checks.append((f"{res.type_seg}: the collection is served without "
+                           f"auth ({len(coll)} instance(s))",
+                           code == 200 and isinstance(coll, list), f"{code}"))
+            if not coll_etag.startswith('"sha256:'):
+                bad_etag.append(f"{res.path} collection")
+            for inst in coll:
+                n_inst += 1
+                key = str(inst.get(res.key, ""))
+                # The key is ONE path segment, so it is percent-encoded.
+                # `GeoAnchor.anchor_id` is documented in the IDL as
+                # e.g. "anchor/4th-and-main" -- the specification's own example
+                # contains the path separator -- and an unencoded key simply
+                # 404s. Appendix N.3 states no encoding rule; that is a
+                # reported finding, and this is the correct client behaviour
+                # in the meantime.
+                enc = quote(key, safe="")
+                async with s.get(URL(f"{gw.base}{res.path}/{enc}",
+                                     encoded=True)) as r2:
+                    if r2.status != 200:
+                        bad_instance.append(
+                            f"{res.path}/{enc} -> {r2.status}")
+                        continue
+                    one = await r2.json()
+                    etag = r2.headers.get("ETag", "")
+                if one != inst:
+                    bad_instance.append(f"{res.path}/{key} differs from the "
+                                        f"collection entry")
+                if etag != f'"sha256:{webjson.digest(one)}"':
+                    bad_etag.append(f"{res.path}/{key}")
+                try:
+                    jsonschema.validate(inst, schemas[res.fqn])
+                    n_valid += 1
+                except jsonschema.ValidationError as e:
+                    bad_valid.append(f"{res.fqn}: {e.message[:70]}")
+
+        checks.append((f"every one of the {n_inst} instance(s) is addressable "
+                       f"by its percent-encoded @key and matches its "
+                       f"collection entry",
+                       not bad_instance, f"{bad_instance[:3]}"))
+        checks.append(("every ETag is the content digest of what was served",
+                       not bad_etag, f"{bad_etag[:3]}"))
+        checks.append((f"all {n_valid} served instance(s) validate against "
+                       f"their published schema",
+                       not bad_valid and n_valid == n_inst,
+                       f"{bad_valid[:2]}" or f"{n_valid} of {n_inst}"))
+
+        # Discovery: the cell a client at the fountain would ask about.
+        lats = [a["geopose"]["lat_deg"] for a in doc["anchors"]]
+        lons = [a["geopose"]["lon_deg"] for a in doc["anchors"]]
+        clat, clon = sum(lats) / len(lats), sum(lons) / len(lons)
+        cell = gateway.geohash_encode(clat, clon, 6)
+        async with s.get(f"{gw.base}/.well-known/spatialdds/search"
+                         f"?geohash={cell}") as r:
+            found = await r.json()
+        checks.append((f"a geohash query over the fountain's own cell "
+                       f"({cell}) returns the service",
+                       len(found.get("results", [])) == 1,
+                       f"{len(found.get('results', []))} result(s)"))
+        if found.get("results"):
+            cov = found["results"][0].get("coverage") or {}
+            b = cov.get("bbox") or []
+            inside = (len(b) == 4 and b[0] <= clon <= b[2]
+                      and b[1] <= clat <= b[3])
+            checks.append(("the advertised coverage contains the anchors it "
+                           "was derived from",
+                           bool(cov.get("has_bbox")) and inside,
+                           f"coverage {cov}"))
+            topics = found["results"][0]["service"]["topics"]
+            kinds = {t["type"] for t in topics}
+            checks.append((f"the manifest lists both topics with URLs "
+                           f"({sorted(kinds)})",
+                           kinds == {"geo_anchor", "content_announce"}
+                           and all(t.get("url") for t in topics), ""))
+            checks.append(("both are advertised TRANSIENT_LOCAL",
+                           all(t.get("durability") == "TRANSIENT_LOCAL"
+                               for t in topics),
+                           f"{[t.get('durability') for t in topics]}"))
+
+        # A far-away cell must not match: coverage that matches everything is
+        # not coverage.
+        async with s.get(f"{gw.base}/.well-known/spatialdds/search"
+                         f"?geohash=9q8yy") as r:
+            far = await r.json()
+        checks.append(("a cell in San Francisco returns nothing",
+                       len(far.get("results", [])) == 0,
+                       f"{len(far.get('results', []))} result(s)"))
+
+    await gw.stop()
+    return report(f"serve and read {MCAP.name}", checks,
+                  "the recording is served unmodified and discovery finds it")
+
+
+if __name__ == "__main__":
+    sys.exit(asyncio.run(run()))

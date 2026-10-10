@@ -431,3 +431,75 @@ having no deployment profile name to put there.
 **11 remains open**, in the adapter's lane: a recording still carries types but
 not QoS, so durability is declared here from the specification's QoS table
 rather than read from the file.
+
+## Findings from the anchor-bearing sample, 2026-10-09
+
+Three, from authoring `samples/fountain-anchors.mcap` and running the suite
+against a gateway serving it. The fourth and largest — that no 1.8 anchor type
+can reference content — is written up as entry 2 of
+`directions/spatialdds-1.9-candidates.md`, since it needs a wire change.
+
+### 13. Appendix N.3 states no encoding rule for an instance key
+
+The instance path is `{base}/{scene}/{stream}/{type}/{version}/{key}`, and the
+key is the value of the `@key` member. Nothing says how a key containing the
+path separator is carried — and `GeoAnchor.anchor_id` is documented in the IDL
+as `e.g., "anchor/4th-and-main"`, so **the specification's own example contains
+a slash.**
+
+Unencoded, such a key is simply unroutable: the path gains a segment and the
+request 404s with nothing to indicate why. Percent-encoded as one segment it
+works, and that is what this gateway serves and what
+`gates/anchor_serve.py` requests. But a client holding a collection and
+building instance URLs from the keys in it has nothing telling it to encode,
+and the manifest advertises only the collection URL, so the client must
+construct the instance path itself.
+
+*Smallest change:* one sentence in N.3 — the key occupies exactly one path
+segment and MUST be percent-encoded, with `/` as the case that matters. An
+erratum to published text rather than a 1.9 feature.
+
+### 14. Two conformance checks fail an endpoint for being homogeneous
+
+Running the suite against the fountain recording, whose resources are all
+public and all latched:
+
+```
+FAIL  access classes, both directions: both classes must be present to test
+      both directions (2 public, 0 gated)
+FAIL  the carried QoS subset is observable: every topic declares the same
+      durability ({'TRANSIENT_LOCAL'}), so the distinction is not carried
+```
+
+Both endpoints are conformant. An anchor recording is site configuration and
+discovery data throughout — it contains no observations of people, so nothing
+in it *should* be operator-scoped — and every resource in it is latched state,
+so nothing *should* be volatile. The checks are reporting an absence of
+counter-examples as a defect.
+
+These are both my own non-triviality guards, added so that a check could not
+pass by having nothing to look at. The guard is right; the verdict is wrong.
+**Zero observations is not evidence — and an absence of counter-examples is not
+a defect.** That second half is the mirror of the principle already stated in
+`conformance/README.md` and I did not draw it.
+
+*Smallest change:* each check asserts everything the endpoint's data can
+exercise — that public resources are served uncredentialed and cacheable, that
+latched topics replay — and reports the untested direction as **UNEXERCISED**
+rather than FAIL. The vocabulary already exists for exactly this.
+
+### 15. §8.2's skip reason predates the finding that now explains it
+
+§8.2 still skips with "the open-anchors option-2 acceptance criteria land in
+`directions/` before this check is built". True when written, and no longer the
+operative reason: the criteria are not what blocks it. The scenario reads
+"fetch **an anchor's asset by reference**", and no 1.8 anchor type can carry
+that reference, so no recording can un-skip it.
+
+*Smallest change:* restate the skip reason to cite the missing
+`GeoAnchor.manifest_uri`, so the manifest says what is actually in the way. The
+scenario text itself is **not** reworded to something passable; it waits for
+the field it was written for.
+
+All three are spec-side, and the sample directive held the specification
+read-only, so none is changed here.

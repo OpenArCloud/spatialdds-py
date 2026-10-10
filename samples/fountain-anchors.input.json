@@ -1,0 +1,230 @@
+{
+  "_what": "Authoring input for samples/fountain-anchors.mcap. This recording is AUTHORED, not captured: these anchors are declared data, like the retail sample's configured zones. Positions are approximate.",
+  "_rules": [
+    "Every value the recording carries is in this file. tools/author_anchors.py does no arithmetic on it; it serializes.",
+    "confidence is a monotone summary of cov, derived from sigma_max as 1/(1+sigma_max), so the scalar and the matrix cannot contradict (GeoAnchor's own requirement).",
+    "cov is COV_POS3, row-major 3x3, in the anchor's local ENU tangent frame at the encoded GeoPose position (\u00a73.2).",
+    "Nothing here is carried that the 1.8 types cannot express. Content is positioned by its own pose and coverage, per the content-record model; anchors do not reference content, because no 1.8 anchor type can."
+  ],
+  "domain": "ut-austin-south-mall",
+  "frame_ref": {
+    "uuid": "b1f0c2a4-5d6e-4f80-9a1b-2c3d4e5f6071",
+    "fqn": "ut-austin/south-mall/map"
+  },
+  "stamp_iso": "2026-10-09T15:30:00.000Z",
+  "provider_id": "openarcloud.example/austin",
+  "authority": "austin.openarcloud.example",
+  "anchors": [
+    {
+      "anchor_id": "anchor/fountain-north-rim",
+      "map_id": "ut-austin/south-mall",
+      "method": "Surveyed",
+      "geopose": {
+        "lat_deg": 30.28498593,
+        "lon_deg": -97.73935,
+        "alt_m": 158.0,
+        "q": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      },
+      "sigma_enu_m": [
+        0.05,
+        0.05,
+        0.09
+      ],
+      "rho_en": 0.0,
+      "cov_pos3_row_major": [
+        0.0025,
+        0.0,
+        0.0,
+        0.0,
+        0.0025,
+        0.0,
+        0.0,
+        0.0,
+        0.0081
+      ],
+      "confidence": 0.9174,
+      "note": "north rim coping, tightest fix in the set"
+    },
+    {
+      "anchor_id": "anchor/fountain-south-rim",
+      "map_id": "ut-austin/south-mall",
+      "method": "VisualFix",
+      "geopose": {
+        "lat_deg": 30.28491407,
+        "lon_deg": -97.73935,
+        "alt_m": 158.0,
+        "q": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      },
+      "sigma_enu_m": [
+        0.12,
+        0.18,
+        0.35
+      ],
+      "rho_en": 0.3,
+      "cov_pos3_row_major": [
+        0.0144,
+        0.00648,
+        0.0,
+        0.00648,
+        0.0324,
+        0.0,
+        0.0,
+        0.0,
+        0.1225
+      ],
+      "confidence": 0.7407,
+      "note": "directional uncertainty: along-mall worse than across"
+    },
+    {
+      "anchor_id": "anchor/fountain-east-rim",
+      "map_id": "ut-austin/south-mall",
+      "method": "VisualFix",
+      "geopose": {
+        "lat_deg": 30.28495,
+        "lon_deg": -97.73931359,
+        "alt_m": 158.0,
+        "q": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      },
+      "sigma_enu_m": [
+        0.14,
+        0.14,
+        0.31
+      ],
+      "rho_en": 0.0,
+      "cov_pos3_row_major": [
+        0.0196,
+        0.0,
+        0.0,
+        0.0,
+        0.0196,
+        0.0,
+        0.0,
+        0.0,
+        0.0961
+      ],
+      "confidence": 0.7634,
+      "note": ""
+    },
+    {
+      "anchor_id": "anchor/fountain-west-rim",
+      "map_id": "ut-austin/south-mall",
+      "method": "VisualFix",
+      "geopose": {
+        "lat_deg": 30.28495,
+        "lon_deg": -97.73938641,
+        "alt_m": 158.0,
+        "q": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      },
+      "sigma_enu_m": [
+        0.16,
+        0.13,
+        0.33
+      ],
+      "rho_en": -0.2,
+      "cov_pos3_row_major": [
+        0.0256,
+        -0.00416,
+        0.0,
+        -0.00416,
+        0.0169,
+        0.0,
+        0.0,
+        0.0,
+        0.1089
+      ],
+      "confidence": 0.7519,
+      "note": "negative correlation, so the ellipse tilts the other way"
+    },
+    {
+      "anchor_id": "anchor/fountain-plaque",
+      "map_id": "ut-austin/south-mall",
+      "method": "GNSS",
+      "geopose": {
+        "lat_deg": 30.28496797,
+        "lon_deg": -97.73932919,
+        "alt_m": 158.0,
+        "q": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      },
+      "sigma_enu_m": [
+        0.45,
+        0.45,
+        0.9
+      ],
+      "rho_en": 0.0,
+      "cov_pos3_row_major": [
+        0.2025,
+        0.0,
+        0.0,
+        0.0,
+        0.2025,
+        0.0,
+        0.0,
+        0.0,
+        0.81
+      ],
+      "confidence": 0.5263,
+      "note": "GNSS only under tree cover, deliberately the weakest fix"
+    }
+  ],
+  "content": [
+    {
+      "content_id": "content/fountain-marker",
+      "title": "Littlefield Fountain marker",
+      "summary": "A small glTF marker mesh placed at the fountain plaque.",
+      "tags": [
+        "marker",
+        "landmark",
+        "memorial"
+      ],
+      "class_id": "https://schema.org/LandmarksOrHistoricalBuildings",
+      "at_anchor": "anchor/fountain-plaque",
+      "radius_m": 6.0,
+      "asset": {
+        "file": "fountain-marker.gltf",
+        "media_type": "model/gltf+json"
+      }
+    },
+    {
+      "content_id": "content/fountain-label",
+      "title": "Littlefield Fountain label",
+      "summary": "A plain-text label for the fountain's north rim.",
+      "tags": [
+        "label",
+        "text",
+        "memorial"
+      ],
+      "class_id": "https://schema.org/LandmarksOrHistoricalBuildings",
+      "at_anchor": "anchor/fountain-north-rim",
+      "radius_m": 4.0,
+      "asset": {
+        "file": "fountain-label.txt",
+        "media_type": "text/plain"
+      }
+    }
+  ]
+}

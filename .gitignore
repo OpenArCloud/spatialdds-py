@@ -1,3 +1,8 @@
 __pycache__/
 *.pyc
 .DS_Store
+
+# Local planning material: briefs, censuses, working notes.
+# Read in the session, never committed. Same convention as
+# SpatialDDS-demo/directions/.
+directions/

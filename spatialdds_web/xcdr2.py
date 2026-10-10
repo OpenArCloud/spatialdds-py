@@ -262,3 +262,181 @@ class Decoder:
                                 f"enumerator")
             return name
         return self._aggregate(agg, r)
+
+
+class Writer:
+    """Encodes the dict shape `Decoder` produces, back to XCDR2.
+
+    Symmetric with `Reader` by construction and in the same file deliberately:
+    the wire rules are stated once, so an encoder and a decoder cannot drift
+    into disagreeing about alignment or delimiters.
+
+    **DHEADERs are patched, not nested.** A delimited aggregate needs the byte
+    length of its own contents in front of them, which invites writing the
+    contents to a sub-buffer and prefixing the length. That would be wrong:
+    alignment is measured from the start of the message, so contents written
+    into a fresh buffer would pad differently than they will sit. Instead a
+    placeholder word is written in place, the contents follow in the same
+    buffer, and the placeholder is patched afterwards.
+    """
+
+    def __init__(self, model: Model) -> None:
+        self.m = model
+
+    # -- primitives ---------------------------------------------------------
+    def _align(self, buf: bytearray, n: int) -> None:
+        n = 4 if n > 4 else n          # XCDR2 caps primitive alignment at four
+        off = (len(buf) - self.base) % n
+        if off:
+            buf.extend(b"\x00" * (n - off))
+
+    def _prim(self, buf: bytearray, kind: str, v: Any) -> None:
+        size, fmt = {
+            "bool": (1, "?"), "octet": (1, "B"), "char": (1, "c"),
+            "int8": (1, "b"), "uint8": (1, "B"),
+            "int16": (2, "h"), "uint16": (2, "H"),
+            "int32": (4, "i"), "uint32": (4, "I"),
+            "int64": (8, "q"), "uint64": (8, "Q"),
+            "float32": (4, "f"), "float64": (8, "d"),
+        }[kind]
+        self._align(buf, size)
+        if kind == "char" and isinstance(v, str):
+            v = v.encode()[:1] or b"\x00"
+        buf.extend(struct.pack(self.e + fmt, v))
+
+    def _u32(self, buf: bytearray, v: int) -> None:
+        self._prim(buf, "uint32", v)
+
+    def _string(self, buf: bytearray, v: str) -> None:
+        raw = (v or "").encode("utf-8") + b"\x00"
+        self._u32(buf, len(raw))
+        buf.extend(raw)
+
+    # -- entry point --------------------------------------------------------
+    def encode(self, fqn: str, value: dict, little: bool = True) -> bytes:
+        agg = self.m.get(fqn)
+        if agg is None:
+            raise WireError(f"{fqn} is not in the wire model")
+        self.e = "<" if little else ">"
+        buf = bytearray()
+        buf.extend(struct.pack(">H", XCDR2_LE_DELIMITED if little
+                               else XCDR2_BE_DELIMITED))
+        buf.extend(b"\x00\x00")        # options
+        self.base = 4
+        self._aggregate(buf, agg, value)
+        return bytes(buf)
+
+    # -- aggregates ---------------------------------------------------------
+    def _aggregate(self, buf: bytearray, agg: Aggregate, value: Any) -> None:
+        delimited = agg.extensibility in ("APPENDABLE", "MUTABLE")
+        at = None
+        if delimited:
+            self._align(buf, 4)
+            at = len(buf)
+            buf.extend(b"\x00\x00\x00\x00")     # DHEADER placeholder
+        start = len(buf)
+        if agg.kind == "union":
+            self._union(buf, agg, value)
+        else:
+            for mem in agg.members:
+                if mem.name not in value:
+                    raise WireError(f"{agg.name}.{mem.name} missing from the "
+                                    f"value being encoded")
+                self._member(buf, mem, value[mem.name])
+        if at is not None:
+            struct.pack_into(self.e + "I", buf, at, len(buf) - start)
+
+    def _union(self, buf: bytearray, agg: Aggregate, value: dict) -> None:
+        label = value.get("_discriminator")
+        disc_t = self.m.resolve(agg.disc_type)
+        disc_agg = self.m.get(disc_t)
+        if disc_agg is None or disc_agg.kind != "enum":
+            raise WireError(f"{agg.name}: discriminator {disc_t} is not an enum")
+        by_name = {n: v for v, n in disc_agg.by_value.items()}
+        if label not in by_name:
+            raise WireError(f"{agg.name}: {label!r} is not a declared case")
+        self._prim(buf, "int32", by_name[label])
+        for labels, mem in agg.cases:
+            if label in labels:
+                if mem.type != "void" and mem.name:
+                    # A branch whose member the JSON omits still occupies the
+                    # wire: the placeholder byte is written as zero.
+                    self._member(buf, mem, value.get(mem.name, 0))
+                return
+
+    # -- members ------------------------------------------------------------
+    def _member(self, buf: bytearray, mem: Member, v: Any) -> None:
+        dec = Decoder(self.m)
+        if mem.sequence:
+            if not dec._elem_primitive(mem.type):
+                self._align(buf, 4)
+                at = len(buf)
+                buf.extend(b"\x00\x00\x00\x00")
+                start = len(buf)
+                self._u32(buf, len(v))
+                for x in v:
+                    self._scalar(buf, mem.type, x)
+                struct.pack_into(self.e + "I", buf, at, len(buf) - start)
+            else:
+                self._u32(buf, len(v))
+                for x in v:
+                    self._scalar(buf, mem.type, x)
+            return
+        if mem.array:
+            total = 1
+            for b in mem.array:
+                total *= b
+            flat: list = []
+
+            def flatten(x):
+                if isinstance(x, list):
+                    for y in x:
+                        flatten(y)
+                else:
+                    flat.append(x)
+            flatten(v)
+            if len(flat) != total:
+                raise WireError(f"{mem.name}: expected {total} element(s), "
+                                f"got {len(flat)}")
+            if self.m.resolve(mem.type) == "octet":
+                if not dec._elem_primitive(mem.type):
+                    pass
+                buf.extend(bytes(bytearray(int(x) & 0xFF for x in flat)))
+                return
+            if not dec._elem_primitive(mem.type):
+                self._align(buf, 4)
+                at = len(buf)
+                buf.extend(b"\x00\x00\x00\x00")
+                start = len(buf)
+                for x in flat:
+                    self._scalar(buf, mem.type, x)
+                struct.pack_into(self.e + "I", buf, at, len(buf) - start)
+            else:
+                for x in flat:
+                    self._scalar(buf, mem.type, x)
+            return
+        self._scalar(buf, mem.type, v)
+
+    def _scalar(self, buf: bytearray, type_name: str, v: Any) -> None:
+        t = self.m.resolve(type_name)
+        if t == "string":
+            self._string(buf, v)
+            return
+        if t in PRIMITIVES:
+            self._prim(buf, PRIMITIVES[t][1], v)
+            return
+        td = self.m.typedefs.get(t)
+        if td is not None and (td.array or td.sequence):
+            self._member(buf, Member(td.name, td.type, list(td.array),
+                                     td.sequence, td.seq_bound), v)
+            return
+        agg = self.m.get(t)
+        if agg is None:
+            raise WireError(f"no wire model for type {type_name!r}")
+        if agg.kind == "enum":
+            by_name = {n: val for val, n in agg.by_value.items()}
+            if v not in by_name:
+                raise WireError(f"{t}: {v!r} is not a declared enumerator")
+            self._prim(buf, "int32", by_name[v])
+            return
+        self._aggregate(buf, agg, v)

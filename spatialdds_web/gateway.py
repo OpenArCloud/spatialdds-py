@@ -50,6 +50,10 @@ DURABILITY: dict[str, tuple[bool, str]] = {
     "spatial.core.GeoAnchor":            (True,  PUBLIC),
     "spatial.core.FrameTransform":       (True,  PUBLIC),
     "spatial.disco.Announce":            (True,  PUBLIC),
+    # A content announce is discovery data: latched, and public like the
+    # site configuration it sits beside. It names content and where it is,
+    # not who looked at it.
+    "spatial.disco.ContentAnnounce":     (True,  PUBLIC),
     "spatial.owm.Entity":                (True,  OPERATOR),
     "spatial.semantics.FusedTrackSet":   (False, OPERATOR),
     "spatial.semantics.Detection2DSet":  (False, OPERATOR),
@@ -275,6 +279,41 @@ def geohash_bbox(gh: str) -> tuple[float, float, float, float]:
     return lon_lo, lat_lo, lon_hi, lat_hi
 
 
+def geohash_encode(lat: float, lon: float, precision: int = 7) -> str:
+    """The inverse of `geohash_bbox`, for finding the cell a position falls in.
+
+    Needed by anything that has coordinates and wants the query that would
+    return them: the gates, and a client working out which cell to ask about.
+    """
+    lat_lo, lat_hi, lon_lo, lon_hi = -90.0, 90.0, -180.0, 180.0
+    out: list[str] = []
+    bit = idx = 0
+    even = True
+    while len(out) < precision:
+        if even:
+            mid = (lon_lo + lon_hi) / 2
+            if lon > mid:
+                idx = idx * 2 + 1
+                lon_lo = mid
+            else:
+                idx *= 2
+                lon_hi = mid
+        else:
+            mid = (lat_lo + lat_hi) / 2
+            if lat > mid:
+                idx = idx * 2 + 1
+                lat_lo = mid
+            else:
+                idx *= 2
+                lat_hi = mid
+        even = not even
+        bit += 1
+        if bit == 5:
+            out.append(_GEOHASH32[idx])
+            bit = idx = 0
+    return "".join(out)
+
+
 def intersects(a: tuple[float, float, float, float],
                b: tuple[float, float, float, float]) -> bool:
     """The §3.3.0 *intersects* predicate, as `CoverageQuery` uses it."""
@@ -286,22 +325,38 @@ def intersects(a: tuple[float, float, float, float],
 def scene_bbox(st: State, scene: str) -> tuple[float, float, float, float] | None:
     """A scene's earth-fixed footprint, from a `GeoAnchor` in the recording.
 
-    Degenerate by construction: a `GeoAnchor` is a point, so the box is that
-    point. A recording with no georeference has no earth-fixed footprint and
-    this returns None rather than inventing one, which means a geohash query
-    matches nothing. A service that does not know where it is should publish no
-    coverage, not a coverage of everywhere.
+    The box encloses every `GeoAnchor` the scene carries. Earlier this took the
+    first anchor it found and returned a degenerate point, which under-reported
+    a scene holding several: a search would match the one anchor's cell and miss
+    the rest of the site.
+
+    A recording with no anchors has no earth-fixed footprint and this returns
+    None rather than inventing one, so a geohash query matches nothing. A
+    service that does not know where it is should publish no coverage, not a
+    coverage of everywhere. One anchor still gives a point box, which is
+    honest: one anchor is one place.
+
+    `GeoAnchor.geopose` is where the position lives; the fallback to a
+    top-level `lat_deg` is for a flattened shape some producers emit.
     """
+    lats: list[float] = []
+    lons: list[float] = []
     for res in st.resources.values():
         if res.scene != scene or res.fqn != "spatial.core.GeoAnchor":
             continue
         for inst in st.latched.get(res.topic, {}).values():
-            lat = inst.data.get("lat_deg")
-            lon = inst.data.get("lon_deg")
+            g = inst.data.get("geopose") or {}
+            lat = g.get("lat_deg", inst.data.get("lat_deg"))
+            lon = g.get("lon_deg", inst.data.get("lon_deg"))
             if lat is None or lon is None:
                 continue
-            return float(lon), float(lat), float(lon), float(lat)
-    return None
+            lats.append(float(lat))
+            lons.append(float(lon))
+    if not lats:
+        return None
+    # Enclose every anchor, not the first one found. A single anchor still
+    # yields a degenerate point box, which is honest: one anchor is one place.
+    return min(lons), min(lats), max(lons), max(lats)
 
 
 def service_manifest(st: State, scene: str, base: str) -> dict:

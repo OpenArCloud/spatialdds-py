@@ -103,6 +103,64 @@ wire and must be consumed, while `MAPPING.md` says an empty branch is
 than information is recorded only in the generated tables, as a `null` branch
 type, and no rule over the IDL recovers it. Finding 12.
 
+## A second recording: authored anchors
+
+`samples/fountain-anchors.mcap` is the content machinery end to end. Five
+`GeoAnchor`s at the Littlefield Fountain on the UT Austin South Mall, each with
+directional covariance, plus two `ContentAnnounce`s whose coverage circles sit
+on two of them, resolving through content manifests to two small committed
+assets.
+
+```sh
+python3 tools/run_gateway.py --mcap samples/fountain-anchors.mcap
+```
+
+**It is authored, not captured, and says so.** These anchors are declared data,
+the way the retail recording's zones are configured data — nobody surveyed this
+fountain for us. Positions are approximate. Every value the recording carries
+comes from `samples/fountain-anchors.input.json`;
+`tools/author_anchors.py` serializes that file and does no arithmetic on it,
+which is what lets `gates/golden_anchor.py` take its expected values from the
+input rather than from the tool that wrote the output.
+
+`confidence` is derived in the input from the covariance it summarises,
+`1/(1+sigma_max)`, so the scalar and the matrix cannot contradict — which is
+what `GeoAnchor`'s own comment asks for. A gate checks the relation holds, and
+that confidence falls as covariance grows across the set.
+
+**Content is positioned by its own pose and coverage.** That is the
+content-record model this sample succeeds: an SCD record carried its own
+geopose and never referenced an anchor, and `ContentAnnounce` with a
+`manifest_uri` is that record's typed successor, working as specified. Each
+announce carries a coverage circle — the circle form, because §3.3.4 says a
+producer SHOULD prefer it "so consumers can recover the exact footprint" rather
+than hand-computing a box.
+
+Anchor-attached assets are a separate capability, and 1.8 has no field for it:
+no anchor type can reference content. That is written up as entry 2 of the
+1.9 candidates, and it is why the conformance suite's §8.2 scenario still
+skips — the scenario reads "fetch an anchor's asset by reference", and the
+reference has nowhere to live yet.
+
+The reference chain that does work, with every link gated:
+
+```
+GET the content announce  ->  manifest_uri (spatialdds://…)
+  ->  the content manifest  ->  assets[].uri and assets[].hash
+    ->  samples/assets/fountain-marker.gltf, compared byte for byte
+```
+
+One link in the gate is a fixture and is labelled as one: this endpoint
+publishes no resolver, so `gates/content_resolution.py` maps the URI to a
+committed manifest itself. That mapping is a test fixture, not a wire
+convention — an undocumented construction rule is a dialect. The asset URLs
+point at `raw.githubusercontent.com` and resolve only once the commit is
+pushed, so the gate byte-compares against the committed file and says so.
+
+The authoring tool needs a specification checkout for the IDL it embeds
+(`--idl`), because the recording carries its own flattened IDL exactly as the
+retail one does. Serving the result needs no IDL at all.
+
 ## The contract is not ours
 
 Paths, the four event names, the envelope fields, the ordering contract and the
@@ -126,16 +184,19 @@ and a recording has nothing to command.
 ```
 $ python3 gates/run_all.py
 
-  PASS     wire_model       the recording's IDL and the published tables agree
-  PASS     golden_json      the JSON projection matches the authored vectors
-  PASS     decode_fidelity  every message decodes and the counts are the recording's
-  PASS     determinism      two builds serve byte-identical latched resources
-  PASS     replay_order     latched replay, exactly one end_of_replay, then live
-  PASS     removal_parity   every removal is a terminal sample then a dispose
-  PASS     schema_fidelity  the endpoint publishes and obeys the generated schemas
-  PASS     access_classes   configuration is public, observation is bearer-gated
+  PASS     wire_model          the recording's IDL and the published tables agree
+  PASS     golden_json         the JSON projection matches the authored vectors
+  PASS     decode_fidelity     every message decodes and the counts are the recording's
+  PASS     determinism         two builds serve byte-identical latched resources
+  PASS     replay_order        latched replay, exactly one end_of_replay, then live
+  PASS     removal_parity      every removal is a terminal sample then a dispose
+  PASS     schema_fidelity     the endpoint publishes and obeys the generated schemas
+  PASS     access_classes      configuration is public, observation is bearer-gated
+  PASS     golden_anchor       one anchor field by field against the authoring input
+  PASS     anchor_serve        anchors served unmodified, and discovery finds them
+  PASS     content_resolution  a served reference ends in a real committed file
 
-8 gates: 8 passed, 0 failed, 0 skipped
+11 gates: 11 passed, 0 failed, 0 skipped
 ```
 
 Expected values come from the recording, not from this gateway: per-topic
@@ -155,6 +216,9 @@ served that many would pass for any gateway, including a broken one.
 | `removal_parity` | all 43 removals arrive as a terminal `RETIRED` sample immediately followed by a `dispose` with a reason, and no disposed key is still served over GET |
 | `schema_fidelity` | the schemas endpoint serves 112 files identical to the vendored copies, the vendored set matches its recorded digest, and everything served validates against them |
 | `access_classes` | public resources are served without auth and cacheable, gated ones are refused without a token and never cacheable, on both GET and WebSocket |
+| `golden_anchor` | one anchor compared field by field against the authoring input, plus the checks that only make sense across the set: confidence is the monotone summary of covariance that `GeoAnchor` requires, it falls as covariance grows, no two anchors share a position, and the spread is fountain-sized |
+| `anchor_serve` | the anchor recording is served unmodified: both types latched and public, all seven instances addressable by their percent-encoded `@key`, every ETag a content digest, every instance schema-valid, and a geohash query over the anchors' own cell returning the service while San Francisco returns nothing |
+| `content_resolution` | a served `ContentAnnounce` resolves through `manifest_uri` to a content manifest to a committed asset, byte-compared; and every announce's coverage circle is centred on one of the recording's anchor positions |
 
 During development the decoder was additionally checked against a
 CycloneDDS-based reader on every message in the recording: all 15,676 decoded
@@ -182,13 +246,14 @@ the port once the socket is listening, so there is nothing to poll.
 ## Layout
 
 ```
-spatialdds_web/   idlmodel (wire model from embedded IDL), xcdr2 (reader),
+spatialdds_web/   idlmodel (wire model from embedded IDL), xcdr2 (reader+writer),
                   webjson (canonical JSON), gateway (state, discovery),
                   gw_http (the pinned HTTP and WebSocket surface)
 webjson/          schemas, serializer tables, golden vectors, MAPPING, PROVENANCE
-samples/          the recording, its summary, and the ten-line client
+samples/          two recordings, their inputs, assets, manifests, and the
+                  ten-line client
 gates/            everything above
-tools/            run_gateway.py
+tools/            run_gateway.py, author_anchors.py
 ```
 
 ## Status

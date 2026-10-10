@@ -21,6 +21,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 MCAP = ROOT / "samples" / "queuing-retail-sample.mcap"
+FOUNTAIN = ROOT / "samples" / "fountain-anchors.mcap"
 
 
 def gates() -> list[dict]:
@@ -35,6 +36,10 @@ def gates() -> list[dict]:
         have_js = True
     except ImportError:
         have_js = False
+    no_fountain = None if FOUNTAIN.is_file() else (
+        f"needs {FOUNTAIN.relative_to(ROOT)}; author it with "
+        f"tools/author_anchors.py, which needs a specification checkout for "
+        f"the IDL it embeds")
     no_mcap = None if MCAP.is_file() else (
         f"needs {MCAP.relative_to(ROOT)}, which is vendored in this "
         f"repository; see webjson/PROVENANCE")
@@ -57,6 +62,14 @@ def gates() -> list[dict]:
          "cmd": ["gates/schema_fidelity.py"], "skip": no_mcap or no_web or no_js},
         {"name": "access_classes", "what": "configuration is public, observation is bearer-gated",
          "cmd": ["gates/access_classes.py"], "skip": no_mcap or no_web},
+        # The anchor-bearing recording. Authored rather than captured, and the
+        # first artifact to exercise the content machinery end to end.
+        {"name": "golden_anchor", "what": "one anchor field by field against the authoring input",
+         "cmd": ["gates/golden_anchor.py"], "skip": no_fountain},
+        {"name": "anchor_serve", "what": "anchors served unmodified, and discovery finds them",
+         "cmd": ["gates/anchor_serve.py"], "skip": no_fountain or no_web or no_js},
+        {"name": "content_resolution", "what": "a served reference ends in a real committed file",
+         "cmd": ["gates/content_resolution.py"], "skip": no_fountain or no_web},
     ]
 
 
@@ -84,7 +97,8 @@ def main() -> int:
 
     w = max(len(r[0]) for r in rows)
     print(f"gate manifest, {ROOT.name}")
-    print(f"  recording: {MCAP.name if MCAP.is_file() else 'absent'}\n")
+    print(f"  recordings: {MCAP.name if MCAP.is_file() else 'absent'}, "
+          f"{FOUNTAIN.name if FOUNTAIN.is_file() else 'absent'}\n")
     for name, status, detail, what in rows:
         print(f"  {status:<8} {name:<{w}}  {what}")
         if detail:
