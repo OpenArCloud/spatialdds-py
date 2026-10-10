@@ -1,17 +1,45 @@
 # Serving `spatialdds://` resolution from a web-binding endpoint
 
-A characterization, not an implementation. The question is whether a web-native
-endpoint that already holds content manifests could also answer §7.5 URI
-resolution for them, what that would look like on the wire, and what in the
-specification has to move first. James decides; nothing here is built.
+**Built.** This began as a characterization of what it would take; everything
+below the next heading is that characterization, kept because it is the
+argument. What changed: James ruled the authority is `demo.spatialdds.org`, the
+specification's N.2 erratum landed, the recording was re-authored under that
+authority, and the gateway now implements §7.5.2 for the manifests it holds.
 
-The motive is concrete: `examples/migration/scd_content.py` resolves a
-`spatialdds://` URI by mapping its last path segment to a committed manifest
-file. That mapping is a fixture, labelled as one in three places, and
-[`gates/content_resolution.py`](../gates/content_resolution.py) carries the same
-disclaimer. It exists because resolution is the one link in the OSCP-to-SpatialDDS
-chain this repository cannot demonstrate. The example drops the fixture the day
-the mechanism lands.
+The motive was concrete and is now discharged: `scd_content.py` and
+`gates/content_resolution.py` resolved a `spatialdds://` URI by mapping its last
+path segment to a committed manifest file, a fixture labelled as one in three
+places. It was the one link in the OSCP-to-SpatialDDS chain this repository could
+not demonstrate. All three labels are gone, and the chain is real at every step.
+
+| What it serves | |
+| --- | --- |
+| `GET /.well-known/spatialdds/resolver` | §7.5.2 metadata, or `404 not-an-authority` |
+| `GET /spatialdds/resolve?uri={urlencoded}` | the manifest, or `400`/`404` per §7.5.3 |
+
+Keyed by the full URI a manifest declares as its own `id`, never by a segment of
+it. `max-age` comes from the manifest's `ttl_sec` per the N.4 erratum, not from
+the endpoint's 300-second default. Both routes are public-cacheable in the same
+access table as every other public resource, and `gates/access_classes.py`
+checks them there.
+
+**Normative text this implements:** SpatialDDS-spec `169fabd`, "Appendix N
+erratum: split N.2 bootstrap/resolver; N.4 ttl_sec cache precedence". The
+erratum is prose-only — the vendored generated artifacts are unchanged since the
+commit `webjson/PROVENANCE` pins, which was verified rather than assumed. Until
+that commit is published, this endpoint is conformant against text that is not
+yet public: the spec push leads, this one follows.
+
+**Three things the ruling settled, recorded because the arguments below predate
+them:** the authority is `demo.spatialdds.org`; the recording was re-authored
+rather than the resolver being pointed at someone else's namespace (option 1 of
+the three below); and the sample's content host and URI authority therefore
+coincide by construction, which `docs/WIRE.md` states as a property of the
+sample rather than a property of the binding.
+
+---
+
+## The characterization, as written before it was built
 
 ## §7.5 does not need a new sentence. It already requires this.
 
@@ -105,6 +133,9 @@ changes.
 
 ## The second blocker, which is this repository's and not the specification's
 
+**Resolved by ruling: option 1.** The recording was re-authored. What follows is
+the argument that made it a decision rather than a default.
+
 Implementing §7.5.2 is necessary for `scd_content.py` to drop its fixture. It is
 not sufficient, and this is the part worth deciding before any code is written.
 
@@ -139,6 +170,15 @@ Until one of those is chosen, implementing the resolver route would produce an
 endpoint that answers `404` for every URI in its own recording — which is
 conformant, and no better than the fixture.
 
+Option 1 is what landed. The input file's single `authority` key changed and the
+recording was re-authored; the tool does no arithmetic on its input, so exactly
+three fields moved, all of them `manifest_uri`, verified field by field against
+the recording as it stood before. The five anchors are byte-identical. The
+recording's digest is superseded: `80bd8b4b…` became `7e238a66…`, for that
+reason. The cost the argument named — that the sample is now less
+representative of a federated deployment — is real and is stated in
+`docs/WIRE.md` rather than left for a reader to discover.
+
 ## One more thing a resolver would collide with
 
 §7.5.2: "When a fetched manifest carries its own `ttl_sec`, the manifest's
@@ -150,22 +190,48 @@ So a resolver response here would have to take its `max-age` from the manifest
 rather than from the endpoint's default, and a blanket 300 would contradict
 §7.5.2 on a resource the endpoint is otherwise serving correctly. N.4 sets cache
 behaviour by access class and §7.5.2 sets it by document content; where both
-apply, the document wins. That is a second candidate N.4 clarification, recorded
-alongside the CORS one in [EVIDENCE.md](EVIDENCE.md).
+apply, the document wins.
 
-## What this would cost
+**Landed as part of the same erratum,** and implemented: `_cache_headers` takes
+an optional document TTL, and the resolve route passes the manifest's `ttl_sec`.
+The erratum's second half is implemented too, and is the part worth stating —
+a document TTL grants no lifetime to an operator-scoped resource, which stays
+`no-store` whatever `ttl_sec` it carries, because the shared cache that would
+honour it is the one the gate exists to keep the body out of.
 
-Small, and the smallness is the argument for doing it once the authority
-question is answered: two routes, one dictionary, and the existing ETag helper.
-The gate would be `content_resolution.py` with its fixture replaced by a real
-`GET` — the chain it already follows end to end, with one link stopping being a
-stand-in. The disclaimer comes out of three files.
+## What it cost
 
-## Not proposed
+What was predicted: two routes, one dictionary, and the existing ETag helper;
+`content_resolution.py` with its fixture replaced by a real `GET`; the
+disclaimer out of three files. That is what it was.
 
-- No resolution of anchor or service URIs. The endpoint holds content manifests;
-  anchors cannot carry a `manifest_uri` in 1.8 at all (1.9 candidate 2).
-- No `bootstrap`. There is no domain, and that ruling stands.
-- No resolver for URIs the endpoint does not hold, and no redirect to one. §7.5.1
-  already orders the client's attempts; an endpoint guessing on the client's
-  behalf would be inventing a step.
+What the prediction missed, both small and both worth recording:
+
+- The endpoint had to be given the manifests to hold. They were sample data no
+  server read, so `--manifests` is new, and `build_state` takes it. Resolution
+  is offered only for what is held.
+- A gate cannot test this on loopback without the endpoint believing it is
+  reachable as the authority, because the authority in a URI is a DNS name by
+  §7.5.2. `Gateway(advertise=…)` and `Gateway.connect()` are that wiring, in one
+  place, documented as the one substitution a harness may make and a client may
+  not.
+
+## Not built, and deliberately
+
+- **No resolution of anchor or service URIs.** The endpoint holds content
+  manifests; anchors cannot carry a `manifest_uri` in 1.8 at all (1.9 candidate
+  2). The recording's service announce does carry
+  `spatialdds://demo.spatialdds.org/south-mall/service/fountain-anchors`, and
+  the endpoint is the authority for it and holds no manifest for it, so it
+  answers `404 no-such-manifest`. That is §7.5.3's own answer and it is
+  exercised as a gate check rather than hidden: it is the "its own authority, a
+  URI it does not hold" case, and having it come from the recording's real data
+  is better than a synthetic probe.
+- **No `bootstrap`.** There is no domain, and that ruling stands untouched. The
+  erratum narrowed N.2's paragraph to `bootstrap` alone and left its reasoning
+  verbatim.
+- **No resolver for URIs the endpoint does not hold, and no redirect to one.**
+  §7.5.1 already orders the client's attempts; an endpoint guessing on the
+  client's behalf would be inventing a step.
+- **No `OPTIONS` preflight.** Still open, still recorded in
+  [EVIDENCE.md](EVIDENCE.md), and not this batch.

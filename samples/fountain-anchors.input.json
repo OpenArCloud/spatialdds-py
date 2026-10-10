@@ -5,7 +5,8 @@
     "confidence is a monotone summary of cov, derived from sigma_max as 1/(1+sigma_max), so the scalar and the matrix cannot contradict (GeoAnchor's own requirement).",
     "cov is COV_POS3, row-major 3x3, in the anchor's local ENU tangent frame at the encoded GeoPose position (\u00a73.2).",
     "Nothing here is carried that the 1.8 types cannot express. Content is positioned by its own pose and coverage, per the content-record model; anchors do not reference content, because no 1.8 anchor type can.",
-    "Declared coverage states the producer's actual shape; derived coverage uses the parameter-free enclosure. The service block's circle is declared, so it is a circle."
+    "Declared coverage states the producer's actual shape; derived coverage uses the parameter-free enclosure. The service block's circle is declared, so it is a circle.",
+    "authority is the DNS name that resolves this sample's spatialdds:// URIs (\u00a77.5.2), and is deliberately not org: the publisher is OpenArCloud, the resolving authority is the demo host. They coincide here by construction so the sample can resolve its own URIs; real deployments routinely split them."
   ],
   "domain": "ut-austin-south-mall",
   "frame_ref": {
@@ -14,7 +15,7 @@
   },
   "stamp_iso": "2026-10-09T15:30:00.000Z",
   "provider_id": "openarcloud.example/austin",
-  "authority": "austin.openarcloud.example",
+  "authority": "demo.spatialdds.org",
   "anchors": [
     {
       "anchor_id": "anchor/fountain-north-rim",

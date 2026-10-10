@@ -35,7 +35,10 @@ sys.path.insert(0, str(ROOT / "gates"))
 import aiohttp                                                 # noqa: E402
 import websockets                                              # noqa: E402
 
-from harness import Gateway, TOKEN, report, state              # noqa: E402
+from urllib.parse import quote                                 # noqa: E402
+
+from harness import (Gateway, FOUNTAIN, TOKEN, report,        # noqa: E402
+                     state)
 from spatialdds_web import gateway                             # noqa: E402
 
 
@@ -114,6 +117,43 @@ async def run() -> int:
                        not contra, f"{contra[:2]}"))
         checks.append(("no operator-scoped resource is served CORS-open",
                        not cors_contra, f"{cors_contra[:2]}"))
+
+    # The §7.5.2 resolution routes are not topics, so they are not in
+    # `st.resources` and the sweep above cannot see them. They are still
+    # access-classed resources and are checked here rather than only in the
+    # gate that exercises resolution: a resolver that turned out to be gated,
+    # or uncacheable, would be an access-class defect and this is the gate
+    # that owns that question. Served as the authority, because that is the
+    # only configuration in which they answer at all.
+    AUTH = "https://demo.spatialdds.org"
+    gw2 = await Gateway(st2 := state(FOUNTAIN), advertise=AUTH).start()
+    uri = next(iter(st2.manifests))
+    async with aiohttp.ClientSession() as s:
+        for label, path in (
+                ("resolver metadata", "/.well-known/spatialdds/resolver"),
+                ("resolve", f"{gateway.RESOLVE_PATH}"
+                            f"?uri={quote(uri, safe='')}")):
+            async with s.get(gw2.base + path) as r:
+                code = r.status
+                cc = r.headers.get("Cache-Control", "")
+                aco = r.headers.get("Access-Control-Allow-Origin", "")
+                exp = r.headers.get("Access-Control-Expose-Headers", "")
+            # A credential must not change a public resource's answer.
+            async with s.get(gw2.base + path,
+                             headers={"Authorization": "Bearer wrong"}) as r:
+                with_bad = r.status
+            checks.append((f"{label}: served without auth",
+                           code == 200, f"got {code}"))
+            checks.append((f"{label}: public and cacheable, never no-store",
+                           "public" in cc and "max-age" in cc
+                           and "no-store" not in cc, f"{cc!r}"))
+            checks.append((f"{label}: CORS-open with its ETag exposed",
+                           aco == "*" and "ETag" in exp,
+                           f"ACAO {aco!r}, expose {exp!r}"))
+            checks.append((f"{label}: a bad credential changes nothing about "
+                           f"a public resource", with_bad == code,
+                           f"{code} without, {with_bad} with"))
+    await gw2.stop()
 
     op = next((p for p, r in sorted(st.resources.items())
                if r.access == gateway.OPERATOR and r.latched), None)

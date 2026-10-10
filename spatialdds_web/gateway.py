@@ -41,6 +41,12 @@ PUBLIC = "public-cacheable"
 OPERATOR = "operator-scoped"
 PUBLIC_MAX_AGE = 300
 
+SCHEME = "spatialdds://"
+# Advertised in the resolver metadata rather than constructed by a client.
+# §7.5.2 resolves through `https_base`, so this path is this endpoint's choice
+# and no client may assume it.
+RESOLVE_PATH = "/spatialdds/resolve"
+
 # type FQN -> (latched, access class). Durability comes from the
 # specification's QoS table; a recording does not carry it. A type absent here
 # is served as a stream with the cautious class, because an unknown
@@ -111,6 +117,11 @@ class State:
     source: str = ""
     source_sha256: str = ""
     model: idlmodel.Model | None = None
+    # Content manifests this endpoint holds, keyed by their own full
+    # `spatialdds://` URI. Keyed by the whole URI and never by a segment of
+    # it: a construction rule nobody published is a dialect, which is what
+    # the retired resolution fixture was.
+    manifests: dict[str, dict] = field(default_factory=dict)
 
     def resource_for(self, path: str) -> Resource | None:
         return self.resources.get(path.rstrip("/"))
@@ -145,7 +156,74 @@ def split_topic(topic: str) -> tuple[str, str, str, str] | None:
     return parts[1], parts[2], parts[3], parts[4]
 
 
-def build_state(path: Path) -> State:
+def uri_authority(uri: str) -> str:
+    """The authority of a `spatialdds://` URI, or "" if it is not one.
+
+    §7.5.2 makes the authority a DNS name the client resolves against, so this
+    is the one part of a URI an endpoint may compare against itself.
+    """
+    if not uri.startswith(SCHEME):
+        return ""
+    rest = uri[len(SCHEME):]
+    return rest.split("/", 1)[0] if "/" in rest else ""
+
+
+def base_authority(base: str) -> str:
+    """The authority this endpoint answers as, from the URL it is reached at.
+
+    Taken from the public base rather than from the bound socket, because the
+    authority in a URI is the name a client resolves and not the interface a
+    process happens to have bound. `--public-url` is what makes the two agree.
+    """
+    return base.split("//", 1)[-1].split("/", 1)[0] if "//" in base else ""
+
+
+def load_manifests(d: Path) -> dict[str, dict]:
+    """Every manifest in a directory, keyed by the URI it declares as its own.
+
+    The document's `id` is the key. Nothing is derived from the filename: a
+    manifest whose `id` disagrees with where it sits is a defect in the data
+    and is refused here rather than served under a name it does not claim.
+    """
+    out: dict[str, dict] = {}
+    for f in sorted(d.glob("*.json")):
+        doc = json.loads(f.read_text())
+        uri = doc.get("id", "")
+        if not uri_authority(uri):
+            raise ValueError(
+                f"{f.name}: no resolvable `id`; a manifest must declare the "
+                f"full spatialdds:// URI it answers to, got {uri!r}")
+        if uri in out:
+            raise ValueError(f"{f.name}: {uri} is already held")
+        out[uri] = doc
+    return out
+
+
+def resolver_metadata(st: State, base: str) -> dict | None:
+    """§7.5.2 resolver metadata, or None if this endpoint is not an authority.
+
+    An endpoint is an authority for exactly the URIs it holds manifests for.
+    Holding none, or holding only manifests belonging to someone else's
+    namespace, makes it a non-authority, and N.2 makes a 404 conformant there.
+    Answering for a namespace it does not own would be the same fabrication
+    N.2 forbids for `domain_id`, in a different costume.
+    """
+    mine = base_authority(base)
+    if not mine or not any(uri_authority(u) == mine for u in st.manifests):
+        return None
+    return {"authority": mine,
+            "https_base": f"{base.rstrip('/')}{RESOLVE_PATH}",
+            "cache_ttl_sec": PUBLIC_MAX_AGE}
+
+
+def resolve_uri(st: State, base: str, uri: str) -> dict | None:
+    """The manifest for a URI this endpoint is the authority for, or None."""
+    if uri_authority(uri) != base_authority(base):
+        return None
+    return st.manifests.get(uri)
+
+
+def build_state(path: Path, manifests: Path | None = None) -> State:
     model = wire_model(path)
     tables = json.loads((Path(__file__).resolve().parent.parent
                          / "webjson" / "serializer_tables.json").read_text())
@@ -153,7 +231,8 @@ def build_state(path: Path) -> State:
     proj = webjson.Projector(model, tables)
 
     st = State(source=str(path), model=model,
-               source_sha256=hashlib.sha256(path.read_bytes()).hexdigest())
+               source_sha256=hashlib.sha256(path.read_bytes()).hexdigest(),
+               manifests=load_manifests(manifests) if manifests else {})
     # Which latched instances were in force when the window opened. A
     # recording does not carry QoS, so "the latched set at t0" is not stated
     # anywhere in the file; what it does carry is log times, and a definition

@@ -54,8 +54,17 @@ from harness import Gateway, report, state                     # noqa: E402
 # nothing.
 FILES = ["README.md", "examples/README.md", "examples/curl.md",
          "examples/browser.md"]
-RECORDINGS = {"retail": ROOT / "samples" / "queuing-retail-sample.mcap",
-              "fountain": ROOT / "samples" / "fountain-anchors.mcap"}
+# name -> (recording, the base the endpoint believes it is reached at).
+# `authority` is the fountain recording again, served as the DNS name its
+# manifests' URIs resolve against, which is the only configuration in which
+# §7.5.2 resolution can answer. Separate from `fountain` so that every other
+# example keeps following absolute advertised URLs unaltered.
+RECORDINGS = {
+    "retail": (ROOT / "samples" / "queuing-retail-sample.mcap", None),
+    "fountain": (ROOT / "samples" / "fountain-anchors.mcap", None),
+    "authority": (ROOT / "samples" / "fountain-anchors.mcap",
+                  "https://demo.spatialdds.org"),
+}
 # Anchored, because `examples/README.md` documents this grammar by quoting it
 # inline, and a parser that reads its own documentation as input is the
 # self-observing check this repository has named five times. A marker counts
@@ -221,11 +230,11 @@ async def main() -> int:
     have_node = shutil.which("node") is not None
     ran = 0
 
-    for rec, mcap in RECORDINGS.items():
+    for rec, (mcap, advertise) in RECORDINGS.items():
         mine = [b for b in blocks if b.rec == rec]
         if not mine:
             continue
-        gw = await Gateway(state(mcap)).start()
+        gw = await Gateway(state(mcap), advertise=advertise).start()
         try:
             for b in mine:
                 if b.mode in ("js", "js-ok") and not have_node:

@@ -21,6 +21,8 @@ from aiohttp import web                                        # noqa: E402
 from spatialdds_web import gateway, gw_http                    # noqa: E402
 
 MCAP = ROOT / "samples" / "queuing-retail-sample.mcap"
+FOUNTAIN = ROOT / "samples" / "fountain-anchors.mcap"
+MANIFESTS = ROOT / "samples" / "manifests"
 SUMMARY = ROOT / "samples" / "queuing-retail-sample.summary.json"
 TOKEN = "gate-token-not-a-secret"
 
@@ -37,14 +39,27 @@ def summary() -> dict:
     return json.loads(SUMMARY.read_text())
 
 
-def state(path: Path = MCAP) -> gateway.State:
-    return gateway.build_state(path)
+def state(path: Path = MCAP,
+          manifests: Path | None = MANIFESTS) -> gateway.State:
+    return gateway.build_state(path, manifests)
 
 
 class Gateway:
-    def __init__(self, st: gateway.State, token: str = TOKEN) -> None:
+    """An in-process gateway, optionally answering as another authority.
+
+    `advertise` sets the base the endpoint believes it is reached at, which is
+    what §7.5.2 resolution compares a URI's authority against. It is harness
+    wiring and nothing else: the socket is still on loopback, so a gate that
+    follows an advertised `https_base` has to put the connect host back. That
+    substitution is the one thing a resolution gate may do and a client may
+    not, and `connect()` is the only place it happens.
+    """
+
+    def __init__(self, st: gateway.State, token: str = TOKEN,
+                 advertise: str | None = None) -> None:
         self.state = st
         self.token = token
+        self.advertise = advertise
         self._runner: web.AppRunner | None = None
         self.base = ""
 
@@ -56,8 +71,16 @@ class Gateway:
         await site.start()
         port = site._server.sockets[0].getsockname()[1]  # type: ignore
         self.base = f"http://127.0.0.1:{port}"
-        app["base"] = self.base
+        app["base"] = self.advertise.rstrip("/") if self.advertise \
+            else self.base
         return self
+
+    def connect(self, advertised_url: str) -> str:
+        """An advertised URL, pointed back at the loopback socket serving it."""
+        adv = (self.advertise or self.base).rstrip("/")
+        assert advertised_url.startswith(adv), \
+            f"{advertised_url!r} was not advertised by {adv!r}"
+        return self.base + advertised_url[len(adv):]
 
     async def stop(self) -> None:
         if self._runner is not None:

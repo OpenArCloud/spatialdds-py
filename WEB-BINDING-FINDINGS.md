@@ -618,3 +618,107 @@ wire-visible text, and the batch that found it was told to change no gateway
 behaviour except where named, so it is reported rather than fixed.
 
 *Smallest change:* one `detail` string in `gw_http.no_dds`, split per path.
+
+## Dispositions, findings 18 to 20, 2026-10-10
+
+Ruled by James in the same turn that ruled resolution goes real. All three are
+closed, two spec-side and one here.
+
+**18 — N.2 and §7.5.2 contradicted each other. Closed.** The erratum landed as
+SpatialDDS-spec `169fabd`, splitting the paragraph exactly as the finding
+proposed: `bootstrap` keeps the DDS-access condition and the `404`-is-conformant
+ruling verbatim, and `resolver` gains its own sentence conditioned on being an
+authority for the `spatialdds://` URIs it can resolve. The earlier ruling was
+not overturned; it was narrowed by the one path it was over-broad by.
+
+**19 — `ttl_sec` versus the access class's `max-age`. Closed.** Same commit.
+N.4 now says a public-cacheable manifest's own document TTL governs its
+`max-age`, and says explicitly that this grants no lifetime to an
+operator-scoped resource. Both halves are implemented and gated here.
+
+**20 — this gateway's resolver `404` gave the wrong reason. Closed, here.** It
+was reported-not-fixed because fixing it was a wire-visible text change outside
+that batch's scope. Implementing §7.5.2 closed it as a consequence rather than
+as a separate edit: `/.well-known/spatialdds/resolver` no longer shares the
+`bootstrap` handler, so the DDS reason is served only from the path it is true
+of. The new `404` from that path says what is actually the case — this endpoint
+holds no manifest whose URI authority is its own — and names it
+`not-an-authority` rather than `no-dds-domain`.
+
+### Still open, and not this batch
+
+The `OPTIONS` preflight gap stands as recorded in `docs/EVIDENCE.md`: a
+script-set `If-None-Match` triggers a CORS preflight this endpoint does not
+answer, so explicit conditional GETs from browser script fail cross-origin
+while the browser's own cache revalidation is unaffected. It rides with the
+CORS/N.4 clarification candidate, which has not landed.
+
+## Findings from implementing resolution, 2026-10-10
+
+Two, both spec-side, both about the conformance suite rather than the
+specification text, and both created by the erratum rather than revealed by it:
+`resolver` has just become a path an endpoint can be REQUIRED to serve, and the
+suite was written when it was a path nobody served.
+
+### 21. The suite accepts resolver metadata without validating it, and never resolves
+
+`check_dds_join_optional` allows `bootstrap` and `resolver` to be `200` or
+`404`, and on `200` asserts only that the body is a JSON object. That was right
+when both paths were DDS-join material nothing served: present-and-shaped was
+all there was to check.
+
+N.2 as amended makes `resolver` REQUIRED of an endpoint that is an authority,
+and §7.5.2 pins its minimum body — `authority`, `https_base`, `cache_ttl_sec`.
+The suite checks none of the three. An endpoint serving `{}` from that path
+passes today, and the run against this gateway reported `resolver=present`
+having looked at nothing inside it.
+
+Worse, the mechanism the metadata exists to advertise is wholly unexercised:
+`https_base` appears nowhere in the suite, so no conformance check ever resolves
+a URI. The one §7.5.2 requirement with observable consequences — `200`, the
+resource body, a correct `Content-Type`, at least one integrity signal — has no
+coverage at all.
+
+*Smallest change:* on a `200` from `resolver`, assert the three members and
+that `authority` is the endpoint's own host; then, when `https_base` is
+advertised, one resolve round-trip asserting §7.5.2's response requirements and
+§7.5.3's `404` for a URI of another authority. Zero observations is not
+evidence, and this is the vocabulary already adopted for exactly this: with no
+authority under test the check reports UNEXERCISED rather than passing.
+
+### 22. The suite cannot certify an endpoint whose advertised origin differs from its connect address
+
+Running the suite against this gateway configured as `demo.spatialdds.org` but
+reached on loopback fails six checks. None of the failures is the endpoint's:
+N.7's `url` fields are absolute and name the public origin, and the suite
+follows them verbatim while connecting to `--endpoint`.
+
+Two distinct faults. The suite dereferences the advertised host directly, which
+needs DNS the certifying machine may not have; and it converts an advertised URL
+to a path by slicing `len(ep.base)` characters off the front —
+
+```
+run.py:123   out.append({"path": url[len(ep.base):], **t})
+run.py:503   msgs = _ws_collect(ep.ws_url(topic["url"][len(ep.base):]), ...)
+```
+
+— unguarded, where `run.py:153` does guard with `startswith(ep.base)`. When the
+two origins differ in length the slice lands mid-string and the symptom names
+nothing useful:
+
+```
+FAIL  §8.1 hello spatial in ten lines: Port could not be cast to integer
+      value as '8812ds.org'
+```
+
+This is not hypothetical for certification. The hosted demo endpoint will sit
+behind a TLS terminator and advertise `https://demo.spatialdds.org` while any
+local or tunnelled certification run reaches it at another address — and the
+bridged shape, the half of N.10 certification still unexercised, is if anything
+more likely to be certified through a tunnel than less.
+
+*Smallest change:* a second optional runner input, the advertised origin,
+rewritten to the connect origin in exactly one place, and the two unguarded
+slices replaced by that one function. `gates/harness.py` in this repository has
+the same seam under the same constraint — `Gateway.connect` — and it is one
+method because it must be the only place the substitution happens.

@@ -8,13 +8,24 @@ in a plausible-looking string. The chain, every link checked:
       ->  the content manifest  ->  assets[].uri and assets[].hash
         ->  the committed file, compared byte for byte
 
-**One link is a test fixture and says so.** §7.5 resolution is "check cache,
-try an advertised resolver, fall back to HTTPS", and this endpoint publishes no
-resolver — it returns 404 from the resolver path, which Appendix N.2 makes
-conformant for a gateway with no DDS domain. So the URI is resolved here by a
-gate-local mapping from its last path segment to a committed manifest file.
-That mapping is a fixture, not a wire convention, and is not a rule any client
-should infer: an undocumented construction rule is a dialect.
+**Every link is real now.** The URI is resolved the way §7.5.1 orders it: read
+the authority's resolver metadata, follow the `https_base` it advertises, and
+`GET` the URI against it. Nothing is constructed from a path segment and
+nothing is read off the filesystem; the gate learns the resolve URL the same
+way a client does, from the endpoint.
+
+This replaces a gate-local mapping from a URI's last segment to a committed
+manifest file, which was a fixture and said so. It existed because the demo
+endpoint was not the authority for the URIs the recording carried, and it is
+retired by the recording being re-authored under `demo.spatialdds.org` plus the
+gateway implementing §7.5.2. An undocumented construction rule is a dialect,
+and there is no longer one here.
+
+The one substitution left is the harness's: the endpoint advertises itself as
+`https://demo.spatialdds.org` while the socket is on loopback, so
+`Gateway.connect` puts the connect host back before the request goes out. That
+is test wiring and the only place it happens -- a client resolves the
+advertised host by DNS, which is exactly what makes it the authority.
 
 **The remote form is unverified, deliberately.** `assets[].uri` is a
 `raw.githubusercontent.com` URL that only exists once the commit is pushed, so
@@ -41,15 +52,14 @@ sys.path.insert(0, str(ROOT / "gates"))
 import aiohttp                                                 # noqa: E402
 
 from harness import Gateway, report, state                     # noqa: E402
+from spatialdds_web import gateway                             # noqa: E402
 
 MCAP = ROOT / "samples" / "fountain-anchors.mcap"
 MANIFESTS = ROOT / "samples" / "manifests"
 ASSETS = ROOT / "samples" / "assets"
 
 
-def resolve_fixture(uri: str) -> Path:
-    """The gate-local stand-in for §7.5 resolution. A fixture, not a rule."""
-    return MANIFESTS / f"content-{uri.rstrip('/').split('/')[-1]}.json"
+AUTHORITY = "https://demo.spatialdds.org"   # the name these URIs resolve to
 
 
 async def fetch_remote(urls: dict[str, Path]) -> int:
@@ -86,12 +96,34 @@ async def fetch_remote(urls: dict[str, Path]) -> int:
 
 async def run(remote: bool = False) -> int:
     st = state(MCAP)
-    gw = await Gateway(st).start()
+    gw = await Gateway(st, advertise=AUTHORITY).start()
     checks: list[tuple[str, bool, str]] = []
     resolved = 0
 
     remote_urls: dict[str, Path] = {}
     async with aiohttp.ClientSession() as s:
+        # §7.5.1 step 3: the advertised resolver. Read it first, because every
+        # resolution below goes through what it advertises rather than through
+        # anything this gate knows.
+        async with s.get(gw.base + "/.well-known/spatialdds/resolver") as r:
+            meta_status = r.status
+            meta = await r.json()
+        checks.append(("the authority publishes resolver metadata",
+                       meta_status == 200, f"got {meta_status}: {meta}"))
+        checks.append(("the metadata carries authority, https_base and "
+                       "cache_ttl_sec (§7.5.2)",
+                       all(k in meta for k in
+                           ("authority", "https_base", "cache_ttl_sec")),
+                       f"{sorted(meta)}"))
+        checks.append((f"it answers for the authority in the recording's URIs "
+                       f"({meta.get('authority')})",
+                       meta.get("authority") == AUTHORITY.split("//")[1],
+                       f"{meta.get('authority')!r}"))
+        if meta_status != 200 or "https_base" not in meta:
+            await gw.stop()
+            return report("content resolution", checks,
+                          "no resolver to resolve through")
+        resolve_url = gw.connect(meta["https_base"])
         res = next((r for r in st.resources.values()
                     if r.fqn == "spatial.disco.ContentAnnounce"), None)
         if res is None:
@@ -112,12 +144,39 @@ async def run(remote: bool = False) -> int:
             checks.append((f"{cid}: manifest_uri is a spatialdds:// URI",
                            isinstance(uri, str)
                            and uri.startswith("spatialdds://"), f"{uri!r}"))
-            man_path = resolve_fixture(uri)
-            checks.append((f"{cid}: the URI resolves to a committed manifest",
-                           man_path.is_file(), f"{man_path}"))
-            if not man_path.is_file():
+            # §7.5.2: GET {https_base}?uri={urlencoded SpatialURI}
+            async with s.get(resolve_url, params={"uri": uri}) as r:
+                rstatus, rtype = r.status, r.headers.get("Content-Type", "")
+                retag = r.headers.get("ETag", "")
+                rcache = r.headers.get("Cache-Control", "")
+                man = await r.json()
+            checks.append((f"{cid}: the URI resolves over HTTPS, 200 with a "
+                           f"correct Content-Type (§7.5.2)",
+                           rstatus == 200
+                           and rtype.startswith("application/json"),
+                           f"got {rstatus} {rtype!r}"))
+            if rstatus != 200:
                 continue
-            man = json.loads(man_path.read_text())
+            checks.append((f"{cid}: the response carries an integrity signal "
+                           f"(§7.5.2 requires at least one)",
+                           retag.startswith('"sha256:'), f"ETag {retag!r}"))
+            checks.append((f"{cid}: the resolved document is the URI it was "
+                           f"asked for",
+                           man.get("id") == uri, f"{man.get('id')!r}"))
+            # N.4, as amended: the document's own ttl_sec governs its max-age.
+            ttl = man.get("ttl_sec")
+            checks.append((f"{cid}: max-age is the manifest's own ttl_sec "
+                           f"({ttl}), not the endpoint's default "
+                           f"({gateway.PUBLIC_MAX_AGE})",
+                           f"max-age={ttl}" in rcache, f"{rcache!r}"))
+            # The committed file is still compared, because the point of the
+            # chain is that it ends in bytes rather than in a document.
+            man_path = MANIFESTS / f"content-{cid.split('/')[-1]}.json"
+            checks.append((f"{cid}: the resolved manifest is the committed "
+                           f"one, byte for byte",
+                           man_path.is_file()
+                           and json.loads(man_path.read_text()) == man,
+                           f"{man_path.name}"))
             checks.append((f"{cid}: the manifest is spatial.manifest/1.x, "
                            f"rtype content",
                            man.get("profile", "").startswith(
@@ -182,6 +241,22 @@ async def run(remote: bool = False) -> int:
         checks.append(("every content announce carries a coverage circle "
                        "centred on one of the recording's anchor positions",
                        not off, f"{off[:2]}"))
+
+        # The authority must refuse what is not its own and what it does not
+        # hold. Both are 404 by §7.5.3 and are distinguished in the body.
+        for label, uri, slug in (
+                ("another authority's URI",
+                 "spatialdds://austin.openarcloud.example/south-mall/"
+                 "content/fountain-marker", "foreign-authority"),
+                ("its own authority, a URI it does not hold",
+                 "spatialdds://demo.spatialdds.org/south-mall/service/"
+                 "fountain-anchors", "no-such-manifest")):
+            async with s.get(resolve_url, params={"uri": uri}) as r:
+                st_, body = r.status, await r.json()
+            checks.append((f"{label} is a 404 saying which ({slug})",
+                           st_ == 404
+                           and body.get("type", "").endswith(slug),
+                           f"got {st_} {body.get('type')}"))
 
     await gw.stop()
     checks.append((f"{resolved} reference chain(s) followed end to end",

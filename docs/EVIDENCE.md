@@ -46,10 +46,10 @@ served that many would pass for any gateway, including a broken one.
 | `replay_order` | every replayed sample precedes exactly one `end_of_replay`, whose count matches both the samples sent and the instances in force at the window's start |
 | `removal_parity` | all 43 removals arrive as a terminal `RETIRED` sample immediately followed by a `dispose` with a reason, and no disposed key is still served over GET |
 | `schema_fidelity` | the schemas endpoint serves 112 files identical to the vendored copies, the vendored set matches its recorded digest, and everything served validates against them |
-| `access_classes` | public resources are served without auth, cacheable and CORS-open with their ETag and access class exposed, their 304s carrying the CORS header too; gated ones are refused without a token, never cacheable and never CORS-open, on both GET and WebSocket |
+| `access_classes` | public resources are served without auth, cacheable and CORS-open with their ETag and access class exposed, their 304s carrying the CORS header too; gated ones are refused without a token, never cacheable and never CORS-open, on both GET and WebSocket. The two §7.5.2 resolution routes are checked here as well, since they are access-classed resources that are not topics and the topic sweep cannot see them: public, cacheable, CORS-open, and unmoved by a bad credential |
 | `golden_anchor` | one anchor compared field by field against the authoring input, plus the checks that only make sense across the set: confidence is the monotone summary of covariance that `GeoAnchor` requires, it falls as covariance grows, no two anchors share a position, and the spread is fountain-sized |
 | `anchor_serve` | the anchor recording is served unmodified: both types latched and public, all seven instances addressable by their percent-encoded `@key`, every ETag a content digest, every instance schema-valid, and a geohash query over the anchors' own cell returning the service while San Francisco returns nothing |
-| `content_resolution` | a served `ContentAnnounce` resolves through `manifest_uri` to a content manifest to a committed asset, byte-compared; and every announce's coverage circle is centred on one of the recording's anchor positions |
+| `content_resolution` | the full §7.5.1 chain with no fixture in it: read the authority's resolver metadata, follow the advertised `https_base`, resolve each announce's `manifest_uri` over HTTP, check the resolved document is the URI asked for and is the committed manifest byte for byte, check its `max-age` is the manifest's own `ttl_sec` and not the endpoint's default, then byte-compare the asset. Plus both refusals: another authority's URI and an unheld URI of its own, each a `404` naming which. And every announce's coverage circle is centred on one of the recording's anchor positions |
 | `examples` | every example in `examples/` is executed against a locally served recording and its documented output is diffed against what it prints: five scripts, four shell fences, two browser snippets under `node`. An example it cannot run it reports as a failure, not a pass |
 
 During development the decoder was additionally checked against a
@@ -91,13 +91,23 @@ N.4 should require `OPTIONS` on public-cacheable resources is part of the same
 question, and adding the handler was outside a batch told to change no gateway
 behaviour except where named.
 
-**`ttl_sec` versus `max-age` — candidate N.4.** §7.5.2 says a fetched
-manifest's own `ttl_sec` governs its cache lifetime; N.4 sets cache behaviour by
-access class. This endpoint serves every public resource with
-`max-age=300` from one constant, while the committed content manifests carry
-`ttl_sec: 86400`. The two only meet on a resolver response, which this endpoint
-does not serve, so nothing is wrong today — see
-[`RESOLUTION.md`](RESOLUTION.md), which is where it would start to matter.
+**`ttl_sec` versus `max-age` — landed, no longer a candidate.** This was
+flagged here as a prospective N.4 clarification and is now specification text:
+SpatialDDS-spec `169fabd` amends N.4 so that a public-cacheable manifest's own
+`ttl_sec` (§7.5.2) governs its `max-age` in place of the access class's
+default, and grants no lifetime to an operator-scoped resource whatever
+`ttl_sec` it carries. Both halves are implemented in `_cache_headers` and gated:
+the resolve route serves `max-age=86400` from the manifests' own `ttl_sec`
+rather than the endpoint's 300, and a fault injection confirms `max-age` follows
+a changed `ttl_sec`. See [`RESOLUTION.md`](RESOLUTION.md).
+
+**The normative text this endpoint implements.** `webjson/PROVENANCE` pins the
+commit the *generated artifacts* come from. The *prose* this gateway now obeys
+goes one commit further: SpatialDDS-spec `169fabd`, which amends N.2 and N.4
+(findings 18 and 19). That commit is prose-only, and the vendored artifacts were
+checked to be unchanged between the pinned commit and it rather than assumed to
+be. Until `169fabd` is published, this endpoint is conformant against text that
+is not yet public, so the specification push leads and this repository follows.
 
 ## Standing it up from a harness
 
@@ -126,5 +136,15 @@ or DDS source is a later backend behind the same seam.
 Not soaked. Nothing here tells you about memory over hours, many concurrent
 subscribers, or a recording larger than memory: the whole file is decoded at
 startup and held.
+
+**Resolution is gated here and not yet certified upstream.** The specification's
+conformance suite accepts a `200` from the resolver path without validating
+§7.5.2's three required members, and never resolves a URI at all, so the
+mechanism this gateway now implements has no upstream coverage — finding 21. And
+the suite cannot be pointed at an authority-configured endpoint through a tunnel
+or on loopback, because it follows N.7's absolute URLs verbatim and slices them
+by the connect base's length — finding 22. The suite run of record therefore
+remains the one against the non-authority shape: 13 checks, 12 passed, 1
+skipped. Both findings are dispatched.
 
 [sc]: https://github.com/OpenArCloud/spatialdds-scenescape

@@ -1,5 +1,5 @@
 {
-  "id": "spatialdds://austin.openarcloud.example/south-mall/content/fountain-marker",
+  "id": "spatialdds://demo.spatialdds.org/south-mall/content/fountain-marker",
   "profile": "spatial.manifest/1.8",
   "rtype": "content",
   "content": {

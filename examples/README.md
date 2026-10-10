@@ -13,7 +13,7 @@ a gate goes red rather than a reader going in circles.
 | [`zones.py`](zones.py) | Six lines: what zones are here. |
 | [`anchors.py`](anchors.py) | Anchors with their method and their positional uncertainty. |
 | [`migration/ssd_search.py`](migration/ssd_search.py) | OSCP Spatial Service Discovery and the search path that replaces it. |
-| [`migration/scd_content.py`](migration/scd_content.py) | OSCP Spatial Content Discovery: announce to manifest to fetched asset. |
+| [`migration/scd_content.py`](migration/scd_content.py) | OSCP Spatial Content Discovery: announce, §7.5.2-resolved URI, manifest, asset. |
 
 ## The endpoint
 
@@ -38,7 +38,12 @@ python3 tools/run_gateway.py --mcap samples/fountain-anchors.mcap --port 8787
 announce: that is `anchors.py`, `curl.md`, `browser.md`, and both migration
 examples. `queuing-retail-sample.mcap` carries zones, crossing lines, and live
 tracks: that is `zones.py` and `hello_spatial.py`. Serve both on two ports and
-everything here runs.
+everything here runs -- with `scd_content.py` wanting the fountain endpoint
+served as its authority, per the `--public-url` line below.
+
+The gate therefore stands up three endpoints, not two: the retail recording,
+the fountain recording, and the fountain recording again as
+`demo.spatialdds.org`. A marker's first word says which.
 
 ## hello_spatial.py
 
@@ -103,21 +108,31 @@ content references. `ContentAnnounce` carries the same thing with a
 hashes — so the last line is not "it fetched" but "the bytes are the bytes that
 were announced".
 
-**The `spatialdds://` hop is a fixture, not a convention.** This endpoint
-publishes no resolver, so the example maps the URI to a committed manifest by its
-last path segment. The resolution mechanism is a pending design decision
-([docs/RESOLUTION.md](../docs/RESOLUTION.md)); nothing in that mapping is a rule
-a client may infer, and this example loses its fixture the day the mechanism
-lands.
+**The `spatialdds://` hop is real.** The example does what §7.5.1 orders: it
+reads the authority's resolver metadata, follows the `https_base` advertised
+there, and `GET`s the URI against it. Nothing is constructed from a path
+segment. This replaced a fixture that mapped the URI to a committed file, and
+[docs/RESOLUTION.md](../docs/RESOLUTION.md) records what the mechanism is and
+which erratum made it conformant.
 
-<!-- gate: fountain py examples/migration/scd_content.py -->
+One substitution remains, and it is the reader's rather than the client's:
+resolution answers only from the endpoint reachable at the DNS name its URIs
+name, so a local copy of the authority is given its advertised paths against
+`$SPATIALDDS_ENDPOINT`. Serve it as the authority to see the real shape:
+
+```sh
+python3 tools/run_gateway.py --mcap samples/fountain-anchors.mcap --port 8787 \
+    --public-url https://demo.spatialdds.org
+```
+
+<!-- gate: authority py examples/migration/scd_content.py -->
 ```console
   Littlefield Fountain marker
-    spatialdds://austin.openarcloud.example/south-mall/content/fountain-marker
+    resolved spatialdds://demo.spatialdds.org/south-mall/content/fountain-marker
     model/gltf+json    https://raw.githubusercontent.com/OpenArCloud/spatialdds-web/main/samples/assets/fountain-marker.gltf
     hash matches committed bytes: True
   Littlefield Fountain label
-    spatialdds://austin.openarcloud.example/south-mall/content/fountain-label
+    resolved spatialdds://demo.spatialdds.org/south-mall/content/fountain-label
     text/plain         https://raw.githubusercontent.com/OpenArCloud/spatialdds-web/main/samples/assets/fountain-label.txt
     hash matches committed bytes: True
 ```
@@ -125,7 +140,8 @@ lands.
 ## How the gate reads this file
 
 Markers like `<!-- gate: fountain py examples/zones.py -->` are not decoration:
-`gates/examples.py` parses them, serves the named recording, runs the example,
-and diffs its stdout against the fence that follows. `$BASE` in an expected
+`gates/examples.py` parses them, serves the named configuration -- `retail`,
+`fountain`, or `authority` -- runs the example, and diffs its stdout against
+the fence that follows. `$BASE` in an expected
 output stands for the endpoint the gate served it from, which is the one thing
 that legitimately varies between a reader's run and the gate's.

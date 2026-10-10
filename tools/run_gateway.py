@@ -27,6 +27,7 @@ from aiohttp import web                                        # noqa: E402
 from spatialdds_web import gateway, gw_http                    # noqa: E402
 
 DEFAULT_MCAP = ROOT / "samples" / "queuing-retail-sample.mcap"
+DEFAULT_MANIFESTS = ROOT / "samples" / "manifests"
 
 
 def main() -> int:
@@ -36,6 +37,12 @@ def main() -> int:
                          "schemas")
     ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--port", type=int, default=8787)
+    ap.add_argument("--manifests", type=Path, default=DEFAULT_MANIFESTS,
+                    help="a directory of content manifests this endpoint is "
+                         "the authority for; each is keyed by the full "
+                         "spatialdds:// URI in its own `id`. Resolution "
+                         "(§7.5.2) is offered only for what is held here, and "
+                         "only when --public-url names their authority.")
     ap.add_argument("--public-url", default=None,
                     help="the URL clients reach this endpoint at, when that "
                          "differs from --host:--port -- behind a reverse "
@@ -49,7 +56,8 @@ def main() -> int:
     if not a.mcap.is_file():
         raise SystemExit(f"no such recording: {a.mcap}")
     token = a.token or secrets.token_urlsafe(24)
-    st = gateway.build_state(a.mcap)
+    st = gateway.build_state(
+        a.mcap, a.manifests if a.manifests and a.manifests.is_dir() else None)
     # The manifest hands clients absolute URLs, so the base has to be the
     # address a client can reach rather than the socket this process bound.
     # Behind a TLS terminator those differ, and the failure is quiet: the
@@ -73,8 +81,30 @@ def main() -> int:
         print(f"  {'':17s}   {len(st.latched_initial.get(res.topic, {})):4d} "
               f"replayed, {len(st.latched.get(res.topic, {})):4d} current, "
               f"{len(st.live.get(res.topic, [])):6d} live")
+    meta = gateway.resolver_metadata(st, base)
+    if meta:
+        print(f"\n  authority   {meta['authority']}, "
+              f"{len(st.manifests)} manifest(s) resolvable")
+    elif st.manifests:
+        # The misconfiguration worth saying plainly rather than leaving as a
+        # 404: the manifests are held, and the endpoint is not reachable under
+        # the name their URIs resolve against.
+        auth = sorted({gateway.uri_authority(u) for u in st.manifests})
+        print(f"\n  authority   none: {len(st.manifests)} manifest(s) held "
+              f"for {', '.join(auth)}, but this endpoint answers as "
+              f"{gateway.base_authority(base)!r}; pass --public-url to serve "
+              f"resolution")
     print(f"\n  discovery   {base}/.well-known/spatialdds/search")
     print(f"  schemas     {base}/.well-known/spatialdds/schemas")
+    if meta:
+        print(f"  resolver    {base}/.well-known/spatialdds/resolver")
+        print(f"  resolve     {meta['https_base']}?uri=<urlencoded>")
+
+    # Flush before handing the process to the event loop. Python
+    # block-buffers stdout when it is not a terminal, so under `docker logs`
+    # or a redirect every line above would sit in the buffer until the
+    # process exited -- a startup banner that appears only after shutdown.
+    sys.stdout.flush()
 
     try:
         web.run_app(gw_http.make_app(st, base, token), host=a.host,

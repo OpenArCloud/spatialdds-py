@@ -62,6 +62,8 @@ latched set complete: 2 zone(s)
 | `GET /.well-known/spatialdds/search?geohash={cell}` | service manifests covering a cell |
 | `GET /.well-known/spatialdds/schemas` | the schema index, one entry per type |
 | `GET /.well-known/spatialdds/schemas/{type}` | one JSON Schema |
+| `GET /.well-known/spatialdds/resolver` | resolver metadata, where the endpoint is an authority |
+| `GET /spatialdds/resolve?uri={urlencoded}` | one `spatialdds://` URI, resolved to its manifest |
 | `GET /{domain}/frames/geo_anchor/v1` | anchors |
 | `GET /{domain}/regions/spatial_zone/v1` | zones |
 | `GET /{domain}/content/content_announce/v1` | content |
@@ -79,7 +81,7 @@ latched set complete: 2 zone(s)
 | [`zones.py`](examples/zones.py) | Six lines: what zones are here. |
 | [`anchors.py`](examples/anchors.py) | Anchors with their method and positional uncertainty. |
 | [`migration/ssd_search.py`](examples/migration/ssd_search.py) | OSCP Spatial Service Discovery, and the search path that replaces it. |
-| [`migration/scd_content.py`](examples/migration/scd_content.py) | OSCP Spatial Content Discovery: announce to manifest to fetched asset. |
+| [`migration/scd_content.py`](examples/migration/scd_content.py) | OSCP Spatial Content Discovery: announce, resolved URI, manifest, asset. |
 
 Every claim here is gated and conformance-tested: see
 [docs/EVIDENCE.md](docs/EVIDENCE.md).

@@ -22,15 +22,32 @@ docker run --rm -p 8787:8787 --read-only \
 | Knob | Default | What it is |
 | --- | --- | --- |
 | `SPATIALDDS_PORT` | `8787` | The port inside the container. |
-| `SPATIALDDS_PUBLIC_URL` | unset | The URL clients reach the endpoint at. |
+| `SPATIALDDS_PUBLIC_URL` | `https://demo.spatialdds.org` | The URL clients reach the endpoint at. |
 | `SPATIALDDS_MCAP` | the fountain recording | The recording to serve. |
+| `SPATIALDDS_MANIFESTS` | `/srv/samples/manifests` | Content manifests this endpoint is the authority for. |
 
-**`SPATIALDDS_PUBLIC_URL` is the one setting that will bite.** A service
-manifest hands clients absolute URLs, and the gateway builds them from this
-value. Leave it unset behind a TLS terminator and the endpoint will answer
-every request correctly while advertising `http://0.0.0.0:8787/...` as the
-address of each of its topics — healthy by every probe, and useless to every
-client. Set it to the public origin, scheme included, no trailing slash.
+**`SPATIALDDS_PUBLIC_URL` is the one setting that will bite,** for two
+reasons. A service manifest hands clients absolute URLs, and the gateway builds
+them from this value: leave it unset behind a TLS terminator and the endpoint
+answers every request correctly while advertising `http://0.0.0.0:8787/...` as
+the address of each of its topics — healthy by every probe, and useless to every
+client.
+
+Second, §7.5.2 makes the authority in a `spatialdds://` URI a DNS name, so this
+value decides whether the endpoint resolves URIs at all. The manifests it holds
+belong to `demo.spatialdds.org`; deployed under any other name the endpoint
+holds them and correctly refuses to resolve them, answering `404
+not-an-authority` from the resolver path. That is conformant and it is not what
+you want. The startup banner distinguishes the two cases in as many words:
+
+```
+  authority   demo.spatialdds.org, 2 manifest(s) resolvable
+  authority   none: 2 manifest(s) held for demo.spatialdds.org, but this
+              endpoint answers as '0.0.0.0:8787'; pass --public-url to serve
+              resolution
+```
+
+Set it to the public origin, scheme included, no trailing slash.
 
 No credentials. Everything this recording serves is public-cacheable, so there
 is no bearer token to provision, rotate, or leak. `run_gateway.py` still
@@ -84,8 +101,22 @@ curl -s "$BASE/ut-austin-south-mall/content/content_announce/v1" \
   | python3 -c 'import json,sys; [print(a["manifest_uri"]) for a in json.load(sys.stdin)]'
 ```
 
-Both manifest URIs should appear. The `spatialdds://` scheme in them does not
-resolve yet and is not expected to; see [docs/RESOLUTION.md](../docs/RESOLUTION.md).
+Both manifest URIs should appear, and both now resolve. Follow one the way a
+client does — read the advertised `https_base`, then `GET` the URI against it:
+
+```sh
+RESOLVE=$(curl -s "$BASE/.well-known/spatialdds/resolver" \
+  | python3 -c 'import json,sys; print(json.load(sys.stdin)["https_base"])')
+curl -sD - -o /dev/null --get "$RESOLVE" \
+  --data-urlencode "uri=spatialdds://demo.spatialdds.org/south-mall/content/fountain-marker" \
+  | tr -d '\r' | grep -iE '^(HTTP|cache-control|etag)'
+```
+
+A `200` with `Cache-Control: public, max-age=86400` — the manifest's own
+`ttl_sec`, not the endpoint's 300-second default — and an `ETag` that is the
+canonical digest. A `404 not-an-authority` here means
+`SPATIALDDS_PUBLIC_URL` is wrong; see above. Mechanism and rationale in
+[docs/RESOLUTION.md](../docs/RESOLUTION.md).
 
 ## Expected footprint
 
@@ -94,7 +125,7 @@ served by the clean dependency set the Dockerfile installs:
 
 | | |
 | --- | --- |
-| Image payload | 1.1 MB (112 schemas, the 100 KB recording, five Python modules) |
+| Image payload | 1.1 MB (112 schemas, the 100 KB recording, two manifests, five Python modules) |
 | Base image | `python:3.12-slim` plus `aiohttp` and `mcap` |
 | Resident memory | 42.6 MB idle, 44.3 MB after 200 requests |
 | Writable state | none; runs with `--read-only` and as a non-root user |
@@ -118,7 +149,12 @@ Checked here, without a network:
   replicated into an otherwise empty tree, and the endpoint was served from
   that tree alone under a clean virtual environment holding only `aiohttp` and
   `mcap`: discovery 200, all 112 schemas listed and one fetched by the index's
-  own URL with its digest, anchors 200.
+  own URL with its digest, anchors 200, and a `spatialdds://` URI resolved 200
+  through the advertised `https_base`.
+- The startup banner reaches the log. Python block-buffers stdout when it is
+  not a terminal, so every line of it used to sit in the buffer until the
+  process exited — invisible under `docker logs`, which is the only place it
+  would have been read. It is flushed before the event loop starts.
 - The documented install line works from empty. `pip install requests
   websockets aiohttp mcap` into a fresh venv, then the examples run.
 - `--public-url` rewrites every advertised URL, confirmed by reading the

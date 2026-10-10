@@ -82,7 +82,7 @@ def _problem(status: int, slug: str, title: str, detail: str,
                         headers={"Cache-Control": "no-store"})
 
 
-def _cache_headers(access: str) -> dict[str, str]:
+def _cache_headers(access: str, doc_ttl: int | None = None) -> dict[str, str]:
     """Cacheability, reach, and auth decided together or not at all.
 
     The CORS header lives in this branch rather than in a middleware for the
@@ -98,13 +98,20 @@ def _cache_headers(access: str) -> dict[str, str]:
     failing to report what it measures.
     """
     if access == gateway.PUBLIC:
-        return {"Cache-Control": f"public, max-age={gateway.PUBLIC_MAX_AGE}",
+        # N.4: where a public-cacheable resource is a manifest carrying its own
+        # `ttl_sec`, that document-level lifetime (§7.5.2) governs its
+        # `max-age` in place of the access class's default.
+        age = gateway.PUBLIC_MAX_AGE if doc_ttl is None else doc_ttl
+        return {"Cache-Control": f"public, max-age={age}",
                 "Access-Control-Allow-Origin": "*",
                 "Access-Control-Expose-Headers":
                     "ETag, X-SpatialDDS-Topic, X-SpatialDDS-Type, "
                     "X-SpatialDDS-Access"}
     # Operator-scoped. Never cacheable and never CORS-open, by the same
-    # decision that gated it.
+    # decision that gated it. `doc_ttl` is ignored here deliberately: N.4
+    # grants no lifetime to a gated resource whatever `ttl_sec` it carries,
+    # because the cache that would honour it is the shared one the gate exists
+    # to keep the body out of.
     return {"Cache-Control": "no-store", "Vary": "Authorization"}
 
 
@@ -125,10 +132,12 @@ def _unauthorized(instance: str | None = None) -> web.Response:
 
 
 def _json_response(request: web.Request, doc: Any, access: str,
-                   extra: dict[str, str] | None = None) -> web.Response:
+                   extra: dict[str, str] | None = None,
+                   doc_ttl: int | None = None) -> web.Response:
     """One JSON resource, with its ETag, its cache class, and 304 handling."""
     etag = _etag(doc)
-    headers = {"ETag": etag, **_cache_headers(access), **(extra or {})}
+    headers = {"ETag": etag, **_cache_headers(access, doc_ttl),
+               **(extra or {})}
     if request.headers.get("If-None-Match", "") == etag:
         return web.Response(status=304, headers=headers)
     return web.Response(body=_body(doc), status=200,
@@ -206,24 +215,108 @@ async def search(request: web.Request) -> web.Response:
 
 
 async def no_dds(request: web.Request) -> web.Response:
-    """`bootstrap` and `resolver` on a deployment with no DDS behind it.
+    """`bootstrap` on a deployment with no DDS behind it.
 
-    Both exist to hand a client the parameters for joining a DDS domain. This
+    It exists to hand a client the parameters for joining a DDS domain. This
     endpoint is the binding's standalone shape and has no domain, no peers and
     no partitions, so there is nothing truthful to put in a bootstrap manifest.
     404 is what §3.3.0 already defines for a well-known path an authority does
     not support, and a fabricated `domain_id` would be worse than an absence.
-    See WEB-BINDING-FINDINGS.md: the conformance suite must not require these
-    of a standalone endpoint, or the backend-blind invariant cannot hold.
+
+    `resolver` used to share this handler and this reason. It no longer does:
+    N.2's erratum separates them, because resolver metadata is an authority's
+    URI-resolution entry point and was never bootstrap material. Serving the
+    DDS reason from that path was finding 20.
     """
     return _problem(
         404, "no-dds-domain", "Not supported by this authority",
         "This endpoint is a standalone web-binding gateway with no DDS domain "
         "behind it, so it has no bootstrap parameters to publish. Appendix "
-        "N.2: these paths are required only of an endpoint that offers DDS "
-        "access, and a 404 from them is conformant.",
+        "N.2: bootstrap is required only of an endpoint that offers DDS "
+        "access, and a 404 from it is conformant.",
         instance=str(request.rel_url),
         served=[f"{WELL_KNOWN}/search", f"{WELL_KNOWN}/schemas"])
+
+
+async def resolver(request: web.Request) -> web.Response:
+    """§7.5.2 resolver metadata, for the URIs this endpoint is authority for.
+
+    N.2, as amended: REQUIRED of an endpoint that is an authority for the
+    `spatialdds://` URIs it can resolve; a 404 is conformant from an endpoint
+    that is not such an authority, which includes every endpoint holding no
+    manifests.
+    """
+    st: gateway.State = request.app["state"]
+    base = request.app["base"]
+    doc = gateway.resolver_metadata(st, base)
+    if doc is None:
+        return _problem(
+            404, "not-an-authority", "Not an authority for any SpatialDDS URI",
+            f"This endpoint holds no manifest whose URI authority is "
+            f"{gateway.base_authority(base) or 'this host'!r}, so it is not an "
+            f"authority for any spatialdds:// URI and publishes no resolver "
+            f"metadata. Appendix N.2: a 404 here is conformant.",
+            instance=str(request.rel_url), held=len(st.manifests))
+    return _json_response(request, doc, gateway.PUBLIC)
+
+
+async def resolve(request: web.Request) -> web.Response:
+    """§7.5.2 HTTPS resolution: one URI in, the manifest it names out.
+
+    Errors are the codes §7.5.3 pins: 400 for a URI this is not, 404 for one
+    this endpoint does not answer for or does not hold. The two 404 cases are
+    deliberately indistinguishable in status and distinguished in the body: a
+    client treats both as failure (§7.5.1), and an operator reading a log
+    wants to know which.
+    """
+    st: gateway.State = request.app["state"]
+    base = request.app["base"]
+    if gateway.resolver_metadata(st, base) is None:
+        return _problem(
+            404, "not-an-authority", "Not an authority for any SpatialDDS URI",
+            "This endpoint publishes no resolver metadata, so it resolves "
+            "nothing. Appendix N.2.",
+            instance=str(request.rel_url))
+
+    uri = request.query.get("uri", "")
+    if not uri:
+        return _problem(
+            400, "no-uri", "No URI to resolve",
+            "§7.5.2 resolves a URI passed as the `uri` query parameter, "
+            "percent-encoded. There was none.",
+            instance=str(request.rel_url))
+    if not gateway.uri_authority(uri):
+        return _problem(
+            400, "not-a-spatialdds-uri", "Not a resolvable SpatialDDS URI",
+            f"A SpatialDDS URI is {gateway.SCHEME}authority/... per Appendix "
+            f"F; {uri!r} has no authority to resolve against.",
+            instance=str(request.rel_url), uri=uri)
+
+    mine = gateway.base_authority(base)
+    theirs = gateway.uri_authority(uri)
+    if theirs != mine:
+        return _problem(
+            404, "foreign-authority", "Another authority's URI",
+            f"This endpoint is the authority for {mine!r} and will not answer "
+            f"for {theirs!r}. §7.5.2 resolves a URI against its own "
+            f"authority's host; answering for a namespace this endpoint does "
+            f"not own would be a fabrication, not a convenience.",
+            instance=str(request.rel_url), uri=uri, authority=theirs)
+
+    doc = st.manifests.get(uri)
+    if doc is None:
+        return _problem(
+            404, "no-such-manifest", "No manifest for that URI",
+            f"This endpoint is the authority for {mine!r} but holds no "
+            f"manifest with that id. §7.5.3: 404 is not found.",
+            instance=str(request.rel_url), uri=uri,
+            held=sorted(st.manifests))
+
+    # N.4, as amended: the document's own `ttl_sec` governs its max-age.
+    ttl = doc.get("ttl_sec")
+    return _json_response(request, doc, gateway.PUBLIC,
+                          extra={"X-SpatialDDS-Access": gateway.PUBLIC},
+                          doc_ttl=ttl if isinstance(ttl, int) else None)
 
 
 # ---- latched resources -----------------------------------------------------
@@ -357,7 +450,8 @@ def make_app(state: gateway.State, base: str,
         web.get(f"{WELL_KNOWN}/search", search),
         web.post(f"{WELL_KNOWN}/search", search),
         web.get(f"{WELL_KNOWN}/bootstrap", no_dds),
-        web.get(f"{WELL_KNOWN}/resolver", no_dds),
+        web.get(f"{WELL_KNOWN}/resolver", resolver),
+        web.get(gateway.RESOLVE_PATH, resolve),
         # The latched-resource pattern: the on-bus topic name with
         # `spatialdds/` removed, collection then instance.
         web.get("/{scene}/{stream}/{type}/{version}", collection),

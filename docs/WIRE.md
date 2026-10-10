@@ -161,20 +161,39 @@ no anchor type can reference content. That is written up as entry 2 of the
 skips — the scenario reads "fetch an anchor's asset by reference", and the
 reference has nowhere to live yet.
 
-The reference chain that does work, with every link gated:
+**The sample's content host and its URI authority coincide by construction.**
+The recording's URIs are `spatialdds://demo.spatialdds.org/...`, and
+`demo.spatialdds.org` is also the endpoint that serves the content — which is
+what lets the sample resolve its own URIs end to end. Real deployments
+routinely split the two: the authority that owns a namespace and the host that
+serves a given asset need not be the same organisation, let alone the same
+machine. A federated demo with two authorities, where resolution crosses a host
+boundary, is future work and is not what this recording shows.
+
+Note that `authority` is deliberately not `org`: the publisher is OpenArCloud,
+the resolving authority is the demo host. §7.5.2 makes the authority a DNS name
+a client resolves against, so it is a deployment fact and not an identity.
+
+The reference chain, with every link gated and none of them a fixture:
 
 ```
 GET the content announce  ->  manifest_uri (spatialdds://…)
-  ->  the content manifest  ->  assets[].uri and assets[].hash
-    ->  samples/assets/fountain-marker.gltf, compared byte for byte
+  ->  GET /.well-known/spatialdds/resolver   ->  https_base
+    ->  GET {https_base}?uri=…               ->  the content manifest
+      ->  assets[].uri and assets[].hash
+        ->  samples/assets/fountain-marker.gltf, compared byte for byte
 ```
 
-One link in the gate is a fixture and is labelled as one: this endpoint
-publishes no resolver, so `gates/content_resolution.py` maps the URI to a
-committed manifest itself. That mapping is a test fixture, not a wire
-convention — an undocumented construction rule is a dialect. The asset URLs
-point at `raw.githubusercontent.com` and resolve only once the commit is
-pushed, so the gate byte-compares against the committed file and says so.
+The middle two steps used to be a gate-local mapping from the URI's last path
+segment to a committed file, labelled a fixture because that is what it was: an
+undocumented construction rule is a dialect. It is gone. The gateway implements
+§7.5.2 resolution for the manifests it holds, and
+`gates/content_resolution.py` learns the resolve URL the way a client does, by
+reading the advertised metadata. See [`RESOLUTION.md`](RESOLUTION.md).
+
+The asset URLs point at `raw.githubusercontent.com` and resolve only once the
+commit is pushed, so the gate byte-compares against the committed file and says
+so; `--remote` fetches them for real as the post-push check.
 
 The authoring tool needs a specification checkout for the IDL it embeds
 (`--idl`), because the recording carries its own flattened IDL exactly as the
