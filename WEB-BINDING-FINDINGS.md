@@ -503,3 +503,52 @@ the field it was written for.
 
 All three are spec-side, and the sample directive held the specification
 read-only, so none is changed here.
+
+### 16. The well-known discovery topics have no Appendix N path
+
+Appendix N.3 maps a resource path one-to-one onto the §3.3.1 topic grammar,
+`spatialdds/<domain>/<stream>/<type>/<version>` — five segments. §3.3's
+well-known discovery topics have four:
+
+```
+spatialdds/discovery/announce/v1                4 segments
+spatialdds/discovery/depart/v1                  4 segments
+spatialdds/<domain>/<stream>/<type>/<version>   5 segments
+```
+
+So `Announce` and `Depart` on their well-known topics cannot be addressed as
+latched web resources at all, and for a gateway fronting a real bus the
+announce lane is among the first things a web client would want. This sample
+sidesteps it by scoping its announce to the domain,
+`spatialdds/<domain>/discovery/announce/v1`, which is within the §3.3.1 grammar
+and is served; a bridged gateway reading the well-known topic has no such
+option.
+
+*Smallest change:* N.3 states how a topic with fewer than five segments is
+mapped — most simply, that a well-known discovery topic is served at
+`{base}/.well-known/spatialdds/<stream>/<type>/<version>`, keeping the
+well-known namespace for well-known topics.
+
+### 17. `TopicMeta` cannot carry the durability N.7 requires
+
+Appendix N.7 makes `durability` REQUIRED on a manifest topic entry, carrying
+`"VOLATILE"` or `"TRANSIENT_LOCAL"`. A gateway fronting a bus builds that entry
+from `Announce.topics`, which is `TopicMeta`:
+
+```
+TopicMeta: name, type, version, qos_profile, target_rate_hz, max_chunk_bytes
+```
+
+No durability member. `qos_profile` is a free-form profile name, which is the
+very overload finding 10's flag-6 resolution removed from the manifest — so the
+bridged shape has nowhere to read durability from and cannot populate a REQUIRED
+field without inventing one.
+
+This gateway does not hit it: it derives the topic list from what it serves and
+knows each resource's durability from its own table. A bridged gateway would
+hit it immediately, and the bridged shape is the half of certification still
+unexercised.
+
+*Smallest change:* `string durability` appended to `TopicMeta`, APPENDABLE,
+taking the same two DDS kinds, so the bus type can say what the manifest must.
+A 1.9 candidate rather than an erratum, since it changes the wire.

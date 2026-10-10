@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Iterable
@@ -359,6 +360,56 @@ def scene_bbox(st: State, scene: str) -> tuple[float, float, float, float] | Non
     return min(lons), min(lats), max(lons), max(lats)
 
 
+def coverage_bbox(cov: dict) -> tuple[float, float, float, float] | None:
+    """A coverage element as a bbox, deriving one from a circle if need be.
+
+    §3.3.4: "For intersects evaluation a circle MAY be approximated by its
+    bounding box." Producers are told to prefer the circle so a consumer can
+    recover the exact footprint; evaluating overlap against the enclosing box
+    is the permitted approximation, and it errs by over-reporting, which is the
+    safe direction for a search hint.
+    """
+    if cov.get("has_bbox") and cov.get("bbox"):
+        b = cov["bbox"]
+        return float(b[0]), float(b[1]), float(b[2]), float(b[3])
+    if cov.get("has_circle"):
+        lon, lat, _alt = cov["circle_center"]
+        r = float(cov["circle_radius_m"])
+        dlat = r / 111320.0
+        dlon = r / max(111320.0 * math.cos(math.radians(float(lat))), 1e-9)
+        return (float(lon) - dlon, float(lat) - dlat,
+                float(lon) + dlon, float(lat) + dlat)
+    return None
+
+
+def declared_coverage(st: State, scene: str) -> list[dict] | None:
+    """The coverage a recorded `Announce` declares for this scene, if any.
+
+    **Declared beats derived.** An announce in the recording is the producer
+    saying what it covers; coverage computed from the resources the gateway
+    happens to serve is an inference about the same thing. When the producer
+    has spoken, serve what it said.
+    """
+    for res in st.resources.values():
+        if res.scene != scene or res.fqn != "spatial.disco.Announce":
+            continue
+        for inst in st.latched.get(res.topic, {}).values():
+            cov = inst.data.get("coverage") or []
+            if cov:
+                return cov
+    return None
+
+
+def declared_service(st: State, scene: str) -> dict | None:
+    """The identity fields a recorded `Announce` declares, if any."""
+    for res in st.resources.values():
+        if res.scene != scene or res.fqn != "spatial.disco.Announce":
+            continue
+        for inst in st.latched.get(res.topic, {}).values():
+            return inst.data
+    return None
+
+
 def service_manifest(st: State, scene: str, base: str) -> dict:
     """The §8.2.3 service manifest for one scene.
 
@@ -420,11 +471,46 @@ def service_manifest(st: State, scene: str, base: str) -> dict:
             "features": ["spatial.owm/0.1", "web-binding/json"],
         },
     }
-    bbox = scene_bbox(st, scene)
-    if bbox is not None:
-        man["coverage"] = {"frame_ref": {"uuid": "", "fqn": "earth-fixed"},
-                           "has_bbox": True, "bbox": list(bbox),
-                           "global": False}
+    # Declared beats derived. A recorded Announce states the producer's own
+    # identity and footprint; synthesis is the fallback for a recording that
+    # carries none. The topic list stays derived either way: the gateway knows
+    # what it actually serves, and `TopicMeta` cannot carry the `durability`
+    # that N.7 requires of a manifest topic entry.
+    decl = declared_service(st, scene)
+    if decl:
+        svc = man["service"]
+        for src, dst in (("service_id", "service_id"), ("name", "name"),
+                         ("kind", "kind"), ("org", "org"),
+                         ("version", "version")):
+            if decl.get(src):
+                svc[dst] = decl[src]
+        if decl.get("manifest_uri"):
+            man["id"] = decl["manifest_uri"]
+        caps = decl.get("caps") or {}
+        if caps.get("features"):
+            man["caps"]["features"] = sorted(
+                set(man["caps"]["features"]) | set(caps["features"]))
+    cov = (declared_coverage(st, scene) or [None])[0]
+    if cov is not None:
+        block = {"frame_ref": {"uuid": "", "fqn": "earth-fixed"},
+                 "global": bool(cov.get("global"))}
+        if cov.get("has_circle"):
+            block["has_circle"] = True
+            block["circle_center"] = list(cov["circle_center"])
+            block["circle_radius_m"] = cov["circle_radius_m"]
+            block["has_bbox"] = False
+        elif cov.get("has_bbox"):
+            block["has_bbox"] = True
+            block["bbox"] = list(cov["bbox"])
+        man["coverage"] = block
+        man["service"]["coverage_declared"] = True
+    else:
+        bbox = scene_bbox(st, scene)
+        if bbox is not None:
+            man["coverage"] = {"frame_ref": {"uuid": "", "fqn": "earth-fixed"},
+                               "has_bbox": True, "bbox": list(bbox),
+                               "global": False}
+            man["service"]["coverage_declared"] = False
     return man
 
 
@@ -449,8 +535,8 @@ def search(st: State, base: str, geohash: str | None = None,
             continue
         if wanted:
             cov = man.get("coverage")
-            if not cov or not any(intersects(tuple(cov["bbox"]), w)
-                                  for w in wanted):
+            box = coverage_bbox(cov) if cov else None
+            if box is None or not any(intersects(box, w) for w in wanted):
                 continue
         results.append(man)
     return {"results": results, "next_page_token": ""}

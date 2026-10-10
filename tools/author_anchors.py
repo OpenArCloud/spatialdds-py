@@ -56,6 +56,7 @@ CLOSURES = {
     "spatial::core::GeoAnchor": ["types.idl", "core.idl"],
     "spatial::disco::ContentAnnounce": ["types.idl", "core.idl",
                                         "discovery.idl"],
+    "spatial::disco::Announce": ["types.idl", "core.idl", "discovery.idl"],
 }
 PREAMBLE = """// Flattened for the MCAP schema payload: includes resolved and
 // preprocessor directives removed, so this is a single
@@ -140,6 +141,59 @@ def coverage_circle(lat: float, lon: float, alt: float, radius_m: float,
     }
 
 
+def announce(svc: dict, fr: dict, stamp: dict, authority: str,
+             topics: list[dict]) -> dict:
+    """The service announce, with coverage the author declared.
+
+    Its circle is a **declared** footprint: a person stated the centre and the
+    radius in the input, which is the case §3.3.4 prefers the circle form for.
+    Coverage the gateway computes from the resources it happens to serve is a
+    different thing and uses the parameter-free enclosure instead; see the
+    README.
+
+    A recording carrying no Announce leaves a bus consumer with content and no
+    discoverable service: web-complete and bus-incomplete. The recording is the
+    interface, so the announce belongs in it.
+    """
+    c = svc["coverage_circle"]
+    cov = coverage_circle(c["center_lat"], c["center_lon"], c["center_alt_m"],
+                          c["radius_m"], fr)
+    return {
+        "service_id": svc["service_id"],
+        "name": svc["name"],
+        "kind": svc["kind"],
+        "version": svc["version"],
+        "org": svc["org"],
+        "hints": [],
+        "caps": {
+            "supported_profiles": [
+                {"name": n, "major": 1, "min_minor": 8, "max_minor": 8}
+                for n in ("spatial.core", "spatial.disco")],
+            "preferred_profiles": [],
+            "features": ["web-binding/json"],
+        },
+        "topics": topics,
+        "coverage": [cov],
+        "coverage_frame_ref": fr,
+        "has_coverage_eval_time": False,
+        "coverage_eval_time": {"sec": 0, "nanosec": 0},
+        "transforms": [],
+        "manifest_uri": f"spatialdds://{authority}/south-mall/service/"
+                        f"{svc['service_id']}",
+        "auth_hint": svc.get("auth_hint", ""),
+        "stamp": stamp,
+        "ttl_sec": svc.get("ttl_sec", 86400),
+        "coverage_source_ids": [],
+    }
+
+
+def topic_meta(name: str, type_seg: str, version: str) -> dict:
+    """A TopicMeta row. Note it has no durability member: Appendix N.7 requires
+    one on a *manifest* topic entry, and the bus type cannot carry it."""
+    return {"name": name, "type": type_seg, "version": version,
+            "qos_profile": "", "target_rate_hz": 0.0, "max_chunk_bytes": 0}
+
+
 def content_announce(c: dict, anchor: dict, fr: dict, stamp: dict,
                      authority: str, provider: str) -> dict:
     g = anchor["geopose"]
@@ -196,14 +250,26 @@ def main() -> int:
     dec = xcdr2.Decoder(model)
 
     anchors = {x["anchor_id"]: x for x in doc["anchors"]}
+    anchor_topic = f"spatialdds/{domain}/frames/geo_anchor/v1"
+    content_topic = f"spatialdds/{domain}/content/content_announce/v1"
     rows: list[tuple[str, str, dict]] = []
+    if "service" in doc:
+        # Scene-scoped, so the topic has the five segments §3.3.1 defines and
+        # Appendix N.3 maps to a path. §3.3's well-known `spatialdds/discovery/
+        # announce/v1` has four and therefore no N.3 path at all, which is a
+        # reported finding.
+        rows.append((f"spatialdds/{domain}/discovery/announce/v1",
+                     "spatial::disco::Announce",
+                     announce(doc["service"], fr, stamp, doc["authority"],
+                              [topic_meta(anchor_topic, "geo_anchor", "v1"),
+                               topic_meta(content_topic, "content_announce",
+                                          "v1")])))
     for x in doc["anchors"]:
-        rows.append((f"spatialdds/{domain}/frames/geo_anchor/v1",
-                     "spatial::core::GeoAnchor", geo_anchor(x, fr, stamp)))
+        rows.append((anchor_topic, "spatial::core::GeoAnchor",
+                     geo_anchor(x, fr, stamp)))
     for c in doc["content"]:
         at = anchors[c["at_anchor"]]
-        rows.append((f"spatialdds/{domain}/content/content_announce/v1",
-                     "spatial::disco::ContentAnnounce",
+        rows.append((content_topic, "spatial::disco::ContentAnnounce",
                      content_announce(c, at, fr, stamp, doc["authority"],
                                       doc["provider_id"])))
 

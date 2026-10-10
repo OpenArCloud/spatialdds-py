@@ -49,20 +49,25 @@ async def run() -> int:
                    if r.fqn == "spatial.core.GeoAnchor"]
         content = [r for r in st.resources.values()
                    if r.fqn == "spatial.disco.ContentAnnounce"]
-        checks.append(("the recording yields one anchor resource and one "
-                       "content resource",
-                       len(anchors) == 1 and len(content) == 1,
-                       f"{len(anchors)} anchor, {len(content)} content"))
-        checks.append(("both are latched, so both are GET resources",
-                       all(r.latched for r in anchors + content), ""))
-        checks.append(("both are public, needing no credential: an anchor and "
-                       "a content announce describe places, not people",
+        svc = [r for r in st.resources.values()
+               if r.fqn == "spatial.disco.Announce"]
+        checks.append(("the recording yields one anchor, one content and one "
+                       "service-announce resource",
+                       len(anchors) == 1 and len(content) == 1
+                       and len(svc) == 1,
+                       f"{len(anchors)} anchor, {len(content)} content, "
+                       f"{len(svc)} announce"))
+        checks.append(("all three are latched, so all three are GET resources",
+                       all(r.latched for r in anchors + content + svc), ""))
+        checks.append(("all three are public, needing no credential: an "
+                       "anchor, a content announce and a service announce "
+                       "describe places, not people",
                        all(r.access == gateway.PUBLIC
-                           for r in anchors + content), ""))
+                           for r in anchors + content + svc), ""))
 
         n_inst = n_valid = 0
         bad_etag, bad_valid, bad_instance = [], [], []
-        for res in anchors + content:
+        for res in anchors + content + svc:
             async with s.get(gw.base + res.path) as r:
                 code = r.status
                 coll_etag = r.headers.get("ETag", "")
@@ -127,23 +132,52 @@ async def run() -> int:
                        f"{len(found.get('results', []))} result(s)"))
         if found.get("results"):
             cov = found["results"][0].get("coverage") or {}
-            b = cov.get("bbox") or []
-            inside = (len(b) == 4 and b[0] <= clon <= b[2]
-                      and b[1] <= clat <= b[3])
-            checks.append(("the advertised coverage contains the anchors it "
-                           "was derived from",
-                           bool(cov.get("has_bbox")) and inside,
-                           f"coverage {cov}"))
+            box = gateway.coverage_bbox(cov)
+            inside = (box is not None and box[0] <= clon <= box[2]
+                      and box[1] <= clat <= box[3])
+            checks.append(("the advertised coverage contains the anchors, "
+                           "whichever form it takes",
+                           inside, f"coverage {cov} -> {box}"))
             topics = found["results"][0]["service"]["topics"]
             kinds = {t["type"] for t in topics}
-            checks.append((f"the manifest lists both topics with URLs "
+            checks.append((f"the manifest lists every served topic with a URL "
                            f"({sorted(kinds)})",
-                           kinds == {"geo_anchor", "content_announce"}
+                           kinds == {"geo_anchor", "content_announce",
+                                     "announce"}
                            and all(t.get("url") for t in topics), ""))
             checks.append(("both are advertised TRANSIENT_LOCAL",
                            all(t.get("durability") == "TRANSIENT_LOCAL"
                                for t in topics),
                            f"{[t.get('durability') for t in topics]}"))
+
+        # Declared beats derived, and the declared footprint must not
+        # under-report what it covers.
+        if found.get("results"):
+            man = found["results"][0]
+            cov = man.get("coverage") or {}
+            checks.append(("the manifest serves the recording's declared "
+                           "coverage rather than a derived enclosure",
+                           man["service"].get("coverage_declared") is True
+                           and cov.get("has_circle") is True,
+                           f"declared={man['service'].get('coverage_declared')} "
+                           f"cov={cov}"))
+            checks.append(("the declared coverage is a circle, which is honest "
+                           "because a person stated its centre and radius",
+                           cov.get("has_circle") and not cov.get("has_bbox"),
+                           f"{cov}"))
+            declared = gateway.coverage_bbox(cov)
+            derived = gateway.scene_bbox(st, st.scenes[0])
+            encloses = (declared is not None and derived is not None
+                        and declared[0] <= derived[0] and declared[1] <= derived[1]
+                        and declared[2] >= derived[2] and declared[3] >= derived[3])
+            checks.append(("the declared coverage encloses the enclosure the "
+                           "gateway would have derived: a declared footprint "
+                           "smaller than the resources it covers is an "
+                           "under-report, and that is the one direction "
+                           "coverage must never err",
+                           encloses,
+                           f"declared {declared} does not contain derived "
+                           f"{derived}"))
 
         # A far-away cell must not match: coverage that matches everything is
         # not coverage.

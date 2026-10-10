@@ -156,6 +156,24 @@ announce carries a coverage circle — the circle form, because §3.3.4 says a
 producer SHOULD prefer it "so consumers can recover the exact footprint" rather
 than hand-computing a box.
 
+**Declared coverage states a shape; derived coverage encloses one.** The
+recording's service announce carries a circle, because a person stated its
+centre and radius in the input — that is the case §3.3.4 prefers the circle
+form for, a footprint someone chose. Coverage the gateway computes from the
+resources it happens to serve is a different thing, and uses the
+parameter-free enclosure: the bounding box of a point set involves no invented
+decision, whereas a circle over those same points would require picking a
+centre and a radius that nothing declared. One rule covers both every time
+coverage is computed rather than authored.
+
+**And declared beats derived.** When the recording carries an announce, the
+gateway serves the producer's own identity and footprint; synthesis is the
+fallback for a recording that carries none. The topic list stays derived
+either way, because the gateway knows what it actually serves. A gate asserts
+that the declared footprint encloses the one the gateway would have derived: a
+declared coverage smaller than the resources it covers is an under-report, and
+that is the one direction coverage must never err.
+
 Anchor-attached assets are a separate capability, and 1.8 has no field for it:
 no anchor type can reference content. That is written up as entry 2 of the
 1.9 candidates, and it is why the conformance suite's §8.2 scenario still
