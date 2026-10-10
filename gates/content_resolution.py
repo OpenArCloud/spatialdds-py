@@ -26,6 +26,7 @@ Usage:  gates/content_resolution.py
 """
 from __future__ import annotations
 
+import argparse
 import asyncio
 import hashlib
 import json
@@ -51,12 +52,45 @@ def resolve_fixture(uri: str) -> Path:
     return MANIFESTS / f"content-{uri.rstrip('/').split('/')[-1]}.json"
 
 
-async def run() -> int:
+async def fetch_remote(urls: dict[str, Path]) -> int:
+    """Fetch each asset's published URL and compare it to the committed file.
+
+    Only meaningful after the commit is pushed, which is why it is a flag and
+    not part of the default run: a gate that needs the network to pass is a
+    gate that fails on a train.
+    """
+    checks: list[tuple[str, bool, str]] = []
+    async with aiohttp.ClientSession() as s:
+        for url, committed in sorted(urls.items()):
+            want = committed.read_bytes()
+            try:
+                async with s.get(url, timeout=aiohttp.ClientTimeout(total=30)) as r:
+                    code, body = r.status, await r.read()
+            except Exception as e:
+                checks.append((f"{committed.name}: fetched from its published "
+                               f"URL", False, f"{type(e).__name__}: {e}"))
+                continue
+            checks.append((f"{committed.name}: fetched 200 from its published "
+                           f"URL ({len(body)} bytes)", code == 200,
+                           f"status {code}"))
+            checks.append((f"{committed.name}: the published bytes are the "
+                           f"committed bytes",
+                           body == want,
+                           f"remote sha256 "
+                           f"{hashlib.sha256(body).hexdigest()[:16]}…, "
+                           f"committed "
+                           f"{hashlib.sha256(want).hexdigest()[:16]}…"))
+    return report("remote asset resolution", checks,
+                  "every published asset URL serves the committed bytes")
+
+
+async def run(remote: bool = False) -> int:
     st = state(MCAP)
     gw = await Gateway(st).start()
     checks: list[tuple[str, bool, str]] = []
     resolved = 0
 
+    remote_urls: dict[str, Path] = {}
     async with aiohttp.ClientSession() as s:
         res = next((r for r in st.resources.values()
                     if r.fqn == "spatial.disco.ContentAnnounce"), None)
@@ -123,6 +157,7 @@ async def run() -> int:
             checks.append((f"{cid}: media_type is stated "
                            f"({a0.get('media_type')})",
                            bool(a0.get("media_type")), ""))
+            remote_urls[a0["uri"]] = committed
             resolved += 1
 
         # The content announce's coverage must sit on the anchor it describes,
@@ -154,9 +189,18 @@ async def run() -> int:
     print(f"  note the asset URLs point at raw.githubusercontent.com and "
           f"resolve only after this commit is pushed; the byte comparison "
           f"above is against the committed file.\n")
-    return report(f"content resolution {MCAP.name}", checks,
-                  "a served reference ends in a real file")
+    rc = report(f"content resolution {MCAP.name}", checks,
+                "a served reference ends in a real file")
+    if remote:
+        print()
+        rc = await fetch_remote(remote_urls) or rc
+    return rc
 
 
 if __name__ == "__main__":
-    sys.exit(asyncio.run(run()))
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--remote", action="store_true",
+                    help="also fetch each asset's published URL and compare "
+                         "it to the committed file; only meaningful once the "
+                         "commit is pushed")
+    sys.exit(asyncio.run(run(ap.parse_args().remote)))

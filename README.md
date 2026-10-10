@@ -35,6 +35,26 @@ is the input and the interface. Nothing here is specific to what produced it.
 python3 tools/run_gateway.py --mcap /path/to/your.mcap
 ```
 
+**A complete XCDR2 implementation, read and write.** `spatialdds_web/xcdr2.py`
+carries a `Reader` and a `Writer`, in one file so the wire rules are stated once
+and cannot drift into disagreeing about alignment or delimiters. Both are
+validated against the reference implementation rather than against each other:
+the reader decodes all 15,676 messages of the retail recording to JSON
+identical to a CycloneDDS-based decoder's, and the writer re-encodes all 15,676
+**byte-identically to what CycloneDDS originally wrote**.
+
+Two wire truths it was expensive to learn, both recorded permanently in that
+module: XCDR2 caps primitive alignment at four bytes, not at the type's size,
+so an 8-byte double is 4-aligned; and a delimited aggregate's DHEADER is
+patched in place rather than written to a sub-buffer, because alignment is
+measured from the start of the message and a sub-buffer pads differently than
+its contents will sit.
+
+That makes this repository the seed of two things beyond the gateway: the
+binding's client library, and the future publish path. `tools/author_anchors.py`
+is the first use of the writer, and the shape of its input is evidence for what
+a write API can honestly accept.
+
 **The recording describes itself, and this reads it.** The wire layout comes
 from the IDL embedded in the file's schema records. The instance key of a
 latched resource is the member that IDL marks `@key`. The resource paths are
