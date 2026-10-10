@@ -36,6 +36,11 @@ def main() -> int:
                          "schemas")
     ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--port", type=int, default=8787)
+    ap.add_argument("--public-url", default=None,
+                    help="the URL clients reach this endpoint at, when that "
+                         "differs from --host:--port -- behind a reverse "
+                         "proxy or TLS terminator it always does. Every URL "
+                         "in a service manifest is built from it.")
     ap.add_argument("--token", default=None,
                     help="bearer token for operator-scoped resources; "
                          "generated if not given")
@@ -45,11 +50,18 @@ def main() -> int:
         raise SystemExit(f"no such recording: {a.mcap}")
     token = a.token or secrets.token_urlsafe(24)
     st = gateway.build_state(a.mcap)
-    base = f"http://{a.host}:{a.port}"
+    # The manifest hands clients absolute URLs, so the base has to be the
+    # address a client can reach rather than the socket this process bound.
+    # Behind a TLS terminator those differ, and the failure is quiet: the
+    # endpoint answers, the manifest it serves points at 0.0.0.0, and every
+    # path a client follows out of it is unreachable.
+    base = a.public_url.rstrip("/") if a.public_url else \
+        f"http://{a.host}:{a.port}"
 
     print(f"recording     {a.mcap}")
     print(f"              sha256 {st.source_sha256}")
-    print(f"serving       {base}")
+    print(f"serving       {base}"
+          + (f"  (bound {a.host}:{a.port})" if a.public_url else ""))
     print(f"bearer token  {token}\n")
     n_l = sum(len(v) for v in st.latched.values())
     n_e = sum(len(v) for v in st.live.values())

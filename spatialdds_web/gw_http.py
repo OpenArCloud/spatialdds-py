@@ -14,6 +14,13 @@ operator-scoped resource is `no-store` and bearer-gated in the same branch that
 names it operator-scoped. There is no path through this file that serves an
 observation of a person with a cache header on it.
 
+**Public-cacheable implies CORS-open.** A resource served to anyone without
+a credential has no origin worth refusing, so `_cache_headers` sets
+`Access-Control-Allow-Origin: *` in the same branch that sets `max-age`.
+Operator-scoped resources get neither. The appendix does not say this in so
+many words; it is a candidate N.4 clarification, recorded in `docs/EVIDENCE.md`
+rather than assumed.
+
 **A bearer token never travels in a URL.** The WebSocket subscription reads
 `Authorization` like the GET does. A `?token=` query parameter would be simpler
 for a browser and would also write the credential into every proxy log and
@@ -76,9 +83,28 @@ def _problem(status: int, slug: str, title: str, detail: str,
 
 
 def _cache_headers(access: str) -> dict[str, str]:
+    """Cacheability, reach, and auth decided together or not at all.
+
+    The CORS header lives in this branch rather than in a middleware for the
+    same reason the cache header does: a public-cacheable resource is one a
+    client may read without presenting anything, so there is no origin that
+    should be refused it, and an operator-scoped resource is gated by a
+    credential a browser must not be invited to attach ambiently. Putting the
+    two in one function makes the pairing impossible to drift apart.
+
+    `Access-Control-Expose-Headers` is here because without it a cross-origin
+    reader can see the body but not the ETag or the access class that describes
+    it -- the headers would be served and unreadable, which is the instrument
+    failing to report what it measures.
+    """
     if access == gateway.PUBLIC:
-        return {"Cache-Control": f"public, max-age={gateway.PUBLIC_MAX_AGE}"}
-    # Operator-scoped. Never cacheable, by the same decision that gated it.
+        return {"Cache-Control": f"public, max-age={gateway.PUBLIC_MAX_AGE}",
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Expose-Headers":
+                    "ETag, X-SpatialDDS-Topic, X-SpatialDDS-Type, "
+                    "X-SpatialDDS-Access"}
+    # Operator-scoped. Never cacheable and never CORS-open, by the same
+    # decision that gated it.
     return {"Cache-Control": "no-store", "Vary": "Authorization"}
 
 

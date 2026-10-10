@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -45,6 +46,13 @@ def gates() -> list[dict]:
         f"repository; see webjson/PROVENANCE")
     no_web = None if web else "needs aiohttp and websockets: pip install aiohttp websockets"
     no_js = None if have_js else "needs jsonschema: pip install jsonschema"
+    # The examples gate verifies the browser snippets by running them, and a
+    # snippet it cannot run it reports as a failure rather than a pass. So a
+    # missing interpreter becomes a stated skip here instead of red there.
+    no_node = None if shutil.which("node") else (
+        "needs node to execute the browser console snippets in "
+        "examples/browser.md; the gate fails rather than passes on an "
+        "unverified example, so the absence is stated here")
     return [
         {"name": "wire_model", "what": "the recording's IDL and the published tables agree",
          "cmd": ["gates/wire_model.py"], "skip": no_mcap},
@@ -70,6 +78,10 @@ def gates() -> list[dict]:
          "cmd": ["gates/anchor_serve.py"], "skip": no_fountain or no_web or no_js},
         {"name": "content_resolution", "what": "a served reference ends in a real committed file",
          "cmd": ["gates/content_resolution.py"], "skip": no_fountain or no_web},
+        # The storefront's own gate: an example that rots is worse than none.
+        {"name": "examples", "what": "every example runs and prints what examples/ documents",
+         "cmd": ["gates/examples.py"],
+         "skip": no_mcap or no_fountain or no_web or no_node},
     ]
 
 

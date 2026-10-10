@@ -6,8 +6,17 @@ control quietly stops working: that the token works proves the lock turns,
 that its absence is refused proves there is a lock.
 
 The structural invariant matters more than either: an operator-scoped resource
-must never be served cacheable. A bearer-gated body with `max-age` on it sits
-in a shared cache, where the next request without a token can be served it.
+must never be served cacheable, and must never be CORS-open. A bearer-gated
+body with `max-age` on it sits in a shared cache, where the next request
+without a token can be served it; one with `Access-Control-Allow-Origin: *` on
+it is readable by script on any page the operator never heard of.
+
+The public half is checked positively as well, because the browser examples in
+`examples/browser.md` claim cross-origin reads work. A header that is served
+but not exposed is the same defect in smaller form: the reader can see the
+body and not the ETag or the access class describing it, so
+`Access-Control-Expose-Headers` is checked, and so is the 304, which is the
+response a cache revalidation actually gets.
 
 Usage:  gates/access_classes.py
 """
@@ -43,6 +52,9 @@ async def run() -> int:
             async with s.get(gw.base + path) as r:
                 anon, acc = r.status, r.headers.get("Cache-Control", "")
                 wa = r.headers.get("WWW-Authenticate", "")
+                aco = r.headers.get("Access-Control-Allow-Origin", "")
+                exp = r.headers.get("Access-Control-Expose-Headers", "")
+                etag = r.headers.get("ETag", "")
             async with s.get(gw.base + path,
                              headers={"Authorization": f"Bearer {TOKEN}"}) as r:
                 tok, tcc = r.status, r.headers.get("Cache-Control", "")
@@ -55,6 +67,20 @@ async def run() -> int:
                                anon == 200, f"got {anon}"))
                 checks.append((f"{label}: public, cacheable",
                                "max-age" in acc and "public" in acc, acc))
+                checks.append((f"{label}: public, CORS-open",
+                               aco == "*", f"ACAO {aco!r}"))
+                checks.append((f"{label}: its ETag and access class are "
+                               f"readable cross-origin",
+                               "ETag" in exp
+                               and "X-SpatialDDS-Access" in exp,
+                               f"expose {exp!r}"))
+                async with s.get(gw.base + path,
+                                 headers={"If-None-Match": etag}) as r:
+                    nm, nm_aco = r.status, r.headers.get(
+                        "Access-Control-Allow-Origin", "")
+                checks.append((f"{label}: the 304 is CORS-open too",
+                               nm == 304 and nm_aco == "*",
+                               f"got {nm}, ACAO {nm_aco!r}"))
             else:
                 nop += 1
                 checks.append((f"{label}: refused without a token",
@@ -68,18 +94,26 @@ async def run() -> int:
                 checks.append((f"{label}: never cacheable, either way",
                                "no-store" in acc and "no-store" in tcc,
                                f"{acc!r}/{tcc!r}"))
+                checks.append((f"{label}: never CORS-open",
+                               aco == "", f"ACAO {aco!r}"))
 
-        contra = []
+        contra: list[str] = []
+        cors_contra: list[str] = []
         for path, res in sorted(st.resources.items()):
             if res.access != gateway.OPERATOR:
                 continue
             async with s.get(gw.base + path,
                              headers={"Authorization": f"Bearer {TOKEN}"}) as r:
                 cc = r.headers.get("Cache-Control", "")
+                co = r.headers.get("Access-Control-Allow-Origin", "")
             if "max-age" in cc or "public" in cc:
                 contra.append(f"{path} -> {cc}")
+            if co:
+                cors_contra.append(f"{path} -> {co}")
         checks.append(("no operator-scoped resource is served cacheable",
                        not contra, f"{contra[:2]}"))
+        checks.append(("no operator-scoped resource is served CORS-open",
+                       not cors_contra, f"{cors_contra[:2]}"))
 
     op = next((p for p, r in sorted(st.resources.items())
                if r.access == gateway.OPERATOR and r.latched), None)

@@ -552,3 +552,69 @@ unexercised.
 *Smallest change:* `string durability` appended to `TopicMeta`, APPENDABLE,
 taking the same two DDS kinds, so the bus type can say what the manifest must.
 A 1.9 candidate rather than an erratum, since it changes the wire.
+
+## Findings from the storefront batch, 2026-10-10
+
+Three, all found by writing [`docs/RESOLUTION.md`](docs/RESOLUTION.md) — the
+characterization of how a web-binding endpoint could serve §7.5 URI resolution.
+Asking what the endpoint would have to serve meant reading §7.5.2 against N.2
+line by line, which is how the first one surfaced. The full argument and the
+proposed wording are in that document; these are the findings it produced.
+
+### 18. N.2 and §7.5.2 give contradictory normative orders for the same path
+
+N.2 groups `bootstrap` and `resolver` and says of both: "Both exist to hand a
+client the parameters for joining a domain," therefore a web-native endpoint
+"MUST return `404`".
+
+True of `bootstrap`. **False of `resolver`.** §7.5.2's resolver metadata is
+`{authority, https_base, cache_ttl_sec}` — an authority's URI-resolution entry
+point, with no domain, no peers and no partitions in it. And §7.5.2 is
+unconditional: "Each authority **MUST** expose the resolver metadata at
+`https://{authority}/.well-known/spatialdds/resolver`."
+
+So for an endpoint that is both web-native and an authority for `spatialdds://`
+URIs, §7.5.2 says it MUST serve that path and N.2 says it MUST `404` it. Both
+normative. No endpoint occupies that position today, which is why this has
+stayed invisible.
+
+The earlier ruling is not overturned and does not need to be: it is right, for
+the reason it gives, and over-broad by exactly one path. A web-native endpoint
+still has no bootstrap parameters and still must not invent any.
+
+*Smallest change:* split the paragraph. `bootstrap` keeps the DDS-access
+condition and the `404`-is-conformant ruling verbatim; `resolver` gets its own
+sentence conditioned on being an authority for URIs it can resolve, per §7.5.2.
+An erratum to published text — no IDL moves, no wire format changes.
+
+### 19. §7.5.2's `ttl_sec` rule and N.4's cache classes can disagree
+
+§7.5.2: a fetched manifest's own `ttl_sec` governs its cache lifetime. N.4: cache
+behaviour follows the access class. On a resolver response serving a manifest
+that carries `ttl_sec`, both apply to one `Cache-Control` header and they do not
+agree — this repository's committed content manifests say `ttl_sec: 86400` while
+the endpoint's public class is a flat `max-age=300`.
+
+Nothing is wrong today: the two only meet on a resolver response and this
+endpoint serves none. It is a trap laid for the first implementation that does.
+
+*Smallest change:* one sentence in N.4 — where a served document carries its own
+TTL, that TTL governs its `max-age` and the access class governs the rest of the
+header. Erratum.
+
+### 20. This gateway's resolver `404` gives a reason that is wrong for that path
+
+Found by reading our own output against §7.5.2. `GET
+/.well-known/spatialdds/resolver` returns a conformant `404` whose
+`problem+json` detail reads: "no DDS domain behind it, so it has no bootstrap
+parameters to publish." That is the right reason for `bootstrap` and the wrong
+one for `resolver`, which was never about bootstrap parameters. The honest reason
+is that this endpoint is not the authority for any `spatialdds://` URI.
+
+The status code is correct and no client behaviour changes — §7.5.3 has clients
+treat any non-200 as failure — so this is an accuracy defect in an explanation,
+in a body written precisely so that a reader would not have to guess. It is
+wire-visible text, and the batch that found it was told to change no gateway
+behaviour except where named, so it is reported rather than fixed.
+
+*Smallest change:* one `detail` string in `gw_http.no_dds`, split per path.
