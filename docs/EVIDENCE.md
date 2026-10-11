@@ -26,8 +26,9 @@ $ python3 gates/run_all.py
   PASS     anchor_serve        anchors served unmodified, and discovery finds them
   PASS     content_resolution  a served reference ends in a real committed file
   PASS     examples            every example runs and prints what examples/ documents
+  PASS     quickstart          the README's quickstart works top to bottom as written
 
-12 gates: 12 passed, 0 failed, 0 skipped
+13 gates: 13 passed, 0 failed, 0 skipped
 ```
 
 Expected values come from the recording, not from this gateway: per-topic
@@ -50,7 +51,8 @@ served that many would pass for any gateway, including a broken one.
 | `golden_anchor` | one anchor compared field by field against the authoring input, plus the checks that only make sense across the set: confidence is the monotone summary of covariance that `GeoAnchor` requires, it falls as covariance grows, no two anchors share a position, and the spread is fountain-sized |
 | `anchor_serve` | the anchor recording is served unmodified: both types latched and public, all seven instances addressable by their percent-encoded `@key`, every ETag a content digest, every instance schema-valid, and a geohash query over the anchors' own cell returning the service while San Francisco returns nothing |
 | `content_resolution` | the full §7.5.1 chain with no fixture in it: read the authority's resolver metadata, follow the advertised `https_base`, resolve each announce's `manifest_uri` over HTTP, check the resolved document is the URI asked for and is the committed manifest byte for byte, check its `max-age` is the manifest's own `ttl_sec` and not the endpoint's default, then byte-compare the asset. Plus both refusals: another authority's URI and an unheld URI of its own, each a `404` naming which. And every announce's coverage circle is centred on one of the recording's anchor positions |
-| `examples` | every example in `examples/` is executed against a locally served recording and its documented output is diffed against what it prints: five scripts, four shell fences, two browser snippets under `node`. An example it cannot run it reports as a failure, not a pass |
+| `examples` | every example is executed against a locally served recording and its documented output is diffed against what it prints: five scripts, five shell fences, two browser snippets under `node`, and one documented *refusal*. Plus the mismatch sweep — each script run against every self-advertising configuration it did not ask for, which must refuse in a sentence and never in a traceback. An example it cannot run it reports as a failure, not a pass |
+| `quickstart` | the README's front page executed as a sequence rather than as parts: its install line's packages import, its serve line names one recording and **every tier on the page names that same recording**, the serve line is run as a subprocess whose own PID must be the one listening, and each tier runs in document order against that one endpoint |
 
 During development the decoder was additionally checked against a
 CycloneDDS-based reader on every message in the recording: all 15,676 decoded
@@ -137,14 +139,21 @@ Not soaked. Nothing here tells you about memory over hours, many concurrent
 subscribers, or a recording larger than memory: the whole file is decoded at
 startup and held.
 
-**Resolution is gated here and not yet certified upstream.** The specification's
-conformance suite accepts a `200` from the resolver path without validating
-§7.5.2's three required members, and never resolves a URI at all, so the
-mechanism this gateway now implements has no upstream coverage — finding 21. And
-the suite cannot be pointed at an authority-configured endpoint through a tunnel
-or on loopback, because it follows N.7's absolute URLs verbatim and slices them
-by the connect base's length — finding 22. The suite run of record therefore
-remains the one against the non-authority shape: 13 checks, 12 passed, 1
-skipped. Both findings are dispatched.
+**Resolution is certified upstream.** Findings 21 and 22 were dispatched and are
+closed by SpatialDDS-spec `c8743ef`, which gave the suite a resolver check and a
+`--connect` option for an endpoint whose advertised origin differs from the
+address it is reached at. Both shapes now run, and both pass:
+
+| shape | run | result |
+|---|---|---|
+| non-authority | `--endpoint http://127.0.0.1:PORT` | 14 checks, 13 passed, 1 skipped |
+| authority | `--endpoint https://demo.spatialdds.org --connect http://127.0.0.1:PORT` | 14 checks, 13 passed, 1 skipped |
+
+The resolver check is fully exercised only in the second: *resolver 200
+(authority demo.spatialdds.org); 2 resolved, 1 announced-but-not-held (404); ttl
+2 doc-governed / 0 class-default; error branches 400/400/404*. Against the
+non-authority shape it reports the resolve surface UNEXERCISED rather than
+passing on nothing, which is the vocabulary working as intended. The one
+remaining skip is §8.2, which waits on `GeoAnchor.manifest_uri`.
 
 [sc]: https://github.com/OpenArCloud/spatialdds-scenescape

@@ -9,11 +9,11 @@ a gate goes red rather than a reader going in circles.
 | --- | --- |
 | [`curl.md`](curl.md) | Search by geohash, list anchors, fetch a zone, read the headers. No client at all. |
 | [`browser.md`](browser.md) | One `fetch` and a `console.table`; then a `WebSocket` read to `end_of_replay`. |
-| [`hello_spatial.py`](hello_spatial.py) | The ten-line proof: discover, subscribe, read typed samples. |
-| [`zones.py`](zones.py) | Six lines: what zones are here. |
+| [`hello_spatial.py`](hello_spatial.py) | The ten-line proof: discover, subscribe, read typed samples. Fountain. |
+| [`zones.py`](zones.py) | Six lines: what zones are here. Retail. |
 | [`anchors.py`](anchors.py) | Anchors with their method and their positional uncertainty. |
 | [`migration/ssd_search.py`](migration/ssd_search.py) | OSCP Spatial Service Discovery and the search path that replaces it. |
-| [`migration/scd_content.py`](migration/scd_content.py) | OSCP Spatial Content Discovery: announce, §7.5.2-resolved URI, manifest, asset. |
+| [`migration/scd_content.py`](migration/scd_content.py) | OSCP Spatial Content Discovery: announce, §7.5.2-resolved URI, manifest, asset. Fountain, served as its authority. |
 
 ## The endpoint
 
@@ -35,11 +35,14 @@ python3 tools/run_gateway.py --mcap samples/fountain-anchors.mcap --port 8787
 ```
 
 `fountain-anchors.mcap` carries anchors, content announces, and a service
-announce: that is `anchors.py`, `curl.md`, `browser.md`, and both migration
-examples. `queuing-retail-sample.mcap` carries zones, crossing lines, and live
-tracks: that is `zones.py` and `hello_spatial.py`. Serve both on two ports and
-everything here runs -- with `scd_content.py` wanting the fountain endpoint
-served as its authority, per the `--public-url` line below.
+announce: that is `hello_spatial.py`, `anchors.py`, `curl.md`, `browser.md`,
+and both migration examples -- everything the README's front page shows, which
+is deliberate, because the front page serves exactly one recording and the
+public endpoint serves that same one.
+`queuing-retail-sample.mcap` carries zones, crossing lines, and live tracks:
+that is `zones.py` alone. Serve both on two ports and everything here runs --
+with `scd_content.py` wanting the fountain endpoint served as its authority,
+per the `--public-url` line below.
 
 The gate therefore stands up three endpoints, not two: the retail recording,
 the fountain recording, and the fountain recording again as
@@ -47,17 +50,33 @@ the fountain recording, and the fountain recording again as
 
 ## hello_spatial.py
 
-Ten lines, against the retail recording. Only the base URL is hardcoded; every
-other path is followed out of the service manifest rather than constructed.
+Ten lines, against **the fountain recording** -- the one the README's serve
+line serves and the one the public endpoint serves. Only the base URL is
+hardcoded; every other path is followed out of the service manifest rather than
+constructed.
 
-<!-- gate: retail py examples/hello_spatial.py -->
+<!-- gate: fountain py examples/hello_spatial.py -->
 ```console
-RESTRICTED       Keep-Out Zone        821266db-5c13-414b-91e0-7d2d4c2c307a
-MONITORING       Queue Region         ac869071-2efa-47d2-bf77-fa0c7248593e
-latched set complete: 2 zone(s)
+anchor/fountain-north-rim      Surveyed  30.284986, -97.739350
+anchor/fountain-south-rim      VisualFix 30.284914, -97.739350
+anchor/fountain-east-rim       VisualFix 30.284950, -97.739314
+anchor/fountain-west-rim       VisualFix 30.284950, -97.739386
+anchor/fountain-plaque         GNSS      30.284968, -97.739329
+latched set complete: 5 anchor(s)
+```
+
+Point it at a recording with no anchors and it says so and stops, because a
+newcomer's first thirty seconds should not end in a traceback:
+
+<!-- gate: retail py-fails examples/hello_spatial.py -->
+```console
+$BASE serves no geo_anchor topic; it offers: detection2d, detection2d, spatial_event, entity, crossing_line, spatial_zone, fused_track
 ```
 
 ## zones.py
+
+**Wants the retail recording**, which is the only one here with zones in it. A
+second recording off the front page is fine; an unlabelled one is not.
 
 <!-- gate: retail py examples/zones.py -->
 ```console
@@ -125,17 +144,28 @@ python3 tools/run_gateway.py --mcap samples/fountain-anchors.mcap --port 8787 \
     --public-url https://demo.spatialdds.org
 ```
 
+**That serve line is for this example only.** It makes the endpoint advertise
+absolute URLs under a name your machine cannot resolve, which is harmless for a
+script that reuses only their paths and fatal for one that follows them as
+given. Run the other examples, and the README's tiers, against the plain serve
+line.
+
 <!-- gate: authority py examples/migration/scd_content.py -->
 ```console
   Littlefield Fountain marker
     resolved spatialdds://demo.spatialdds.org/south-mall/content/fountain-marker
     model/gltf+json    https://raw.githubusercontent.com/OpenArCloud/spatialdds-web/main/samples/assets/fountain-marker.gltf
-    hash matches committed bytes: True
+    sha256:26c80427c7cbfc9626b57b1a4e25bcf6004332b3758c0ab0e3e73bc1dd53a6cf
   Littlefield Fountain label
     resolved spatialdds://demo.spatialdds.org/south-mall/content/fountain-label
     text/plain         https://raw.githubusercontent.com/OpenArCloud/spatialdds-web/main/samples/assets/fountain-label.txt
-    hash matches committed bytes: True
+    sha256:1970b1b67efc916f9799db2a6159a713fa5a46bed0a0485df469bfcd857a669c
 ```
+
+The chain ends where a client's does: an asset reference and the digest the
+manifest declares for it. Fetching those bytes and comparing them needs the
+network and a checkout, so it is `gates/content_resolution.py --remote` rather
+than an example.
 
 ## How the gate reads this file
 

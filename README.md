@@ -47,12 +47,15 @@ console.table(anchors.map(a => ({ id: a.anchor_id, lat: a.geopose.lat_deg, lon: 
 **Ten lines of Python.** Discover a service, subscribe to one of its topics,
 read typed samples until the latched set is complete.
 
-<!-- gate: retail sh -->
+<!-- gate: fountain sh -->
 ```console
 $ SPATIALDDS_ENDPOINT=$BASE python3 examples/hello_spatial.py
-RESTRICTED       Keep-Out Zone        821266db-5c13-414b-91e0-7d2d4c2c307a
-MONITORING       Queue Region         ac869071-2efa-47d2-bf77-fa0c7248593e
-latched set complete: 2 zone(s)
+anchor/fountain-north-rim      Surveyed  30.284986, -97.739350
+anchor/fountain-south-rim      VisualFix 30.284914, -97.739350
+anchor/fountain-east-rim       VisualFix 30.284950, -97.739314
+anchor/fountain-west-rim       VisualFix 30.284950, -97.739386
+anchor/fountain-plaque         GNSS      30.284968, -97.739329
+latched set complete: 5 anchor(s)
 ```
 
 ## What's on the wire
@@ -78,10 +81,10 @@ latched set complete: 2 zone(s)
 | [`curl.md`](examples/curl.md) | Search by geohash, list anchors, fetch a zone, read the headers. |
 | [`browser.md`](examples/browser.md) | One `fetch` and a `console.table`; then a `WebSocket` to `end_of_replay`. |
 | [`hello_spatial.py`](examples/hello_spatial.py) | The ten-line proof: discover, subscribe, read typed samples. |
-| [`zones.py`](examples/zones.py) | Six lines: what zones are here. |
+| [`zones.py`](examples/zones.py) | Six lines: what zones are here. Wants the retail recording. |
 | [`anchors.py`](examples/anchors.py) | Anchors with their method and positional uncertainty. |
 | [`migration/ssd_search.py`](examples/migration/ssd_search.py) | OSCP Spatial Service Discovery, and the search path that replaces it. |
-| [`migration/scd_content.py`](examples/migration/scd_content.py) | OSCP Spatial Content Discovery: announce, resolved URI, manifest, asset. |
+| [`migration/scd_content.py`](examples/migration/scd_content.py) | OSCP Spatial Content Discovery: announce, resolved URI, manifest, asset. Wants the endpoint served as its own authority. |
 
 Every claim here is gated and conformance-tested: see
 [docs/EVIDENCE.md](docs/EVIDENCE.md).

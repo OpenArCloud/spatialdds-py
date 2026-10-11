@@ -10,24 +10,29 @@ The resolution is real: §7.5.1 says read the authority's resolver metadata and
 follow the `https_base` it advertises, and that is what happens below. Nothing
 is constructed from a path segment.
 
+The chain ends in an asset reference and its declared digest, which is where a
+client's job ends too. Fetching those bytes and comparing them is
+`gates/content_resolution.py --remote`, because it needs the network and a
+checkout and an example should need neither.
+
     SPATIALDDS_ENDPOINT=http://127.0.0.1:8787 python3 examples/migration/scd_content.py
 """
-import hashlib, os, pathlib, requests
+import os, requests, sys
 BASE = os.environ.get("SPATIALDDS_ENDPOINT", "https://demo.spatialdds.org")
-ROOT = pathlib.Path(__file__).resolve().parent.parent.parent
 # Against the authority itself every advertised URL is followed as given. A
 # local copy of it answers to a different name, so only the path is reused --
 # the one substitution a reader running their own endpoint needs, and one a
 # real client never does.
 at = lambda u: f"{BASE}/{u.split('/', 3)[3]}"
-svc = requests.get(f"{BASE}/.well-known/spatialdds/search").json()["results"][0]
-topic = next(t for t in svc["service"]["topics"] if t["type"] == "content_announce")
-resolve = at(requests.get(f"{BASE}/.well-known/spatialdds/resolver").json()["https_base"])
+svc = requests.get(f"{BASE}/.well-known/spatialdds/search").json()["results"][0]["service"]
+topic = next((t for t in svc["topics"] if t["type"] == "content_announce"), None) or sys.exit(
+    f'{BASE} serves no content_announce topic; it offers: {", ".join(t["type"] for t in svc["topics"])}')
+meta = requests.get(f"{BASE}/.well-known/spatialdds/resolver").json()
+resolve = at(meta.get("https_base") or sys.exit(
+    f'{BASE} is not an authority, so nothing resolves; serve it as one with'
+    f' --public-url https://demo.spatialdds.org'))
 for ann in requests.get(at(topic["url"])).json():
     man = requests.get(resolve, params={"uri": ann["manifest_uri"]}).json()
     a = man["assets"][0]
-    local = ROOT / "samples" / "assets" / a["uri"].split("/")[-1]
-    got = "sha256:" + hashlib.sha256(local.read_bytes()).hexdigest()
     print(f'  {man["content"]["title"]}\n    resolved {man["id"]}\n'
-          f'    {a["media_type"]:18s} {a["uri"]}\n'
-          f'    hash matches committed bytes: {got == a["hash"]}')
+          f'    {a["media_type"]:18s} {a["uri"]}\n    {a["hash"]}')

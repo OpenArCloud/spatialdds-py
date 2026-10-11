@@ -722,3 +722,162 @@ rewritten to the connect origin in exactly one place, and the two unguarded
 slices replaced by that one function. `gates/harness.py` in this repository has
 the same seam under the same constraint — `Gateway.connect` — and it is one
 method because it must be the only place the substitution happens.
+
+## A second defect class, named because it shipped, 2026-10-11
+
+### 23. The README's quickstart failed on its first command, and every gate was green
+
+Reported against `cc881b5` from a fresh clone. Serve per the README's own serve
+line — `--mcap samples/fountain-anchors.mcap` — then run its tier-three command,
+`examples/hello_spatial.py`, and get `StopIteration`. The script asked for
+`spatial_zone`; the fountain recording has none. The same mismatch would have
+reached production, because `demo.spatialdds.org` serves the fountain recording
+and the README's tier three runs against `$BASE`.
+
+**Why thirteen gates missed it.** `gates/examples.py` runs each example against
+the recording *its own marker names*, and the marker on that tier said `retail`.
+So the tier was green, the example was green, and the page was broken: the gate
+honoured the annotation instead of the document. The serve line was never read
+by anything.
+
+**The class.** *A suite that checks the parts can be blind to their
+composition.* It is the sibling of the self-observing check this repository has
+named six times, and it fails the same way — by being locally true. Every
+individual assertion held; the sequence a reader actually types was never
+executed. An annotation that tells a gate what to do is a second source of
+truth, and the document is the one that ships.
+
+**What closes it,** beyond the four scripts repaired:
+
+- `gates/quickstart.py` executes the front page top to bottom — install line,
+  serve line as a subprocess, then each tier in document order against that one
+  endpoint — and asserts that **every marker on the page names the recording the
+  serve line serves**. That structural check is the one that prevents
+  recurrence; the rest would pass again tomorrow without it.
+- The mismatch sweep in `gates/examples.py` runs every script against every
+  configuration it did not declare and requires a sentence rather than a
+  traceback. It immediately found three more instances of the same class —
+  `zones.py`, `anchors.py` and `scd_content.py` all ended in `StopIteration`
+  off the front page, and `scd_content.py` additionally raised `KeyError:
+  'https_base'` against a non-authority endpoint, a trap created by this
+  repository's own documentation one commit earlier.
+- The documented refusal is itself gated (`py-fails`), because a newcomer's
+  first failure is text they read.
+
+*Generalisation worth keeping:* where a document and an annotation can disagree
+about what to run, gate the document. The annotation is for the gate's
+convenience and the document is the product.
+
+## Dispositions, findings 21 and 22, 2026-10-11
+
+Both closed upstream by SpatialDDS-spec `c8743ef`, "Conformance suite: resolver
+coverage + origin independence". Neither needed anything here.
+
+**21 — the resolver surface was unchecked.** The suite gained
+*resolver is a checked surface (§7.5.2)*. Against this gateway as an authority it
+reports what it actually observed: `resolver 200 (authority
+demo.spatialdds.org); 2 resolved, 1 announced-but-not-held(404); ttl 2
+doc-governed / 0 class-default; error branches 400/400/404`. Against a
+non-authority endpoint it reports the resolve surface UNEXERCISED instead of
+passing on nothing — the vocabulary adopted for exactly this, used correctly by
+someone else's code.
+
+It also found a leg this repository cannot exercise: *no resolved manifest omits
+`ttl_sec`*, so the class-default branch of the N.4 rule has no observation here.
+Both committed manifests carry a TTL. Worth knowing and not worth authoring a
+TTL-less manifest to fix — the branch is one `if` and the suite now says plainly
+that it is untested rather than implying coverage.
+
+**22 — the suite could not see an authority-configured endpoint.** It gained
+`--connect`, which sends requests for URLs under the advertised origin to the
+address the endpoint is actually reachable at, preserving the advertised `Host`
+and otherwise following N.7's URLs verbatim. Documented there, as here, as a
+harness substitution a client may not make. The authority shape is now
+certified: 14 checks, 13 passed, 1 skipped.
+
+That closes the loop this repository opened when it needed `Gateway.connect` for
+the same reason. The seam exists on both sides now, named the same thing, for
+the same stated reason.
+
+## The two instrument-defect classes, consolidated, 2026-10-11
+
+Owed since the instances crossed six. Both classes are already described where
+they were found — the first at "A defect class, named because it has now
+happened twice", the second at finding 23 — and a class scattered across dated
+sections is not something anyone can apply. This is the roll-up: two classes,
+their instances, and one sentence each.
+
+### Class one: the self-observing instrument
+
+An instrument whose own machinery is inside what it measures. Every instance
+reported a result that was locally true and globally meaningless.
+
+1. **The `or True` hedge.** `joined_would_differ == 0 or True`, written as a
+   placeholder while the number was unknown. It could not fail, and sat in a
+   gate reporting `ok` on every run.
+2. **The capped counter.** Decode errors collected into a list capped at five
+   entries, then `len(errs)` reported as the count: "decode errors: 5" when the
+   truth was in the thousands, beside a "JSON differences: none" that was true
+   only of the handful that had decoded.
+3. **The §8.3 self-scan.** A conformance check that scanned sources for a list
+   of banned words — including the source that contained the list. It failed
+   always, for itself. Fixed by excluding its own source via
+   `inspect.getsource`.
+4. **The `$ref`-blind count.** The canonical-form union rule reported
+   `union_tagged=0` because `$ref` was never resolved, so zero observations
+   read as compliance. This is where **UNEXERCISED** came from: zero
+   observations is not evidence.
+5. **The patch scripts that failed their own assertions.** Two of them, because
+   the comments and docstrings they had just written quoted the old strings they
+   were searching for. Fixed with per-replacement assertions.
+6. **The OK-with-zero-types gate.** `wire_model`'s rename reconciliation passed
+   while structurally unable to see the discovery types — which is exactly
+   where the defect was. Widened to all 161 vendored entries.
+7. **The marker-grammar parser.** `gates/examples.py` read as input the marker
+   grammar that `examples/README.md` documents by quoting it, because the
+   documentation of a grammar is written in that grammar. Fixed by anchoring to
+   whole-line markers, and by reporting the inline mentions it deliberately
+   skips so the exclusion is visible rather than silent.
+
+The readiness probe in the earlier section is an eighth in a different costume:
+it could not distinguish *the server I started* from *a server*. And the most
+recent recurrence was outside a gate entirely — ad-hoc verification shell that
+confirmed a listening PID, then used the port anyway after its wait expired, and
+spent ten minutes talking to a gateway twenty-two minutes old. Scaffolding is
+an instrument too.
+
+**The rule, as standing: any check, counter, or patch assertion that can observe
+its own machinery must exclude it or fail its injection test.** A cap, a
+truncation, a `[:5]`, a `break`, a default of zero, an `or True` — each is a
+place where an instrument stops measuring and starts reassuring.
+
+### Class two: the composition-blind instrument
+
+An instrument whose parts are each correct and whose verdict about the whole is
+wrong, because nothing executes the composition.
+
+1. **Finding 23, the quickstart.** Thirteen gates green while the README's first
+   command raised `StopIteration`. Each tier was checked against the recording
+   *its own marker named*; the serve line twelve lines above was read by
+   nothing. A false PASS.
+2. **Finding 14, the homogeneity FAILs, as the earlier sibling.** Two
+   conformance checks failed a conformant endpoint for being uniform — each
+   non-triviality guard locally right, composed into a verdict about the
+   endpoint that was wrong. A false FAIL.
+
+Same blindness, opposite signs, which is why they did not look related until
+both were written down. Worth recording that the remedy for one class produced
+the vocabulary that fixed the other: **UNEXERCISED**, born from the `$ref`-blind
+count above, is what turned finding 14's false FAILs into honest reports of an
+absence.
+
+**The rule, as standing: gate the sequence a user actually performs, and treat
+the per-part verdicts as inputs to it rather than substitutes for it. Where a
+document and an annotation can disagree about what to run, gate the document —
+the annotation is for the gate's convenience, and the document is the product.**
+
+### What both classes have in common
+
+The instrument was never tested against the thing it claims to measure. The fix
+is the same move in both: make the measured thing go wrong, and confirm the
+instrument says so.

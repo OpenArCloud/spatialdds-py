@@ -88,6 +88,8 @@ class Block:
 
     @property
     def label(self) -> str:
+        if self.mode == "py-fails":
+            return f"{self.src}:{self.line} [{self.rec}] {self.target} refuses"
         what = self.target or {"sh": "shell one-liners",
                                "js": "console snippet",
                                "js-ok": "console snippet runs clean"}[
@@ -122,7 +124,8 @@ def parse(path: Path) -> list[Block]:
         target = parts[2] if len(parts) > 2 else ""
         where = f"{path.relative_to(ROOT).as_posix()}:{i+1}"
         assert rec in RECORDINGS, f"{where} unknown recording {rec}"
-        assert mode in ("py", "sh", "js", "js-ok"), f"{where} mode {mode}"
+        assert mode in ("py", "py-fails", "sh", "js", "js-ok"), \
+            f"{where} mode {mode}"
         b = Block(path.relative_to(ROOT).as_posix(), i + 1, rec, mode, target)
         if mode == "js-ok":
             # Run it and require it to work, without pinning its output: the
@@ -159,6 +162,7 @@ def commands(expected: list[str]) -> tuple[list[str], list[str]]:
 def run(block: Block, base: str) -> tuple[bool, str]:
     env = dict(os.environ, SPATIALDDS_ENDPOINT=base, BASE=base,
                PYTHONPATH=str(ROOT))
+    err = ""
     try:
         if block.mode == "js-ok":
             host = base.split("//", 1)[1]
@@ -184,15 +188,41 @@ def run(block: Block, base: str) -> tuple[bool, str]:
             if not r.stdout.strip():
                 return False, "ran without error and printed nothing"
             return True, ""
+        if block.mode == "py-fails":
+            # The documented refusal. A newcomer's first failure is text they
+            # read, so it is pinned like any other output -- and it must be a
+            # refusal: a zero exit here would mean the example worked against
+            # a recording the page says it cannot.
+            r = subprocess.run([sys.executable, block.target], cwd=ROOT,
+                               env=env, capture_output=True, text=True,
+                               timeout=120)
+            if r.returncode == 0:
+                return False, "exited 0; the page documents a refusal"
+            if "Traceback" in r.stderr:
+                return False, "refused with a traceback, not a sentence"
+            want = [l.replace("$BASE", base).rstrip()
+                    for l in block.expected]
+            # The tail of stderr: an interpreter may prepend warnings a reader
+            # sees or does not (a urllib3 version notice, say), and pinning
+            # those would make the documented message depend on the
+            # environment it was captured in. The refusal is the last thing
+            # printed, which is what a reader reads.
+            have = [l.rstrip() for l in
+                    r.stderr.strip().splitlines()][-len(want):]
+            return (want == have, "" if want == have else
+                    f"want {want!r}, got {have!r}")
         if block.mode == "py":
-            got = subprocess.run([sys.executable, block.target], cwd=ROOT,
-                                 env=env, capture_output=True, text=True,
-                                 timeout=120).stdout
+            r = subprocess.run([sys.executable, block.target], cwd=ROOT,
+                               env=env, capture_output=True, text=True,
+                               timeout=120)
+            got, err = r.stdout, r.stderr
         elif block.mode == "sh":
             cmds, _ = commands(block.expected)
-            got = "".join(subprocess.run(["sh", "-c", c], cwd=ROOT, env=env,
-                                         capture_output=True, text=True,
-                                         timeout=120).stdout for c in cmds)
+            outs = [subprocess.run(["sh", "-c", c], cwd=ROOT, env=env,
+                                   capture_output=True, text=True,
+                                   timeout=120) for c in cmds]
+            got = "".join(o.stdout for o in outs)
+            err = "".join(o.stderr for o in outs)
         else:
             host = base.split("//", 1)[1]
             prog = ("\n".join(block.program).replace(DEMO, base)
@@ -209,6 +239,13 @@ def run(block: Block, base: str) -> tuple[bool, str]:
                 os.unlink(tmp)
     except subprocess.TimeoutExpired:
         return False, "timed out"
+
+    if not got.strip() and err and err.strip():
+        # An example that printed nothing failed for a reason, and the reason
+        # is in stderr. Reporting only "0 lines printed" sends a reader back
+        # to the terminal to find out what this already knows.
+        last = [l for l in err.strip().splitlines() if l.strip()][-1]
+        return False, f"printed nothing; stderr ends: {last.strip()[:140]}"
 
     want = ([l for l in commands(block.expected)[1]] if block.mode == "sh"
             else block.expected)
@@ -249,9 +286,61 @@ async def main() -> int:
         finally:
             await gw.stop()
 
+    # The recording-mismatch sweep. An example run against a recording it did
+    # not ask for must refuse in a sentence, never in a traceback: that is the
+    # defect that put StopIteration in a newcomer's first thirty seconds, and
+    # fixing the four scripts without asserting the property leaves the fifth
+    # to rediscover it.
+    declared: dict[str, set[str]] = {}
+    for b in blocks:
+        if b.mode == "py":
+            declared.setdefault(b.target, set()).add(b.rec)
+        if b.mode == "py-fails":
+            # A documented refusal is a declaration too: that configuration is
+            # covered by its own pinned message, so the sweep need not re-run
+            # it blind.
+            declared.setdefault(b.target, set()).add(b.rec)
+    # Swept over the configurations that advertise the address they are
+    # reached at. `authority` advertises `demo.spatialdds.org` while listening
+    # on loopback, so an example that correctly follows an absolute advertised
+    # URL fails there on DNS -- a property of the harness, not of the example,
+    # and not a situation the public endpoint puts a reader in. The exclusion
+    # is asserted rather than assumed: if that configuration ever advertises
+    # its own base, it rejoins the sweep.
+    swept = [r for r, (_m, adv) in RECORDINGS.items() if adv is None]
+    excluded = {r: adv for r, (_m, adv) in RECORDINGS.items() if adv}
+    checks.append((f"the mismatch sweep covers every self-advertising "
+                   f"configuration ({', '.join(swept)}); excluded "
+                   f"{sorted(excluded)} advertise elsewhere",
+                   all(a and not a.startswith("http://127.0.0.1")
+                       for a in excluded.values()),
+                   f"{excluded}"))
+    for target, decl in sorted(declared.items()):
+        for rec in swept:
+            if rec in decl:
+                continue
+            mcap, advertise = RECORDINGS[rec]
+            gw = await Gateway(state(mcap), advertise=advertise).start()
+            try:
+                r = await asyncio.get_running_loop().run_in_executor(
+                    None, lambda: subprocess.run(
+                        [sys.executable, target], cwd=ROOT, timeout=120,
+                        capture_output=True, text=True,
+                        env=dict(os.environ, SPATIALDDS_ENDPOINT=gw.base,
+                                 PYTHONPATH=str(ROOT))))
+            finally:
+                await gw.stop()
+            if r.returncode == 0:
+                continue          # it works there too; undeclared, not broken
+            checks.append((f"{target} against [{rec}]: refuses in a sentence, "
+                           f"not a traceback",
+                           "Traceback" not in r.stderr,
+                           (r.stderr.strip().splitlines() or ["no output"])[-1]
+                           [:120]))
+
     scripts = sorted(p.relative_to(ROOT).as_posix()
                      for p in (ROOT / "examples").rglob("*.py"))
-    covered = {b.target for b in blocks if b.mode == "py"}
+    covered = {b.target for b in blocks if b.mode in ("py", "py-fails")}
     checks.append((f"every script under examples/ has a documented output "
                    f"({len(covered)} of {len(scripts)})",
                    set(scripts) == covered,
