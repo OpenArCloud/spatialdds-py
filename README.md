@@ -16,21 +16,30 @@ pip install requests websockets aiohttp mcap
 python3 tools/run_gateway.py --mcap samples/fountain-anchors.mcap --port 8787
 ```
 
+That command keeps running, so the rest goes in a second terminal. Every block
+below is run from the repository root, and every block is copy-safe: a command
+block holds only commands, and the output beside it is what you should see.
+
 ```sh
-export BASE=https://demo.spatialdds.org          # coming online
-export BASE=http://127.0.0.1:8787                # works today
+export BASE=http://127.0.0.1:8787
 ```
+
+The demo endpoint, once it is online, is the same commands with
+`export BASE=https://demo.spatialdds.org` instead.
 
 **One curl.** Ask what covers a geohash cell; get back the URL of everything
 there.
 
 <!-- gate: fountain sh -->
-```console
-$ curl -s "$BASE/.well-known/spatialdds/search?geohash=9v6krc" \
+```sh
+curl -s "$BASE/.well-known/spatialdds/search?geohash=9v6krc" \
     | python3 -c 'import json,sys; [print(t["type"], t["url"]) for t in json.load(sys.stdin)["results"][0]["service"]["topics"]]'
-content_announce $BASE/ut-austin-south-mall/content/content_announce/v1
-announce $BASE/ut-austin-south-mall/discovery/announce/v1
-geo_anchor $BASE/ut-austin-south-mall/frames/geo_anchor/v1
+```
+
+```console
+content_announce http://127.0.0.1:8787/ut-austin-south-mall/content/content_announce/v1
+announce http://127.0.0.1:8787/ut-austin-south-mall/discovery/announce/v1
+geo_anchor http://127.0.0.1:8787/ut-austin-south-mall/frames/geo_anchor/v1
 ```
 
 **One browser console.** Public resources are CORS-open, so this runs in
@@ -48,8 +57,11 @@ console.table(anchors.map(a => ({ id: a.anchor_id, lat: a.geopose.lat_deg, lon: 
 read typed samples until the latched set is complete.
 
 <!-- gate: fountain sh -->
+```sh
+SPATIALDDS_ENDPOINT=$BASE python3 examples/hello_spatial.py
+```
+
 ```console
-$ SPATIALDDS_ENDPOINT=$BASE python3 examples/hello_spatial.py
 anchor/fountain-north-rim      Surveyed  30.284986, -97.739350
 anchor/fountain-south-rim      VisualFix 30.284914, -97.739350
 anchor/fountain-east-rim       VisualFix 30.284950, -97.739314

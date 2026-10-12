@@ -839,7 +839,13 @@ reported a result that was locally true and globally meaningless.
    whole-line markers, and by reporting the inline mentions it deliberately
    skips so the exclusion is visible rather than silent.
 
-The readiness probe in the earlier section is an eighth in a different costume:
+8. **The gate that repaired its input.** `gates/quickstart.py` stripped the
+   `$ ` prompt and expanded `$BASE` before executing, so it certified a page
+   that could not be pasted — finding 24. The variant to watch for: not an
+   instrument observing its own machinery, but one *altering its subject* until
+   the measurement succeeds.
+
+The readiness probe in the earlier section is a ninth in a different costume:
 it could not distinguish *the server I started* from *a server*. And the most
 recent recurrence was outside a gate entirely — ad-hoc verification shell that
 confirmed a listening PID, then used the port anyway after its wait expired, and
@@ -847,7 +853,9 @@ spent ten minutes talking to a gateway twenty-two minutes old. Scaffolding is
 an instrument too.
 
 **The rule, as standing: any check, counter, or patch assertion that can observe
-its own machinery must exclude it or fail its injection test.** A cap, a
+its own machinery must exclude it or fail its injection test — and no instrument
+may modify its subject in order to measure it. A gate that pre-processes the
+artefact under test certifies the pre-processor.** A cap, a
 truncation, a `[:5]`, a `break`, a default of zero, an `or True` — each is a
 place where an instrument stops measuring and starts reassuring.
 
@@ -881,3 +889,50 @@ the annotation is for the gate's convenience, and the document is the product.**
 The instrument was never tested against the thing it claims to measure. The fix
 is the same move in both: make the measured thing go wrong, and confirm the
 instrument says so.
+
+## 24. The gate repaired its input, then reported no defect, 2026-10-11
+
+Reported by James walking the README with GitHub's copy button. Both shell
+tiers failed on paste — `command not found: $`, then an empty pipe raising
+`JSONDecodeError`, then the expected-output lines executed as commands — while
+`gates/quickstart.py`, written one commit earlier for exactly this, passed.
+
+**Why it passed.** The gate stripped the `$ ` prompt and expanded `$BASE`
+itself before handing the command to a shell. It tested what the fence *means*.
+A reader pastes what the fence *says*. The gate normalised its input into
+something that worked and then reported that it worked.
+
+**Why the fence looked like that.** `commands()` split one fence into commands
+and expected output by looking for the `$ ` prefix, so the prompt marker existed
+to serve the parser. The document's format was chosen for the instrument's
+convenience — the inverse of the rule written down one commit earlier, and not
+as an annotation this time but as the shape of the page itself. GitHub's copy
+button then made that shape unrunnable, because it yields the fence verbatim and
+offers no prompt-stripping.
+
+**A new variant of the first class, and the worst-behaved so far.** The earlier
+instances were instruments that could see their own machinery. This one *altered
+the thing it measured until it passed*. An instrument that repairs its input is
+not measuring; it is laundering.
+
+Two more things fell out of the fix, both worth recording:
+
+- The rewritten gate's **first run passed on zero observations** — it reported
+  "0 tier(s)" and `PASS`, because no marker sat on a `sh` fence any more. Same
+  catalogue, instance six, inside the repair for instance eight. It now fails
+  unless every marker on the page sits on a fence holding its command alone.
+- The literal walk found three further page defects the semantic gate could
+  never see: the output fences showed `$BASE/...` rather than a real URL, the
+  two `export BASE=` lines were stacked so that copying the wrong one gave a
+  dead host and a silent `curl -s`, and nothing said the commands run from the
+  repository root.
+
+*What closes it:* command and output in separate fences, so each is copyable
+alone; `gates/quickstart.py` executing the command fence byte-for-byte on the
+port the serve line actually names, with no substitution anywhere and a FAIL —
+naming the occupant — if that port is busy; and the environment coming from the
+page's own export fence rather than from the gate.
+
+*The rule, as standing: an instrument may not modify its subject to measure it.
+If a gate pre-processes the artefact under test, what it certifies is the
+pre-processor.*

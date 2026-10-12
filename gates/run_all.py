@@ -85,7 +85,7 @@ def gates() -> list[dict]:
         # The front page as a sequence. `examples` checks each tier against
         # the recording its own marker names; this checks that the page's
         # serve line and its tiers agree, which is the defect that shipped.
-        {"name": "quickstart", "what": "the README's quickstart works top to bottom as written",
+        {"name": "quickstart", "what": "the README's quickstart runs when pasted verbatim",
          "cmd": ["gates/quickstart.py"],
          "skip": no_fountain or no_web or no_node},
     ]

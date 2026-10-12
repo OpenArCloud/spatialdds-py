@@ -11,9 +11,11 @@ characterization.
 
 ## Evidence
 
+```sh
+python3 gates/run_all.py
 ```
-$ python3 gates/run_all.py
 
+```
   PASS     wire_model          the recording's IDL and the published tables agree
   PASS     golden_json         the JSON projection matches the authored vectors
   PASS     decode_fidelity     every message decodes and the counts are the recording's
@@ -26,7 +28,7 @@ $ python3 gates/run_all.py
   PASS     anchor_serve        anchors served unmodified, and discovery finds them
   PASS     content_resolution  a served reference ends in a real committed file
   PASS     examples            every example runs and prints what examples/ documents
-  PASS     quickstart          the README's quickstart works top to bottom as written
+  PASS     quickstart          the README's quickstart runs when pasted verbatim
 
 13 gates: 13 passed, 0 failed, 0 skipped
 ```
@@ -52,7 +54,7 @@ served that many would pass for any gateway, including a broken one.
 | `anchor_serve` | the anchor recording is served unmodified: both types latched and public, all seven instances addressable by their percent-encoded `@key`, every ETag a content digest, every instance schema-valid, and a geohash query over the anchors' own cell returning the service while San Francisco returns nothing |
 | `content_resolution` | the full §7.5.1 chain with no fixture in it: read the authority's resolver metadata, follow the advertised `https_base`, resolve each announce's `manifest_uri` over HTTP, check the resolved document is the URI asked for and is the committed manifest byte for byte, check its `max-age` is the manifest's own `ttl_sec` and not the endpoint's default, then byte-compare the asset. Plus both refusals: another authority's URI and an unheld URI of its own, each a `404` naming which. And every announce's coverage circle is centred on one of the recording's anchor positions |
 | `examples` | every example is executed against a locally served recording and its documented output is diffed against what it prints: five scripts, five shell fences, two browser snippets under `node`, and one documented *refusal*. Plus the mismatch sweep — each script run against every self-advertising configuration it did not ask for, which must refuse in a sentence and never in a traceback. An example it cannot run it reports as a failure, not a pass |
-| `quickstart` | the README's front page executed as a sequence rather than as parts: its install line's packages import, its serve line names one recording and **every tier on the page names that same recording**, the serve line is run as a subprocess whose own PID must be the one listening, and each tier runs in document order against that one endpoint |
+| `quickstart` | the README's front page executed **as text a reader pastes**, with no normalising: each command fence goes to the shell byte-for-byte, on the port the serve line actually names, with the environment taken from the page's own export fence. Every marker must sit on a fence holding its command alone, so a fence mixing prompt and output cannot return; every tier must name the recording the serve line serves; and a busy port is a FAIL naming the occupant rather than a skip. The first version of this gate stripped the prompt and expanded `$BASE` before running, and passed while the page was unrunnable — finding 24 |
 
 During development the decoder was additionally checked against a
 CycloneDDS-based reader on every message in the recording: all 15,676 decoded

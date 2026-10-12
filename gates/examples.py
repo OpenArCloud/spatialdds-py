@@ -136,6 +136,13 @@ def parse(path: Path) -> list[Block]:
         elif mode == "js":
             b.program, j = fence(lines, i, "js")
             b.expected, _ = fence(lines, j, "console")
+        elif mode == "sh":
+            # A command fence holding the command alone, then its output
+            # fence. One fence carrying `$ ` prompts and output together is
+            # what GitHub's copy button turns into an unrunnable paste, so the
+            # grammar no longer admits it.
+            b.program, j = fence(lines, i, "sh")
+            b.expected, _ = fence(lines, j, "console")
         else:
             b.expected, _ = fence(lines, i, "console")
         out.append(b)
@@ -217,12 +224,14 @@ def run(block: Block, base: str) -> tuple[bool, str]:
                                timeout=120)
             got, err = r.stdout, r.stderr
         elif block.mode == "sh":
-            cmds, _ = commands(block.expected)
-            outs = [subprocess.run(["sh", "-c", c], cwd=ROOT, env=env,
-                                   capture_output=True, text=True,
-                                   timeout=120) for c in cmds]
-            got = "".join(o.stdout for o in outs)
-            err = "".join(o.stderr for o in outs)
+            # Verbatim: the fence's bytes go to the shell unchanged. `$BASE`
+            # is resolved by the shell from the environment, the way a reader's
+            # shell resolves it after the export block -- not by this gate
+            # rewriting the command first.
+            r = subprocess.run(["sh", "-c", "\n".join(block.program)],
+                               cwd=ROOT, env=env, capture_output=True,
+                               text=True, timeout=120)
+            got, err = r.stdout, r.stderr
         else:
             host = base.split("//", 1)[1]
             prog = ("\n".join(block.program).replace(DEMO, base)
@@ -247,9 +256,11 @@ def run(block: Block, base: str) -> tuple[bool, str]:
         last = [l for l in err.strip().splitlines() if l.strip()][-1]
         return False, f"printed nothing; stderr ends: {last.strip()[:140]}"
 
-    want = ([l for l in commands(block.expected)[1]] if block.mode == "sh"
-            else block.expected)
-    want = [l.replace("$BASE", base).rstrip() for l in want]
+    # The documented output names the port the README's serve line uses. This
+    # gate serves on an ephemeral one, so the host is rewritten on the
+    # *expected* side only; the command itself is never touched.
+    want = [l.replace("$BASE", base).replace("http://127.0.0.1:8787", base)
+            .rstrip() for l in block.expected]
     have = [l.rstrip() for l in got.splitlines()]
     if want == have:
         return True, ""

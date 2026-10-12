@@ -1,43 +1,44 @@
 #!/usr/bin/env python3
-"""The README's quickstart, walked top to bottom as written.
+"""The README's quickstart, executed as text a reader pastes.
 
-`gates/examples.py` runs each example against the recording its own marker
-names. That is right for examples/ and it is blind to the front page, where
-the serve line and the tiers below it are one sequence a newcomer types in
-order. A tier marked for a recording the serve line does not serve is green
-individually and broken as a page -- which is exactly what happened:
-`hello_spatial.py` asked for `spatial_zone`, the README served the fountain
-recording, and a fresh clone got `StopIteration` on its first command.
+The first version of this gate stripped the `$ ` prompt from each fence and
+expanded `$BASE` itself before running the command. It passed every time while
+the page was unrunnable: GitHub's copy button yields the fence verbatim --
+prompt, command and expected output together -- and pasting that into a shell
+gives `command not found: $`, an empty pipe, and then the output lines executed
+as commands. The gate normalised its input into something that worked and then
+reported that it worked. Both named defect classes at once, in the gate written
+to catch one of them.
 
-So this gate executes the composition rather than the parts:
+So this gate does no normalising. Rules, in order of importance:
 
-1. The install line's packages must be importable.
-2. The serve line names one recording, and **every** marker on the front page
-   must name a configuration serving that same recording. This is the
-   structural check; the rest would pass again tomorrow without it.
-3. The serve line is run as a subprocess -- the README's own command, not an
-   in-process stand-in -- and readiness is the listening PID matching the
-   child started, never a URL that merely answers.
-4. Each tier runs in document order against that one endpoint, and its
-   documented output must match.
+1. **A command fence is executed verbatim.** Whatever bytes the fence holds go
+   to the shell unchanged. If a `$ ` prompt marker is in there, it fails here,
+   exactly as it fails for a reader.
+2. **No port substitution.** The serve line's own port is used, so the URLs in
+   the documented output are the URLs a reader sees. If something already holds
+   that port this gate FAILS and names the occupant, because a gate that cannot
+   observe its subject must not report green.
+3. **The environment comes from the page.** The export fence is prepended to
+   each command fence, which is what a reader's shell carries after pasting it.
+   Nothing else is injected.
+4. Commands and their expected output live in **separate fences**, so that each
+   is independently copyable. A marker introduces the command fence; the next
+   `console` fence is its expected output.
 
-One substitution: the port. The README says 8787 and a developer's machine
-may already have something there, so the gate serves on a free port and
-rewrites `$BASE` the same way `gates/examples.py` does. It is printed, and it
-is the only difference between what this runs and what the page says.
+`gates/examples.py` still runs the same examples against an ephemeral port and
+may substitute hosts to do it. That is a different question -- does this command
+work against an endpoint -- and this gate is the one that answers whether the
+page can be followed.
 
 Usage:  gates/quickstart.py
 """
 from __future__ import annotations
 
-import asyncio
 import re
-import socket
 import subprocess
 import sys
 import time
-import urllib.error
-import urllib.request
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -46,82 +47,109 @@ if str(ROOT) not in sys.path:
 sys.path.insert(0, str(ROOT / "gates"))
 
 import examples as ex                                         # noqa: E402
-from harness import report                                    # noqa: E402
+from harness import report                                   # noqa: E402
 
 README = ROOT / "README.md"
-# pip name -> import name, for the install line's own claim.
-IMPORTS = {"requests": "requests", "websockets": "websockets",
-           "aiohttp": "aiohttp", "mcap": "mcap"}
+SHELL = "/bin/zsh" if Path("/bin/zsh").exists() else "/bin/sh"
 
 
-def quickstart_lines() -> tuple[list[str], str]:
-    """The install line and the serve line, from the README's first sh fence."""
-    body, _ = ex.fence(README.read_text().splitlines(), 0, "sh")
-    serve = [l for l in body if "run_gateway.py" in l]
-    install = [l for l in body if l.strip().startswith("pip install")]
-    assert len(install) == 1, f"expected one install line, got {install}"
-    assert len(serve) == 1, f"expected one serve line, got {serve}"
-    return install[0].split()[2:], serve[0].strip()
+def fences(text: str) -> list[tuple[int, str, list[str], str]]:
+    """Every fence: (line, tag, body, the marker preceding it or "")."""
+    out, lines, marker = [], text.splitlines(), ""
+    inf, tag, start, buf = False, "", 0, []
+    for i, l in enumerate(lines, 1):
+        m = ex.MARKER.match(l.strip())
+        if m and not inf:
+            marker = m.group(1)
+            continue
+        if not inf and l.startswith("```"):
+            inf, tag, start, buf = True, l[3:].strip(), i, []
+        elif inf and l.strip() == "```":
+            out.append((start, tag, buf, marker))
+            inf, marker = False, ""
+        elif inf:
+            buf.append(l)
+    return out
 
 
-def free_port() -> int:
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
+def listening(port: int) -> str:
+    r = subprocess.run(["lsof", "-nP", f"-iTCP:{port}", "-sTCP:LISTEN"],
+                       capture_output=True, text=True)
+    rows = [l for l in r.stdout.splitlines()[1:] if l.strip()]
+    return rows[0] if rows else ""
 
 
-def listening_pid(port: int) -> int | None:
-    try:
-        out = subprocess.run(["lsof", "-nP", f"-iTCP:{port}", "-sTCP:LISTEN",
-                              "-t"], capture_output=True, text=True).stdout
-    except FileNotFoundError:
-        return None
-    pids = [int(x) for x in out.split()]
-    return pids[0] if pids else None
-
-
-async def main() -> int:
+def main() -> int:
     checks: list[tuple[str, bool, str]] = []
-    packages, serve = quickstart_lines()
+    blocks = fences(README.read_text())
+    plain = [b for b in blocks if b[1] == "sh" and not b[3]]
+    assert len(plain) >= 2, "expected an install/serve fence and an export fence"
+    serve_fence, export_fence = plain[0], plain[1]
 
-    missing = [p for p in packages
+    packages = [l.split()[2:] for l in serve_fence[2]
+                if l.strip().startswith("pip install")]
+    missing = [p for p in (packages[0] if packages else [])
                if __import__("importlib.util", fromlist=["util"])
-               .find_spec(IMPORTS.get(p, p)) is None]
+               .find_spec(p) is None]
     checks.append((f"the install line's packages are importable "
-                   f"({', '.join(packages)})", not missing,
-                   f"not installed: {missing}"))
+                   f"({', '.join(packages[0]) if packages else 'none named'})",
+                   not missing, f"not installed: {missing}"))
 
-    # ---- the structural check ------------------------------------------
+    serve = next((l for l in serve_fence[2] if "run_gateway.py" in l), "")
     m = re.search(r"--mcap\s+(\S+)", serve)
+    port = int(re.search(r"--port\s+(\d+)", serve).group(1)) \
+        if re.search(r"--port\s+(\d+)", serve) else 8787
     checks.append(("the serve line names a recording", bool(m), serve))
     if not m:
         return report("quickstart", checks, "no serve line to walk")
     served = (ROOT / m.group(1)).resolve()
-    blocks = ex.parse(README)
-    wrong = [f"{b.src}:{b.line} names {b.rec!r} "
-             f"({ex.RECORDINGS[b.rec][0].name})" for b in blocks
-             if ex.RECORDINGS[b.rec][0].resolve() != served]
-    checks.append((f"every tier on the front page names the recording the "
-                   f"serve line serves ({served.name}, {len(blocks)} tier(s))",
+
+    # Every marker on the page must introduce a runnable command fence. A
+    # marker sitting on a `console` fence means the page still carries the
+    # prompt-and-output shape this gate exists to reject, and finding zero
+    # tiers to run must fail rather than pass on nothing -- which is exactly
+    # what this gate did on its first run.
+    # Each mode has one fence type that can hold a command alone: a shell tier
+    # is ```sh, a console tier is ```js. A marker on a ```console fence means
+    # the page still carries the prompt-and-output shape, where the copy button
+    # yields a prompt and expected output along with the command.
+    WANT = {"sh": "sh", "py": "sh", "py-fails": "sh", "js": "js",
+            "js-ok": "js"}
+    marked = [b for b in blocks if b[3]]
+    misplaced = [f"README.md:{b[0]} is ```{b[1] or '(none)'}, "
+                 f"mode {b[3].split()[1]} wants "
+                 f"```{WANT.get(b[3].split()[1], '?')}"
+                 for b in marked
+                 if b[1] != WANT.get(b[3].split()[1])]
+    checks.append((f"every marker sits on a fence holding its command alone "
+                   f"({len(marked) - len(misplaced)} of {len(marked)})",
+                   bool(marked) and not misplaced,
+                   "; ".join(misplaced) or "no marked fence on the page"))
+    runnable = [b for b in marked if b[1] == "sh"]
+    wrong = [f"README.md:{b[0]} names {b[3].split()[0]!r}" for b in runnable
+             if ex.RECORDINGS[b[3].split()[0]][0].resolve() != served]
+    checks.append((f"every tier names the recording the serve line serves "
+                   f"({served.name}, {len(runnable)} tier(s))",
                    not wrong, "; ".join(wrong)))
 
-    # ---- run the page --------------------------------------------------
-    port = free_port()
-    cmd = re.sub(r"--port\s+\d+", f"--port {port}", serve)
-    print(f"  serve line: {serve}")
-    print(f"  as run:     {cmd}   (port substituted, nothing else)\n")
-    child = subprocess.Popen([sys.executable] + cmd.split()[1:], cwd=ROOT,
-                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                             text=True)
-    base = f"http://127.0.0.1:{port}"
+    busy = listening(port)
+    if busy:
+        checks.append((f"port {port}, as the serve line writes it, is free",
+                       False, f"held by: {busy[:110]}"))
+        return report("quickstart", checks,
+                      "cannot observe the page on its own port")
+
+    env_text = "\n".join(export_fence[2])
+    child = subprocess.Popen([sys.executable] + serve.split()[1:], cwd=ROOT,
+                             stdout=subprocess.PIPE,
+                             stderr=subprocess.STDOUT, text=True)
     try:
-        ready = owner = None
+        owner = ""
         for _ in range(300):
             if child.poll() is not None:
                 break
-            owner = listening_pid(port)
-            if owner == child.pid:
-                ready = True
+            owner = listening(port)
+            if owner and f" {child.pid} " in f" {owner.split()[1]} ":
                 break
             time.sleep(0.1)
         if child.poll() is not None:
@@ -129,20 +157,33 @@ async def main() -> int:
             checks.append(("the serve line starts an endpoint", False,
                            f"exited {child.returncode}: {out.strip()}"))
             return report("quickstart", checks, "the serve line did not serve")
-        checks.append((f"the serve line's own process is the one listening on "
-                       f"{port}", ready is True,
-                       f"listening pid {owner}, started {child.pid}"
-                       if owner else "lsof unavailable: cannot confirm"))
+        checks.append((f"the serve line's own process is listening on {port}",
+                       bool(owner) and owner.split()[1] == str(child.pid),
+                       f"{owner[:80]!r} vs started pid {child.pid}"))
 
-        ran = 0
-        for b in blocks:
-            ok, detail = await asyncio.get_running_loop().run_in_executor(
-                None, ex.run, b, base)
-            ran += 1
-            checks.append((f"tier at {b.src}:{b.line} ({b.mode})", ok, detail))
-        checks.append((f"every tier on the page was executed ({ran} of "
-                       f"{len(blocks)})", ran == len(blocks),
-                       "a tier was documented but not run"))
+        for n, (line, _tag, body, marker) in enumerate(blocks):
+            if not marker or _tag != "sh":
+                continue
+            want = next((b[2] for b in blocks[n + 1:n + 2]
+                         if b[1] == "console"), None)
+            if want is None:
+                checks.append((f"README.md:{line}: its output fence follows it",
+                               False, "no ```console fence after the command"))
+                continue
+            script = f"{env_text}\n" + "\n".join(body)
+            r = subprocess.run([SHELL, "-c", script], cwd=ROOT,
+                               capture_output=True, text=True, timeout=180)
+            have = [l.rstrip() for l in r.stdout.splitlines()]
+            exp = [l.rstrip() for l in want]
+            ok = have == exp
+            detail = ""
+            if not ok:
+                bad = next((f"line {i + 1}: want {w!r}, got {g!r}"
+                            for i, (w, g) in enumerate(zip(exp, have))
+                            if w != g), f"{len(exp)} want, {len(have)} got")
+                err = (r.stderr.strip().splitlines() or [""])[0][:100]
+                detail = bad + (f"; stderr: {err}" if err else "")
+            checks.append((f"README.md:{line} pasted verbatim", ok, detail))
     finally:
         child.terminate()
         try:
@@ -151,8 +192,8 @@ async def main() -> int:
             child.kill()
 
     return report("quickstart", checks,
-                  "the front page works as a sequence, not just as parts")
+                  "the page can be pasted, not merely interpreted")
 
 
 if __name__ == "__main__":
-    sys.exit(asyncio.run(main()))
+    sys.exit(main())
