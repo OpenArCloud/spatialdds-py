@@ -46,7 +46,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "gates"))
 
-from harness import Gateway, report, state                     # noqa: E402
+from harness import Gateway, TOKEN, report, state              # noqa: E402
 
 # The front page is gated too. Its three tiers are the most-read claims in the
 # repository and the ones a reader tries first, so they get the same treatment
@@ -64,7 +64,17 @@ RECORDINGS = {
     "fountain": (ROOT / "samples" / "fountain-anchors.mcap", None),
     "authority": (ROOT / "samples" / "fountain-anchors.mcap",
                   "https://demo.spatialdds.org"),
+    # The same endpoint again with the write surface on. Separate, because
+    # publishing is off by default and the examples that need it should say so
+    # rather than be carried by a flag every other example is unaware of.
+    "publish": (ROOT / "samples" / "fountain-anchors.mcap",
+                "https://demo.spatialdds.org"),
 }
+PUBLISHING = {"publish"}
+# The README's publish section serves with `--token tok` and its curl sends
+# `Bearer tok`, so the gate serves that configuration with that token. The
+# document is the product; the gate matches it rather than the reverse.
+TOKEN_FOR = {"publish": "tok"}
 # Anchored, because `examples/README.md` documents this grammar by quoting it
 # inline, and a parser that reads its own documentation as input is the
 # self-observing check this repository has named five times. A marker counts
@@ -166,9 +176,10 @@ def commands(expected: list[str]) -> tuple[list[str], list[str]]:
     return cmds, out
 
 
-def run(block: Block, base: str) -> tuple[bool, str]:
+def run(block: Block, base: str,
+        token: str = TOKEN) -> tuple[bool, str]:
     env = dict(os.environ, SPATIALDDS_ENDPOINT=base, BASE=base,
-               PYTHONPATH=str(ROOT))
+               SPATIALDDS_TOKEN=token, PYTHONPATH=str(ROOT))
     err = ""
     try:
         if block.mode == "js-ok":
@@ -282,16 +293,28 @@ async def main() -> int:
         mine = [b for b in blocks if b.rec == rec]
         if not mine:
             continue
-        gw = await Gateway(state(mcap), advertise=advertise).start()
+        # A publishing example changes the registry, so sharing one endpoint
+        # across several would make each one's output depend on what ran
+        # before it -- the README's own curl publishes the same record these
+        # examples do. Mutation means isolation: one endpoint per block.
+        fresh = rec in PUBLISHING
+        tok = TOKEN_FOR.get(rec, TOKEN)
+        gw = await Gateway(state(mcap), token=tok, advertise=advertise,
+                           publish=fresh).start()
         try:
             for b in mine:
+                if fresh:
+                    await gw.stop()
+                    gw = await Gateway(state(mcap), token=tok,
+                                       advertise=advertise,
+                                       publish=True).start()
                 if b.mode in ("js", "js-ok") and not have_node:
                     checks.append((b.label, False,
                                    "node is not installed, so this snippet "
                                    "was not verified"))
                     continue
                 ok, detail = await asyncio.get_running_loop(
-                ).run_in_executor(None, run, b, gw.base)
+                ).run_in_executor(None, run, b, gw.base, tok)
                 ran += 1
                 checks.append((b.label, ok, detail))
         finally:
@@ -331,13 +354,15 @@ async def main() -> int:
             if rec in decl:
                 continue
             mcap, advertise = RECORDINGS[rec]
-            gw = await Gateway(state(mcap), advertise=advertise).start()
+            gw = await Gateway(state(mcap), advertise=advertise,
+                               publish=rec in PUBLISHING).start()
             try:
                 r = await asyncio.get_running_loop().run_in_executor(
                     None, lambda: subprocess.run(
                         [sys.executable, target], cwd=ROOT, timeout=120,
                         capture_output=True, text=True,
                         env=dict(os.environ, SPATIALDDS_ENDPOINT=gw.base,
+                                 SPATIALDDS_TOKEN=TOKEN,
                                  PYTHONPATH=str(ROOT))))
             finally:
                 await gw.stop()

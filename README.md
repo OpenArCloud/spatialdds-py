@@ -86,6 +86,43 @@ latched set complete: 5 anchor(s)
 | `GET /{domain}/{stream}/{type}/{version}/{key}` | one instance, by its key |
 | `WS /{domain}/{stream}/{type}/{version}` | the same URL, upgraded: replay, then live |
 
+## Publish
+
+Services and content can be published over HTTP: `PUT` on the same instance URL
+a `GET` serves, `DELETE` to withdraw. **The surface is implementation-defined
+and off by default** -- 1.8 specifies no publish verb and forbids none, so this
+is an endpoint extension, not a reading of the specification. A read-only client
+cannot tell a published record from a replayed one, which is the property that
+keeps the endpoint conformant either way. See
+[docs/PUBLISH.md](docs/PUBLISH.md).
+
+Serve it with the surface on, as its own authority, and it needs a token:
+
+```sh
+python3 tools/run_gateway.py --mcap samples/fountain-anchors.mcap --port 8787 \
+    --public-url https://demo.spatialdds.org --token tok --publish \
+    --journal /tmp/registry.mcap
+```
+
+Then one PUT, and the record is in the registry the read path serves:
+
+<!-- gate: publish sh -->
+```sh
+python3 -c 'import json; print(json.dumps(json.load(open("samples/published-records.input.json"))["service"]["record"]))' \
+    | curl -s -X PUT "$BASE/ut-austin-south-mall/discovery/announce/v1/austin-vps" \
+        -H "Authorization: Bearer tok" -H "Content-Type: application/json" \
+        --data @- \
+    | python3 -c 'import json,sys; d=json.load(sys.stdin); print("published", d["service_id"], "|", d["name"])'
+```
+
+```console
+published austin-vps | Austin VPS, published over HTTP
+```
+
+[`publish_service.py`](examples/publish_service.py) and
+[`publish_content.py`](examples/publish_content.py) do the same in thirteen
+lines each, and read the record back out through search and the resolver.
+
 ## Examples
 
 | | |
@@ -97,6 +134,8 @@ latched set complete: 5 anchor(s)
 | [`anchors.py`](examples/anchors.py) | Anchors with their method and positional uncertainty. |
 | [`migration/ssd_search.py`](examples/migration/ssd_search.py) | OSCP Spatial Service Discovery, and the search path that replaces it. |
 | [`migration/scd_content.py`](examples/migration/scd_content.py) | OSCP Spatial Content Discovery: announce, resolved URI, manifest, asset. Wants the endpoint served as its own authority. |
+| [`publish_service.py`](examples/publish_service.py) | Publish a service announce, then find it. Needs `--publish`. |
+| [`publish_content.py`](examples/publish_content.py) | Publish a content record and its manifest, then resolve it. Needs `--publish`. |
 
 Every claim here is gated and conformance-tested: see
 [docs/EVIDENCE.md](docs/EVIDENCE.md).

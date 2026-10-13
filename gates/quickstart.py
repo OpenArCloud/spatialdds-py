@@ -72,6 +72,19 @@ def fences(text: str) -> list[tuple[int, str, list[str], str]]:
     return out
 
 
+def logical(lines: list[str], start: int) -> str:
+    """One shell command, with backslash continuations joined.
+
+    A serve line that wraps is still one command, and taking only the physical
+    line leaves a trailing backslash the shell rejects.
+    """
+    out = lines[start]
+    while out.rstrip().endswith("\\") and start + 1 < len(lines):
+        start += 1
+        out = out.rstrip()[:-1] + " " + lines[start].strip()
+    return " ".join(out.split())
+
+
 def listening(port: int) -> str:
     r = subprocess.run(["lsof", "-nP", f"-iTCP:{port}", "-sTCP:LISTEN"],
                        capture_output=True, text=True)
@@ -85,6 +98,21 @@ def main() -> int:
     plain = [b for b in blocks if b[1] == "sh" and not b[3]]
     assert len(plain) >= 2, "expected an install/serve fence and an export fence"
     serve_fence, export_fence = plain[0], plain[1]
+    # The page may stand the endpoint up more than once -- the publish section
+    # restarts it with the write surface on -- so the walk is a sequence of
+    # phases in document order: an unmarked fence holding a serve line opens a
+    # phase, and the marked fences after it belong to that phase. A reader
+    # stops one gateway before starting the next, and so does this.
+    phases: list[tuple[str, list]] = []
+    for n, b in enumerate(blocks):
+        if b[1] == "sh" and not b[3] and any("run_gateway.py" in l
+                                             for l in b[2]):
+            i = next(k for k, l in enumerate(b[2]) if "run_gateway.py" in l)
+            phases.append((logical(b[2], i), []))
+        elif b[3] and b[1] == "sh" and phases:
+            nxt = blocks[n + 1] if n + 1 < len(blocks) else None
+            want = nxt[2] if nxt and nxt[1] == "console" else None
+            phases[-1][1].append((b[0], b[1], b[2], b[3], want))
 
     packages = [l.split()[2:] for l in serve_fence[2]
                 if l.strip().startswith("pip install")]
@@ -95,7 +123,9 @@ def main() -> int:
                    f"({', '.join(packages[0]) if packages else 'none named'})",
                    not missing, f"not installed: {missing}"))
 
-    serve = next((l for l in serve_fence[2] if "run_gateway.py" in l), "")
+    si = next((k for k, l in enumerate(serve_fence[2])
+               if "run_gateway.py" in l), None)
+    serve = logical(serve_fence[2], si) if si is not None else ""
     m = re.search(r"--mcap\s+(\S+)", serve)
     port = int(re.search(r"--port\s+(\d+)", serve).group(1)) \
         if re.search(r"--port\s+(\d+)", serve) else 8787
@@ -132,6 +162,13 @@ def main() -> int:
                    f"({served.name}, {len(runnable)} tier(s))",
                    not wrong, "; ".join(wrong)))
 
+    checks.append((f"the page stands the endpoint up {len(phases)} time(s), "
+                   f"and every marked shell tier belongs to one "
+                   f"({sum(len(c) for _s, c in phases)} of {len(runnable)})",
+                   bool(phases)
+                   and sum(len(c) for _s, c in phases) == len(runnable),
+                   f"{[(s_.split()[-1], len(c)) for s_, c in phases]}"))
+
     busy = listening(port)
     if busy:
         checks.append((f"port {port}, as the serve line writes it, is free",
@@ -140,6 +177,16 @@ def main() -> int:
                       "cannot observe the page on its own port")
 
     env_text = "\n".join(export_fence[2])
+    for serve_line, cmd_blocks in phases:
+        rc = await_phase(serve_line, cmd_blocks, env_text, port, checks)
+        if rc is not None:
+            return rc
+    return report("quickstart", checks,
+                  "the page can be pasted, not merely interpreted")
+
+
+def await_phase(serve: str, cmd_blocks: list, env_text: str, port: int,
+                checks: list) -> int | None:
     child = subprocess.Popen([sys.executable] + serve.split()[1:], cwd=ROOT,
                              stdout=subprocess.PIPE,
                              stderr=subprocess.STDOUT, text=True)
@@ -161,11 +208,7 @@ def main() -> int:
                        bool(owner) and owner.split()[1] == str(child.pid),
                        f"{owner[:80]!r} vs started pid {child.pid}"))
 
-        for n, (line, _tag, body, marker) in enumerate(blocks):
-            if not marker or _tag != "sh":
-                continue
-            want = next((b[2] for b in blocks[n + 1:n + 2]
-                         if b[1] == "console"), None)
+        for line, _tag, body, marker, want in cmd_blocks:
             if want is None:
                 checks.append((f"README.md:{line}: its output fence follows it",
                                False, "no ```console fence after the command"))
@@ -190,9 +233,7 @@ def main() -> int:
             child.wait(timeout=10)
         except subprocess.TimeoutExpired:
             child.kill()
-
-    return report("quickstart", checks,
-                  "the page can be pasted, not merely interpreted")
+    return None
 
 
 if __name__ == "__main__":

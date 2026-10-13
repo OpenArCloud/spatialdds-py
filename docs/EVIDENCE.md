@@ -4,7 +4,8 @@ Every claim the README makes is gated, and the gate manifest below is this
 repository's output rather than a sentence written beside it. Moved here intact
 from the README.
 
-See also [`WIRE.md`](WIRE.md) for the wire format and the decoding contract,
+See also [`PUBLISH.md`](PUBLISH.md) for the implementation-defined write
+surface, [`WIRE.md`](WIRE.md) for the wire format and the decoding contract,
 [`LAYOUT.md`](LAYOUT.md) for the directory map, and
 [`RESOLUTION.md`](RESOLUTION.md) for the `spatialdds://` resolution
 characterization.
@@ -29,8 +30,13 @@ python3 gates/run_all.py
   PASS     content_resolution  a served reference ends in a real committed file
   PASS     examples            every example runs and prints what examples/ documents
   PASS     quickstart          the README's quickstart runs when pasted verbatim
+  PASS     golden_publish      a published record is indistinguishable from a replayed one
+  PASS     publish_reject      every refusal is a status and a sentence, and stores nothing
+  PASS     journal_replay      restart is the same state, and a backup is a recording
+  PASS     publish_live        a publish reaches a subscriber already on the socket
+  PASS     publish_offswitch   with publishing off, reads are byte-identical and writes are 405
 
-13 gates: 13 passed, 0 failed, 0 skipped
+18 gates: 18 passed, 0 failed, 0 skipped
 ```
 
 Expected values come from the recording, not from this gateway: per-topic
@@ -54,6 +60,11 @@ served that many would pass for any gateway, including a broken one.
 | `anchor_serve` | the anchor recording is served unmodified: both types latched and public, all seven instances addressable by their percent-encoded `@key`, every ETag a content digest, every instance schema-valid, and a geohash query over the anchors' own cell returning the service while San Francisco returns nothing |
 | `content_resolution` | the full §7.5.1 chain with no fixture in it: read the authority's resolver metadata, follow the advertised `https_base`, resolve each announce's `manifest_uri` over HTTP, check the resolved document is the URI asked for and is the committed manifest byte for byte, check its `max-age` is the manifest's own `ttl_sec` and not the endpoint's default, then byte-compare the asset. Plus both refusals: another authority's URI and an unheld URI of its own, each a `404` naming which. And every announce's coverage circle is centred on one of the recording's anchor positions |
 | `examples` | every example is executed against a locally served recording and its documented output is diffed against what it prints: five scripts, five shell fences, two browser snippets under `node`, and one documented *refusal*. Plus the mismatch sweep — each script run against every self-advertising configuration it did not ask for, which must refuse in a sentence and never in a traceback. An example it cannot run it reports as a failure, not a pass |
+| `golden_publish` | one service announce and one content record published and checked whole, every expected value from `samples/published-records.input.json` and none from the gateway: the response is the served canonical form field for field, its ETag is the digest of that form, a reader's GET returns the same bytes, it validates against the vendored schema, a schema-valid body carrying members the type does not declare comes back without them, **two announces in one scene both appear in search and in a geohash query over it** — the regression gate for a read-side defect only a writer exposed — and a published manifest resolves through §7.5.2 with the `ttl_sec` rule intact |
+| `publish_reject` | seven refusal classes, each a status and a problem+json sentence — no token, wrong token, non-record body, foreign authority, unpublishable topic, key/URL mismatch, disposing nothing — and the registry untouched after all seven. Plus why the authority check can never have nothing to check: a bound endpoint always has a host |
+| `journal_replay` | three publishes and a dispose, then a restart from the journal serving byte-identical bytes; the disposed record stays gone; the journal is a valid MCAP whose schemas are `omgidl` under their own names; and a gateway given only the journal learns its types from it |
+| `publish_live` | a subscriber already on the socket receives a publish as a `sample` and a dispose as a `dispose`, on the same envelope a replayed sample has, and a later subscriber replays the published record as latched state |
+| `publish_offswitch` | the one that matters: with the surface off, eight reads are byte-identical to an endpoint built without it, the write verbs are `405` problem documents, an attempted DELETE leaves its instance untouched, and a subscription still terminates by itself |
 | `quickstart` | the README's front page executed **as text a reader pastes**, with no normalising: each command fence goes to the shell byte-for-byte, on the port the serve line actually names, with the environment taken from the page's own export fence. Every marker must sit on a fence holding its command alone, so a fence mixing prompt and output cannot return; every tier must name the recording the serve line serves; and a busy port is a FAIL naming the occupant rather than a skip. The first version of this gate stripped the prompt and expanded `$BASE` before running, and passed while the page was unrunnable — finding 24 |
 
 During development the decoder was additionally checked against a
@@ -150,6 +161,12 @@ address it is reached at. Both shapes now run, and both pass:
 |---|---|---|
 | non-authority | `--endpoint http://127.0.0.1:PORT` | 14 checks, 13 passed, 1 skipped |
 | authority | `--endpoint https://demo.spatialdds.org --connect http://127.0.0.1:PORT` | 14 checks, 13 passed, 1 skipped |
+| authority, publish surface **on** | the same, plus `--publish` on the endpoint | 14 checks, 13 passed, 1 skipped |
+
+The third row is the point of the write surface being implementation-defined:
+the suite's result is identical with it enabled, because it never touches those
+routes and a read-only client cannot tell a published record from a replayed
+one. See [`PUBLISH.md`](PUBLISH.md).
 
 The resolver check is fully exercised only in the second: *resolver 200
 (authority demo.spatialdds.org); 2 resolved, 1 announced-but-not-held (404); ttl

@@ -40,6 +40,7 @@ ROOT = Path(__file__).resolve().parent.parent
 WEBJSON = ROOT / "webjson"
 
 _STR_INTS = {"int64", "uint64"}
+_TABLES: dict | None = None
 
 
 def ecma262(x: float) -> str:
@@ -99,6 +100,18 @@ def digest(v: Any) -> str:
 
 
 @lru_cache(maxsize=1)
+def tables() -> dict:
+    """The vendored serializer tables, read once.
+
+    The serving path and the publish path must project through the same
+    tables; loading the file in two places invites two answers.
+    """
+    global _TABLES
+    if _TABLES is None:
+        _TABLES = json.loads((WEBJSON / "serializer_tables.json").read_text())
+    return _TABLES
+
+
 def schemas() -> dict[str, dict]:
     """Every vendored JSON Schema, keyed by its `title` (the dotted FQN).
 
@@ -115,6 +128,99 @@ def schemas() -> dict[str, dict]:
 def schema_file_for(fqn: str) -> str:
     """`spatial.core.GeoAnchor` -> `spatial_core_GeoAnchor`."""
     return fqn.replace(".", "_")
+
+
+class Lifter:
+    """The inverse of `Projector`: binding JSON back to wire values.
+
+    A reader never needs this; a publisher does, and so this is the half of the
+    mapping a client library will need to send anything. It exists because the
+    publish path canonicalizes by round trip -- JSON in, XCDR2 out, decoded and
+    projected back -- and `Writer` encodes decoded values rather than canonical
+    JSON. Only three rules actually differ between the two representations, and
+    each is inverted here in the same order `Projector` applies it:
+
+    * `int64`/`uint64` are unconditional decimal **strings** in JSON (N.1) and
+      integers on the wire.
+    * An octet run is base64 in JSON and a byte sequence on the wire. `Writer`
+      flattens arrays itself, so the decoded form is a flat list of integers.
+    * A union is tagged on `"type"` in JSON and carries `_discriminator`
+      through the decoder. A branch the JSON suppresses still occupies the
+      wire, and `Writer` writes zero for it.
+
+    Everything else -- enumerator names, floats, bools, strings, nesting --
+    is already in the form the writer wants, which is why this is short.
+    """
+
+    def __init__(self, model: Model,
+                 tables: dict[str, Any] | None = None) -> None:
+        self.m = model
+        self.tables = tables or {}
+
+    def lift(self, fqn: str, value: Any) -> Any:
+        agg = self.m.get(fqn)
+        if agg is None:
+            raise KeyError(f"no wire model for {fqn}")
+        if agg.kind == "union":
+            return self._union(agg, value)
+        out = {}
+        for mem in agg.members:
+            if mem.name not in value:
+                continue
+            out[mem.name] = self._member(mem, value[mem.name])
+        return out
+
+    def _union(self, agg, value: dict) -> dict:
+        label = value.get("type")
+        out: dict[str, Any] = {"_discriminator": label}
+        for labels, mem in agg.cases:
+            if label in labels and mem.name and mem.name in value:
+                out[mem.name] = self._member(mem, value[mem.name])
+                break
+        return out
+
+    def _member(self, mem: Member, v: Any) -> Any:
+        base = self.m.resolve(mem.type)
+        if base == "octet" and (mem.sequence or mem.array):
+            return list(base64.b64decode(v)) if isinstance(v, str) else list(v)
+        if mem.sequence:
+            return [self._scalar(mem.type, x) for x in v]
+        if mem.array:
+            return self._nested(mem.type, v)
+        return self._scalar(mem.type, v)
+
+    def _nested(self, type_name: str, v: Any) -> Any:
+        if isinstance(v, list):
+            return [self._nested(type_name, x) for x in v]
+        return self._scalar(type_name, v)
+
+    def _scalar(self, type_name: str, v: Any) -> Any:
+        t = self.m.resolve(type_name)
+        if t == "string":
+            return v
+        if t in PRIMITIVES:
+            kind = PRIMITIVES[t][1]
+            if kind in _STR_INTS:
+                return int(v)               # the decimal string, undone
+            if kind in ("float32", "float64"):
+                return float(v)
+            if kind == "bool":
+                return bool(v)
+            if kind == "char":
+                return v
+            return int(v)
+        td = self.m.typedefs.get(t)
+        if td is not None and (td.array or td.sequence):
+            return self._member(Member(td.name, td.type, list(td.array),
+                                       td.sequence, td.seq_bound), v)
+        agg = self.m.get(t)
+        if agg is None:
+            raise KeyError(f"no wire model for {type_name!r}")
+        if agg.kind == "enum":
+            return v                        # the enumerator name, unchanged
+        if agg.kind == "union":
+            return self._union(agg, v)
+        return self.lift(t, v)
 
 
 class Projector:

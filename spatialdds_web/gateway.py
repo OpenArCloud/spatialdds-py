@@ -122,6 +122,13 @@ class State:
     # it: a construction rule nobody published is a dialect, which is what
     # the retired resolution fixture was.
     manifests: dict[str, dict] = field(default_factory=dict)
+    # The IDL text the types were read from, kept per type rather than
+    # discarded after parsing. A journal of published records has to embed the
+    # same self-description a recording does -- "a backup is a recording" is
+    # only true if any SpatialDDS tool can read it -- and the honest text to
+    # embed is the one this gateway itself learned the type from, byte for
+    # byte, not a re-flattened copy from somewhere else.
+    idl: dict[str, tuple[str, bytes]] = field(default_factory=dict)
 
     def resource_for(self, path: str) -> Resource | None:
         return self.resources.get(path.rstrip("/"))
@@ -129,23 +136,47 @@ class State:
 
 def wire_model(path: Path) -> idlmodel.Model:
     """The wire model, from the IDL the recording carries for its own types."""
-    texts: dict[str, str] = {}
+    return _wire_model(path)[0]
+
+
+def _wire_model(path: Path) -> tuple[idlmodel.Model, dict[str, tuple[str, bytes]]]:
+    """The model, and the schema record each type was defined by.
+
+    The second return value is what lets a published record be journalled: an
+    MCAP schema record needs a name and the IDL bytes, and the truthful bytes
+    are the ones this file carried.
+    """
+    # Every record, not the digest-deduped set. Two closures can flatten to
+    # byte-identical text -- `Announce` and `ContentAnnounce` do, sharing the
+    # same three files -- and deduping would leave one of them registered
+    # under the other's name in any journal written from this model.
+    records: list[tuple[str, bytes]] = []
     with open(path, "rb") as f:
         for _sid, sch in sorted(make_reader(f).get_summary().schemas.items()):
-            if sch.encoding != "omgidl":
-                continue
-            texts.setdefault(hashlib.sha256(sch.data).hexdigest(),
-                             sch.data.decode())
-    if not texts:
+            if sch.encoding == "omgidl":
+                records.append((sch.name, sch.data))
+    if not records:
         raise SystemExit(f"{path} embeds no omgidl schemas, so its types "
                          f"cannot be read from the file itself")
     model = idlmodel.Model()
-    for text in texts.values():
-        m = idlmodel.parse(text)
+    idl: dict[str, tuple[str, bytes]] = {}
+    parsed: dict[str, idlmodel.Model] = {}
+    for name, data in records:
+        d = hashlib.sha256(data).hexdigest()
+        if d not in parsed:
+            parsed[d] = idlmodel.parse(data.decode())
+        m = parsed[d]
         model.aggregates.update(m.aggregates)
         model.typedefs.update(m.typedefs)
+        # A closure defines several aggregates; the one the record is named
+        # for is the one a journal should register under that name.
+        for fqn in m.aggregates:
+            idl.setdefault(fqn, (name, data))
+        own = name.replace("::", ".")
+        if own in m.aggregates:
+            idl[own] = (name, data)
     model._leaves = None
-    return model
+    return model, idl
 
 
 def split_topic(topic: str) -> tuple[str, str, str, str] | None:
@@ -223,14 +254,23 @@ def resolve_uri(st: State, base: str, uri: str) -> dict | None:
     return st.manifests.get(uri)
 
 
-def build_state(path: Path, manifests: Path | None = None) -> State:
-    model = wire_model(path)
-    tables = json.loads((Path(__file__).resolve().parent.parent
-                         / "webjson" / "serializer_tables.json").read_text())
+def build_state(path: Path | None, manifests: Path | None = None) -> State:
+    """The state a recording describes, or an empty registry if given none.
+
+    A seed is optional because the publish surface makes the recording one
+    producer among others rather than the only one. With no seed there are no
+    types either, and a gateway with no types can serve an empty registry but
+    cannot accept a publish -- which it says rather than discovers.
+    """
+    if path is None:
+        return State(source="", manifests=load_manifests(manifests)
+                     if manifests else {})
+    model, idl = _wire_model(path)
+    tables = webjson.tables()
     dec = xcdr2.Decoder(model)
     proj = webjson.Projector(model, tables)
 
-    st = State(source=str(path), model=model,
+    st = State(source=str(path), model=model, idl=idl,
                source_sha256=hashlib.sha256(path.read_bytes()).hexdigest(),
                manifests=load_manifests(manifests) if manifests else {})
     # Which latched instances were in force when the window opened. A
@@ -479,17 +519,30 @@ def declared_coverage(st: State, scene: str) -> list[dict] | None:
     return None
 
 
-def declared_service(st: State, scene: str) -> dict | None:
-    """The identity fields a recorded `Announce` declares, if any."""
-    for res in st.resources.values():
+def declared_services(st: State, scene: str) -> list[dict]:
+    """Every `Announce` in force for a scene, recorded or published.
+
+    A list rather than one, because the publish surface makes more than one
+    possible: a second service announced into a scene the recording already
+    describes is a real registry entry, and returning only the first would
+    make it invisible to search while serving it perfectly over GET.
+    """
+    out = []
+    for _path, res in sorted(st.resources.items()):
         if res.scene != scene or res.fqn != "spatial.disco.Announce":
             continue
-        for inst in st.latched.get(res.topic, {}).values():
-            return inst.data
-    return None
+        out.extend(st.latched.get(res.topic, {}).values())
+    return [i.data for i in out]
 
 
-def service_manifest(st: State, scene: str, base: str) -> dict:
+def declared_service(st: State, scene: str) -> dict | None:
+    """The identity fields a recorded `Announce` declares, if any."""
+    found = declared_services(st, scene)
+    return found[0] if found else None
+
+
+def service_manifest(st: State, scene: str, base: str,
+                     declared: dict | None = None) -> dict:
     """The §8.2.3 service manifest for one scene.
 
     `service.connection` is deliberately absent: it carries DDS connection
@@ -555,7 +608,7 @@ def service_manifest(st: State, scene: str, base: str) -> dict:
     # carries none. The topic list stays derived either way: the gateway knows
     # what it actually serves, and `TopicMeta` cannot carry the `durability`
     # that N.7 requires of a manifest topic entry.
-    decl = declared_service(st, scene)
+    decl = declared if declared is not None else declared_service(st, scene)
     if decl:
         svc = man["service"]
         for src, dst in (("service_id", "service_id"), ("name", "name"),
@@ -608,8 +661,18 @@ def search(st: State, base: str, geohash: str | None = None,
             b = el["bbox"]
             wanted.append((float(b[0]), float(b[1]), float(b[2]), float(b[3])))
     results = []
+    # One result per announce in force, and a synthesized manifest only for a
+    # scene that declares none. With one announce per scene -- which is what
+    # both recordings carry -- this is exactly the previous behaviour.
+    manifests = []
     for scene in st.scenes:
-        man = service_manifest(st, scene, base)
+        declared = declared_services(st, scene)
+        if declared:
+            manifests.extend(service_manifest(st, scene, base, d)
+                             for d in declared)
+        else:
+            manifests.append(service_manifest(st, scene, base))
+    for man in manifests:
         if kinds and man["service"]["kind"] not in kinds:
             continue
         if wanted:

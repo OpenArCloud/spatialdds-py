@@ -49,6 +49,10 @@ def gates() -> list[dict]:
     # The examples gate verifies the browser snippets by running them, and a
     # snippet it cannot run it reports as a failure rather than a pass. So a
     # missing interpreter becomes a stated skip here instead of red there.
+    pub_input = ROOT / "samples" / "published-records.input.json"
+    no_input = None if pub_input.is_file() else (
+        f"needs {pub_input.relative_to(ROOT)}, the authored records the "
+        f"publish gates take their expected values from")
     no_node = None if shutil.which("node") else (
         "needs node to execute the browser console snippets in "
         "examples/browser.md; the gate fails rather than passes on an "
@@ -88,6 +92,23 @@ def gates() -> list[dict]:
         {"name": "quickstart", "what": "the README's quickstart runs when pasted verbatim",
          "cmd": ["gates/quickstart.py"],
          "skip": no_fountain or no_web or no_node},
+        # The write surface. Implementation-defined, off by default, and the
+        # last gate is the one that matters: with it off, nothing changed.
+        {"name": "golden_publish", "what": "a published record is indistinguishable from a replayed one",
+         "cmd": ["gates/golden_publish.py"],
+         "skip": no_fountain or no_web or no_js or no_input},
+        {"name": "publish_reject", "what": "every refusal is a status and a sentence, and stores nothing",
+         "cmd": ["gates/publish_reject.py"],
+         "skip": no_fountain or no_web or no_input},
+        {"name": "journal_replay", "what": "restart is the same state, and a backup is a recording",
+         "cmd": ["gates/journal_replay.py"],
+         "skip": no_fountain or no_web or no_input},
+        {"name": "publish_live", "what": "a publish reaches a subscriber already on the socket",
+         "cmd": ["gates/publish_live.py"],
+         "skip": no_fountain or no_web or no_input},
+        {"name": "publish_offswitch", "what": "with publishing off, reads are byte-identical and writes are 405",
+         "cmd": ["gates/publish_offswitch.py"],
+         "skip": no_fountain or no_web or no_input},
     ]
 
 

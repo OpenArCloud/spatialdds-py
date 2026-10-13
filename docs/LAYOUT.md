@@ -12,14 +12,16 @@ for the `spatialdds://` resolution characterization.
 ```
 spatialdds_web/   idlmodel (wire model from embedded IDL), xcdr2 (reader+writer),
                   webjson (canonical JSON), gateway (state, discovery),
-                  gw_http (the pinned HTTP and WebSocket surface)
+                  gw_http (the pinned HTTP and WebSocket surface),
+                  publish (the implementation-defined write surface)
 webjson/          schemas, serializer tables, golden vectors, MAPPING, PROVENANCE
-samples/          two recordings, their inputs, assets, and content manifests
-examples/         everything a reader runs: curl, browser console, five scripts,
-                  and the migration pair under examples/migration/
+samples/          two recordings, their inputs, assets, content manifests,
+                  and the authored records the publish gates check against
+examples/         everything a reader runs: curl, browser console, seven
+                  scripts, and the migration pair under examples/migration/
 gates/            everything above
 tools/            run_gateway.py, author_anchors.py
-docs/             WIRE, EVIDENCE, LAYOUT, RESOLUTION
+docs/             WIRE, EVIDENCE, LAYOUT, RESOLUTION, PUBLISH
 deploy/           Dockerfile and RUNBOOK for the hosted endpoint, unbuilt
 ```
 

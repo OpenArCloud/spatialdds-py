@@ -1,0 +1,329 @@
+"""The write surface. Implementation-defined, labeled, and off by default.
+
+SpatialDDS 1.8 specifies no publish verb and forbids none. Everything here is
+an endpoint extension: a read-only client cannot tell a published instance from
+a replayed one, and the conformance suite never touches these routes, so the
+endpoint stays conformant with the surface enabled or disabled. Nothing in here
+is proposed as specification text by erratum -- an erratum fixes a
+contradiction and this is a feature. It is written up as 1.9 candidate entry 4.
+
+Three rules carry the design.
+
+**A published instance is canonicalized by construction, not by promise.** An
+accepted body is encoded to XCDR2 with the same `Writer` validated
+byte-identically against CycloneDDS, then decoded and projected back through
+the same `Decoder` and `Projector` the serving path uses for a recording. What
+is stored is the output of that round trip. So "indistinguishable from a
+replayed instance" is not a property this module maintains; it is the only
+representation it can produce.
+
+**The journal is a recording.** Accepted writes append to an MCAP carrying the
+same embedded IDL the seed carried, byte for byte, so a backup is readable by
+any SpatialDDS tool rather than only by this one.
+
+**Identity should come from the credential, not the body.** This batch does not
+yet honour that -- `provider_id` and `org` are read from the request, and the
+server sets no fields -- and the gap is recorded rather than hidden. The OSCP
+census's platform-set SCR fields are the precedent; 1.9 candidate entry 4
+carries it as a design rule.
+"""
+from __future__ import annotations
+
+import os
+import tempfile
+import time
+from pathlib import Path
+from typing import Any
+
+from mcap.reader import make_reader
+from mcap.writer import Writer as McapWriter
+
+from spatialdds_web import gateway, webjson, xcdr2
+
+# Exactly two publishable record kinds, the SSD and SCD successors. The type
+# segment of the resource path decides the type, so this table is also what
+# refuses a PUT to any other topic: anchors, zones and the rest stay read-only.
+PUBLISHABLE: dict[str, str] = {
+    "announce": "spatial.disco.Announce",
+    "content_announce": "spatial.disco.ContentAnnounce",
+}
+
+# A dispose has no 1.8 record. `Depart` is a service withdrawal and nothing
+# expresses a content withdrawal, so the journal carries disposes as MCAP
+# metadata records under this name rather than as an invented typed message.
+# Labeled, and recorded as a gap in the candidates entry.
+DISPOSE_RECORD = "spatialdds-web:dispose"
+
+
+class Rejected(Exception):
+    """A refusal with the problem+json a caller should receive."""
+
+    def __init__(self, status: int, slug: str, title: str, detail: str,
+                 **extra: Any) -> None:
+        super().__init__(detail)
+        self.status, self.slug, self.title, self.detail = (status, slug, title,
+                                                           detail)
+        self.extra = extra
+
+
+def uris_in(doc: Any) -> list[str]:
+    """Every `spatialdds://` URI the record carries, at any depth."""
+    out: list[str] = []
+    if isinstance(doc, dict):
+        for v in doc.values():
+            out.extend(uris_in(v))
+    elif isinstance(doc, list):
+        for v in doc:
+            out.extend(uris_in(v))
+    elif isinstance(doc, str) and doc.startswith(gateway.SCHEME):
+        out.append(doc)
+    return out
+
+
+def check_authority(base: str, doc: Any) -> None:
+    """Every URI in the record must belong to the authority this endpoint is.
+
+    The authority comes from the same `--public-url` the resolver uses, so an
+    endpoint cannot accept records into a namespace it does not answer for.
+    With no authority there is nothing to check against, and a check with
+    nothing to check must not pass: the surface refuses instead.
+    """
+    mine = gateway.base_authority(base)
+    if not mine:
+        raise Rejected(
+            403, "no-authority", "This endpoint has no authority",
+            "The publish surface accepts records only into the authority this "
+            "endpoint answers for, and this endpoint was started without one. "
+            "Pass --public-url. An authority check with nothing to check "
+            "against would pass every record, which is worse than refusing.")
+    foreign = sorted({u for u in uris_in(doc)
+                      if gateway.uri_authority(u) != mine})
+    if foreign:
+        raise Rejected(
+            403, "foreign-authority", "Another authority's URI",
+            f"This endpoint is the authority for {mine!r} and will not accept "
+            f"a record carrying URIs under another. Offending: "
+            f"{', '.join(foreign)}.", authority=mine, foreign=foreign)
+
+
+def validate_schema(fqn: str, doc: Any) -> None:
+    """The vendored generated schema, checked with the gates' own checker."""
+    try:
+        import jsonschema
+    except ImportError as e:                                  # pragma: no cover
+        raise Rejected(500, "no-validator", "Cannot validate",
+                       f"The publish surface validates every body against the "
+                       f"vendored schemas and jsonschema is not installed: "
+                       f"{e}") from e
+    schema = webjson.schemas().get(fqn)
+    if schema is None:
+        raise Rejected(500, "no-schema", "No schema for that type",
+                       f"No vendored schema for {fqn}, so a body cannot be "
+                       f"validated and will not be accepted.")
+    try:
+        jsonschema.validate(doc, schema)
+    except jsonschema.ValidationError as e:
+        where = "/".join(str(p) for p in e.absolute_path) or "(root)"
+        raise Rejected(
+            400, "schema-invalid", "Body does not match its schema",
+            f"{fqn} at {where}: {e.message}. Both publishable records require "
+            f"every member, so a body is a whole record and never a patch.",
+            fqn=fqn, at=where) from e
+
+
+def canonicalize(st: gateway.State, fqn: str,
+                 doc: dict) -> tuple[dict, bytes]:
+    """Round-trip the body through the wire, and keep what comes back."""
+    if st.model is None:
+        raise Rejected(503, "no-wire-model", "No wire model",
+                       "This endpoint learned no types, so it cannot encode a "
+                       "record. Seed it with --mcap or a journal.")
+    try:
+        wire = webjson.Lifter(st.model, webjson.tables()).lift(fqn, doc)
+        raw = xcdr2.Writer(st.model).encode(fqn, wire)
+        back = xcdr2.Decoder(st.model).decode(fqn, raw)
+        tables = webjson.tables()
+        data = webjson.Projector(st.model, tables).project(fqn, back)
+    except Exception as e:
+        raise Rejected(
+            400, "not-encodable", "Body cannot be put on the wire",
+            f"{fqn} passed schema validation but could not be encoded as "
+            f"XCDR2 and read back: {type(e).__name__}: {e}") from e
+    return data, raw
+
+
+def resource_for_put(st: gateway.State, scene: str, stream: str,
+                     type_seg: str, version: str) -> tuple[str, gateway.Resource]:
+    """The resource a PUT addresses, created if this topic is new."""
+    fqn = PUBLISHABLE.get(type_seg)
+    if fqn is None:
+        raise Rejected(
+            405, "not-publishable", "That topic is not publishable",
+            f"This endpoint publishes exactly the two SSD/SCD successors: "
+            f"{', '.join(sorted(PUBLISHABLE))}. Everything else it serves is "
+            f"read-only.", publishable=sorted(PUBLISHABLE))
+    if version != "v1":
+        raise Rejected(404, "no-such-version", "No such version",
+                       f"Version {version!r} is not served.")
+    topic = f"spatialdds/{scene}/{stream}/{type_seg}/{version}"
+    res = st.resources.get(f"/{scene}/{stream}/{type_seg}/{version}")
+    if res is None:
+        agg = st.model.get(fqn) if st.model else None
+        if agg is None:
+            raise Rejected(503, "unknown-type", "Type not known here",
+                           f"This endpoint learned no definition for {fqn}, so "
+                           f"it cannot serve it. Seed it with a recording or "
+                           f"journal that carries the type.")
+        keys = [m.name for m in agg.members if m.is_key]
+        latched, access = gateway.DURABILITY.get(fqn, (False, gateway.OPERATOR))
+        res = gateway.Resource(scene, stream, type_seg, version, topic, fqn,
+                               keys[0] if keys else "", access, latched)
+        st.resources[res.path] = res
+        st.latched.setdefault(topic, {})
+        st.latched_initial.setdefault(topic, {})
+        st.live.setdefault(topic, [])
+        st.scenes = sorted(set(st.scenes) | {scene})
+    return topic, res
+
+
+def apply_sample(st: gateway.State, topic: str, res: gateway.Resource,
+                 key: str, data: dict) -> bool:
+    """Put an instance into the latched set. True if it is new."""
+    created = key not in st.latched.get(topic, {})
+    st.latched.setdefault(topic, {})[key] = gateway.Instance(
+        key, data, webjson.digest(data))
+    # A published instance is latched state a later subscriber must replay,
+    # exactly like a definition the recording carried.
+    st.latched_initial.setdefault(topic, {})[key] = st.latched[topic][key]
+    st.counts[topic] = st.counts.get(topic, 0) + 1
+    return created
+
+
+def apply_dispose(st: gateway.State, topic: str, key: str) -> bool:
+    """Remove an instance. True if it was there."""
+    had = key in st.latched.get(topic, {})
+    st.latched.get(topic, {}).pop(key, None)
+    st.latched_initial.get(topic, {}).pop(key, None)
+    return had
+
+
+# ---- the journal -----------------------------------------------------------
+
+class Journal:
+    """Accepted writes and disposes, as an MCAP any SpatialDDS tool can read.
+
+    Rewritten whole and renamed into place on every accepted write. The MCAP
+    format puts its summary at the end, so appending in place means leaving a
+    file that is not a complete MCAP until the process exits cleanly -- and a
+    journal that is only valid after a graceful shutdown is not a backup. A
+    registry of this size makes the rewrite cheaper than an append-and-repair
+    scheme, and the file on disk is a finished, summarised recording at every
+    instant.
+    """
+
+    def __init__(self, path: Path, st: gateway.State) -> None:
+        self.path, self.state = path, st
+        self.entries: list[dict] = []
+        self.seq = 0
+
+    # -- reading --
+    def replay(self) -> int:
+        """Apply the journal to the state. Returns entries applied."""
+        if not self.path.is_file():
+            return 0
+        if self.state.model is None:
+            # The journal embeds the same IDL the seed did, which is the whole
+            # reason to write it that way: a gateway started with a journal and
+            # no recording learns its types from the journal itself.
+            model, idl = gateway._wire_model(self.path)
+            self.state.model, self.state.idl = model, idl
+        dec = xcdr2.Decoder(self.state.model)
+        proj = webjson.Projector(self.state.model, webjson.tables())
+        items: list[tuple[int, dict]] = []
+        with open(self.path, "rb") as f:
+            r = make_reader(f)
+            for sch, ch, msg in r.iter_messages():
+                fqn = sch.name.replace("::", ".")
+                items.append((msg.log_time,
+                              {"kind": "sample", "topic": ch.topic,
+                               "fqn": fqn, "raw": msg.data}))
+            for md in r.iter_metadata():
+                if md.name != DISPOSE_RECORD:
+                    continue
+                items.append((int(md.metadata["seq"]),
+                              {"kind": "dispose",
+                               "topic": md.metadata["topic"],
+                               "key": md.metadata["key"],
+                               "reason": md.metadata.get("reason", "")}))
+        for seq, e in sorted(items, key=lambda x: x[0]):
+            self.seq = max(self.seq, seq)
+            seg = gateway.split_topic(e["topic"])
+            if seg is None:
+                continue
+            if e["kind"] == "sample":
+                topic, res = resource_for_put(self.state, *seg)
+                data = proj.project(e["fqn"], dec.decode(e["fqn"], e["raw"]))
+                key = str(data.get(res.key, "")) if res.key else ""
+                apply_sample(self.state, topic, res, key, data)
+                self.entries.append({**e, "seq": seq, "key": key})
+            else:
+                apply_dispose(self.state, e["topic"], e["key"])
+                self.entries.append({**e, "seq": seq})
+        return len(self.entries)
+
+    # -- writing --
+    def _next(self) -> int:
+        self.seq += 1
+        return self.seq
+
+    def record_sample(self, topic: str, fqn: str, key: str,
+                      raw: bytes) -> None:
+        self.entries.append({"kind": "sample", "seq": self._next(),
+                             "topic": topic, "fqn": fqn, "key": key,
+                             "raw": raw})
+        self._flush()
+
+    def record_dispose(self, topic: str, key: str, reason: str) -> None:
+        self.entries.append({"kind": "dispose", "seq": self._next(),
+                             "topic": topic, "key": key, "reason": reason})
+        self._flush()
+
+    def _flush(self) -> None:
+        idl = self.state.idl
+        fd, tmp = tempfile.mkstemp(dir=str(self.path.parent),
+                                   suffix=".mcap.tmp")
+        try:
+            with os.fdopen(fd, "wb") as f:
+                w = McapWriter(f)
+                w.start(profile="spatialdds", library="spatialdds-web/publish")
+                sch_ids: dict[str, int] = {}
+                ch_ids: dict[str, int] = {}
+                for e in self.entries:
+                    if e["kind"] != "sample":
+                        continue
+                    if e["fqn"] not in sch_ids:
+                        name, data = idl[e["fqn"]]
+                        sch_ids[e["fqn"]] = w.register_schema(
+                            name=name, encoding="omgidl", data=data)
+                    if e["topic"] not in ch_ids:
+                        ch_ids[e["topic"]] = w.register_channel(
+                            topic=e["topic"], message_encoding="cdr",
+                            schema_id=sch_ids[e["fqn"]])
+                    w.add_message(channel_id=ch_ids[e["topic"]],
+                                  log_time=e["seq"], publish_time=e["seq"],
+                                  data=e["raw"], sequence=e["seq"])
+                for e in self.entries:
+                    if e["kind"] == "dispose":
+                        w.add_metadata(name=DISPOSE_RECORD, data={
+                            "seq": str(e["seq"]), "topic": e["topic"],
+                            "key": e["key"], "reason": e["reason"]})
+                w.finish()
+            os.replace(tmp, self.path)
+        except BaseException:
+            Path(tmp).unlink(missing_ok=True)
+            raise
+
+
+def now_stamp() -> dict:
+    t = time.time()
+    return {"sec": str(int(t)), "nanosec": int((t % 1) * 1e9)}

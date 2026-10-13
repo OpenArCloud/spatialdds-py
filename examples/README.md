@@ -14,6 +14,8 @@ a gate goes red rather than a reader going in circles.
 | [`anchors.py`](anchors.py) | Anchors with their method and their positional uncertainty. |
 | [`migration/ssd_search.py`](migration/ssd_search.py) | OSCP Spatial Service Discovery and the search path that replaces it. |
 | [`migration/scd_content.py`](migration/scd_content.py) | OSCP Spatial Content Discovery: announce, §7.5.2-resolved URI, manifest, asset. Fountain, served as its authority. |
+| [`publish_service.py`](publish_service.py) | The SSD successor in the write direction: PUT an announce, then find it. Needs `--publish`. |
+| [`publish_content.py`](publish_content.py) | The SCD successor in the write direction: PUT a content record and its manifest, then resolve it. Needs `--publish`. |
 
 ## The endpoint
 
@@ -167,11 +169,56 @@ manifest declares for it. Fetching those bytes and comparing them needs the
 network and a checkout, so it is `gates/content_resolution.py --remote` rather
 than an example.
 
+## publish_service.py
+
+The write direction of the SSD succession. The surface is an
+implementation-defined extension, off unless the endpoint was started with
+`--publish`, and operator-scoped when on -- so the token comes from the
+environment and never from a URL. Serve it as its own authority, because a
+record is accepted only into the authority the endpoint answers for:
+
+```sh
+python3 tools/run_gateway.py --mcap samples/fountain-anchors.mcap --port 8787 \
+    --public-url https://demo.spatialdds.org --token tok --publish \
+    --journal /tmp/registry.mcap
+```
+
+<!-- gate: publish py examples/publish_service.py -->
+```console
+  PUT austin-vps   -> 201 created
+  ETag "sha256:b239e6960a297c4149fb2bed887137449a7b91cc6e2f695c5fcf9a0dba5a9c3e"
+  search now returns: austin-vps, fountain-anchors
+```
+
+The last line is the point: the published service is in the registry the read
+path serves, beside the one the recording carried.
+
+## publish_content.py
+
+A content record needs both halves -- the announce that says where the content
+is, and the manifest its `manifest_uri` points at. The last line is the
+resolver answering for a URI that did not exist a moment earlier, with the
+`ttl_sec` rule applying to a published manifest exactly as to a committed one.
+
+<!-- gate: publish py examples/publish_content.py -->
+```console
+  announce -> 201   manifest -> 201
+  resolved spatialdds://demo.spatialdds.org/south-mall/content/south-mall-tour
+    ttl_sec 7200 -> public, max-age=7200
+```
+
+Point either at an endpoint without `--publish` and it says so and stops:
+
+<!-- gate: fountain py-fails examples/publish_service.py -->
+```console
+  $BASE/ut-austin-south-mall/discovery/announce/v1/austin-vps refused the publish: 405 The publish surface is an implementation-defined extension and is off unless the endpoint was started with --publish. Nothing about the read side changes either way.
+```
+
 ## How the gate reads this file
 
 Markers like `<!-- gate: fountain py examples/zones.py -->` are not decoration:
 `gates/examples.py` parses them, serves the named configuration -- `retail`,
-`fountain`, or `authority` -- runs the example, and diffs its stdout against
+`fountain`, `authority`, or `publish` -- runs the example, and diffs its stdout against
 the fence that follows. `$BASE` in an expected
 output stands for the endpoint the gate served it from, which is the one thing
 that legitimately varies between a reader's run and the gate's.

@@ -5,4 +5,11 @@ __pycache__/
 # Local planning material: briefs, censuses, working notes.
 # Read in the session, never committed. Same convention as
 # SpatialDDS-demo/directions/.
-directions/
+# `directions/*` and not `directions/`: git does not descend into an excluded
+# directory, so a negation inside one can never fire.
+directions/*
+# One exception, by ruling: the 1.9 candidates file is this repository's own
+# output rather than planning material handed to it, and the entries in it --
+# deferred lists, design rules, open questions -- record nothing if they are
+# not committed. Everything else under directions/ stays ignored.
+!directions/spatialdds-1.9-candidates.md

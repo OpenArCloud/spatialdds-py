@@ -56,15 +56,24 @@ class Gateway:
     """
 
     def __init__(self, st: gateway.State, token: str = TOKEN,
-                 advertise: str | None = None) -> None:
+                 advertise: str | None = None, publish: bool = False,
+                 journal: Path | None = None) -> None:
         self.state = st
         self.token = token
         self.advertise = advertise
+        self.publish = publish
+        self.journal_path = journal
+        self.journal = None
         self._runner: web.AppRunner | None = None
         self.base = ""
 
     async def start(self) -> "Gateway":
-        app = gw_http.make_app(self.state, "http://127.0.0.1", self.token)
+        if self.journal_path is not None:
+            from spatialdds_web import publish as _pub
+            self.journal = _pub.Journal(self.journal_path, self.state)
+            self.journal.replay()
+        app = gw_http.make_app(self.state, "http://127.0.0.1", self.token,
+                               self.publish, self.journal)
         self._runner = web.AppRunner(app)
         await self._runner.setup()
         site = web.TCPSite(self._runner, "127.0.0.1", 0)

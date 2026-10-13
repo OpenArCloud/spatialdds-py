@@ -49,6 +49,11 @@ you want. The startup banner distinguishes the two cases in as many words:
 
 Set it to the public origin, scheme included, no trailing slash.
 
+**The publish surface is off here, and nothing in `deploy/` turns it on.** The
+write verbs answer `405` and the endpoint's read-only, credential-irrelevant
+posture is unchanged; see [docs/PUBLISH.md](../docs/PUBLISH.md) if you want it
+somewhere else.
+
 No credentials. Everything this recording serves is public-cacheable, so there
 is no bearer token to provision, rotate, or leak. `run_gateway.py` still
 generates one at startup for the operator-scoped class; with this recording

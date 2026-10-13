@@ -28,12 +28,13 @@ for a browser and would also write the credential into every proxy log and
 """
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import Any
 
 from aiohttp import WSMsgType, web
 
-from spatialdds_web import gateway, webjson
+from spatialdds_web import gateway, publish, webjson
 
 WELL_KNOWN = "/.well-known/spatialdds"
 
@@ -374,6 +375,173 @@ async def instance(request: web.Request) -> web.Response:
                            "X-SpatialDDS-Access": res.access})
 
 
+# ---- the write surface -----------------------------------------------------
+# Implementation-defined, off unless `--publish` is given, and operator-scoped
+# when it is on. A read-only client cannot tell a published instance from a
+# replayed one, which is the property that keeps the endpoint conformant with
+# this enabled. See `spatialdds_web/publish.py` and docs/PUBLISH.md.
+
+def _disabled(request: web.Request) -> web.Response:
+    return _problem(
+        405, "publish-disabled", "This endpoint is read-only",
+        "The publish surface is an implementation-defined extension and is "
+        "off unless the endpoint was started with --publish. Nothing about "
+        "the read side changes either way.",
+        instance=str(request.rel_url))
+
+
+def _rejected(r: publish.Rejected, request: web.Request) -> web.Response:
+    return _problem(r.status, r.slug, r.title, r.detail,
+                    instance=str(request.rel_url), **r.extra)
+
+
+def _written(request: web.Request, doc: Any, created: bool,
+             extra: dict[str, str]) -> web.Response:
+    """201 on create, 200 on replace, and the served canonical form back.
+
+    The body is what every reader will now see, and it carries the instance's
+    ETag, so a publisher holds the served representation without a second
+    request. The response is operator-scoped, hence `no-store`.
+    """
+    return _json_response(request, doc, gateway.OPERATOR, extra) \
+        if not created else web.Response(
+            body=_body(doc), status=201, content_type="application/json",
+            headers={"ETag": _etag(doc),
+                     **_cache_headers(gateway.OPERATOR), **extra})
+
+
+async def _broadcast(request: web.Request, topic: str, event: dict) -> None:
+    """Hand an event to every subscriber currently on that topic."""
+    for q in list(request.app["subs"].get(topic, ())):
+        q.put_nowait(event)
+
+
+async def put_instance(request: web.Request) -> web.Response:
+    """PUT on the same instance URL a GET already serves."""
+    if not request.app["publish"]:
+        return _disabled(request)
+    if not _authorized(request, request.app["token"]):
+        return _unauthorized(str(request.rel_url))
+    st: gateway.State = request.app["state"]
+    m = request.match_info
+    try:
+        body = await request.json()
+    except Exception as e:
+        return _rejected(publish.Rejected(
+            400, "not-json", "Body is not JSON",
+            f"The body must be N.1 canonical JSON: {e}"), request)
+    try:
+        topic, res = publish.resource_for_put(
+            st, m["scene"], m["stream"], m["type"], m["version"])
+        publish.validate_schema(res.fqn, body)
+        publish.check_authority(request.app["base"], body)
+        data, raw = publish.canonicalize(st, res.fqn, body)
+    except publish.Rejected as r:
+        return _rejected(r, request)
+
+    key = str(data.get(res.key, "")) if res.key else ""
+    want = request.match_info["key"]
+    if key != want:
+        return _rejected(publish.Rejected(
+            400, "key-mismatch", "Body does not match the URL",
+            f"This URL addresses the instance keyed {want!r} and the body's "
+            f"{res.key} is {key!r}. The instance key is the record's own @key "
+            f"member, so the URL cannot rename it.",
+            url_key=want, body_key=key), request)
+
+    held = st.latched.get(topic, {}).get(key)
+    im = request.headers.get("If-Match")
+    # Compared against the ETag this endpoint actually serves. `Instance.etag`
+    # is a bare digest and the header form carries the `sha256:` prefix inside
+    # quotes, so comparing the two directly never matches -- which made every
+    # conditional write a 412, including the correct ones.
+    cur = _etag(held.data) if held is not None else ""
+    ok_match = im is not None and (
+        im.strip() == "*" or im.strip() in (cur, cur.strip('"'), f"W/{cur}"))
+    if im and not ok_match:
+        return _rejected(publish.Rejected(
+            412, "etag-mismatch", "Precondition failed",
+            f"If-Match was {im!r} and the instance "
+            f"{'does not exist' if held is None else 'is ' + held.etag}. "
+            f"An absent If-Match is an unconditional replace.",
+            if_match=im), request)
+
+    created = publish.apply_sample(st, topic, res, key, data)
+    jr: publish.Journal | None = request.app["journal"]
+    if jr is not None:
+        jr.record_sample(topic, res.fqn, key, raw)
+    await _broadcast(request, topic,
+                     {"event": "sample", "topic": topic, "key": key,
+                      "data": data})
+    return _written(request, data, created,
+                    {"X-SpatialDDS-Topic": topic,
+                     "X-SpatialDDS-Type": res.fqn,
+                     "X-SpatialDDS-Access": gateway.OPERATOR})
+
+
+async def delete_instance(request: web.Request) -> web.Response:
+    """DELETE is dispose: it leaves the latched set and the event streams."""
+    if not request.app["publish"]:
+        return _disabled(request)
+    if not _authorized(request, request.app["token"]):
+        return _unauthorized(str(request.rel_url))
+    st: gateway.State = request.app["state"]
+    m = request.match_info
+    try:
+        topic, res = publish.resource_for_put(
+            st, m["scene"], m["stream"], m["type"], m["version"])
+    except publish.Rejected as r:
+        return _rejected(r, request)
+    key = m["key"]
+    if not publish.apply_dispose(st, topic, key):
+        return _rejected(publish.Rejected(
+            404, "no-such-instance", "No such instance",
+            f"Topic {topic} holds no instance keyed {key!r}, so there is "
+            f"nothing to dispose.", topic=topic, key=key), request)
+    reason = request.query.get("reason") or "withdrawn"
+    jr: publish.Journal | None = request.app["journal"]
+    if jr is not None:
+        jr.record_dispose(topic, key, reason)
+    await _broadcast(request, topic,
+                     {"event": "dispose", "topic": topic, "key": key,
+                      "reason": reason})
+    return web.Response(status=204,
+                        headers=_cache_headers(gateway.OPERATOR))
+
+
+async def put_manifest(request: web.Request) -> web.Response:
+    """A content manifest, keyed by the full URI it declares as its own id.
+
+    Published into the same store `--manifests` feeds, so the resolver serves
+    it the moment it lands and there is no second mechanism to keep in step.
+    """
+    if not request.app["publish"]:
+        return _disabled(request)
+    if not _authorized(request, request.app["token"]):
+        return _unauthorized(str(request.rel_url))
+    st: gateway.State = request.app["state"]
+    try:
+        doc = await request.json()
+    except Exception as e:
+        return _rejected(publish.Rejected(
+            400, "not-json", "Body is not JSON",
+            f"The body must be a JSON content manifest: {e}"), request)
+    uri = doc.get("id") if isinstance(doc, dict) else None
+    if not isinstance(uri, str) or not gateway.uri_authority(uri):
+        return _rejected(publish.Rejected(
+            400, "no-manifest-id", "Manifest declares no resolvable id",
+            f"A manifest is keyed by the full spatialdds:// URI in its own "
+            f"`id`, and this body's is {uri!r}."), request)
+    try:
+        publish.check_authority(request.app["base"], doc)
+    except publish.Rejected as r:
+        return _rejected(r, request)
+    created = uri not in st.manifests
+    st.manifests[uri] = doc
+    return _written(request, doc, created,
+                    {"X-SpatialDDS-Access": gateway.OPERATOR})
+
+
 # ---- the subscription ------------------------------------------------------
 
 async def subscribe(request: web.Request) -> web.StreamResponse:
@@ -404,6 +572,25 @@ async def subscribe(request: web.Request) -> web.StreamResponse:
             break
         await ws.send_str(json.dumps(ev, sort_keys=True))
 
+    # With the publish surface on, the recording is one producer among
+    # others and the stream is not finished: the socket stays open and
+    # carries published samples and disposes as they are accepted. This is
+    # the only read-side behaviour the flag changes, and it changes it in the
+    # one direction a subscriber can already handle -- more events, same
+    # envelope. With the flag off, everything below runs exactly as before.
+    if request.app["publish"] and not ws.closed:
+        q: asyncio.Queue = asyncio.Queue()
+        request.app["subs"].setdefault(topic, set()).add(q)
+        try:
+            pump = asyncio.create_task(_pump(ws, q))
+            async for msg in ws:
+                if msg.type in (WSMsgType.CLOSE, WSMsgType.ERROR):
+                    break
+            pump.cancel()
+        finally:
+            request.app["subs"].get(topic, set()).discard(q)
+        return ws
+
     # The recorded stream is finished. A client must not have to infer that
     # from the socket closing, so the gateway says so per key, which is the
     # one liveliness fact it actually holds. See WEB-BINDING-FINDINGS.md on
@@ -423,6 +610,16 @@ async def subscribe(request: web.Request) -> web.StreamResponse:
 
 # ---- the app ---------------------------------------------------------------
 
+async def _pump(ws: web.WebSocketResponse, q: "asyncio.Queue") -> None:
+    """Forward broadcast events to one subscriber until it goes away."""
+    try:
+        while not ws.closed:
+            ev = await q.get()
+            await ws.send_str(json.dumps(ev, sort_keys=True))
+    except (asyncio.CancelledError, ConnectionResetError):
+        pass
+
+
 async def root(request: web.Request) -> web.Response:
     """No index endpoint is invented; this is a 404 that says where to look."""
     base = request.app["base"]
@@ -437,12 +634,20 @@ async def root(request: web.Request) -> web.Response:
         resources=sorted(base + p for p in request.app["state"].resources))
 
 
-def make_app(state: gateway.State, base: str,
-             token: str | None) -> web.Application:
+def make_app(state: gateway.State, base: str, token: str | None,
+             publish_enabled: bool = False,
+             journal: "publish.Journal | None" = None) -> web.Application:
     app = web.Application()
     app["state"] = state
     app["base"] = base.rstrip("/")
     app["token"] = token
+    # Off unless asked for. The write routes are registered either way so
+    # that a refusal is an N.8 problem document rather than a framework's
+    # default page, and so that the surface's absence is something the
+    # endpoint states rather than something a caller infers from a 405.
+    app["publish"] = publish_enabled
+    app["journal"] = journal
+    app["subs"] = {}
     app.add_routes([
         web.get("/", root),
         web.get(f"{WELL_KNOWN}/schemas", schemas_index),
@@ -456,5 +661,10 @@ def make_app(state: gateway.State, base: str,
         # `spatialdds/` removed, collection then instance.
         web.get("/{scene}/{stream}/{type}/{version}", collection),
         web.get("/{scene}/{stream}/{type}/{version}/{key}", instance),
+        # The write surface, on the same URLs the GETs serve.
+        web.put("/{scene}/{stream}/{type}/{version}/{key}", put_instance),
+        web.delete("/{scene}/{stream}/{type}/{version}/{key}",
+                   delete_instance),
+        web.put(gateway.RESOLVE_PATH, put_manifest),
     ])
     return app

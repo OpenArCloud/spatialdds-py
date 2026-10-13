@@ -1,0 +1,462 @@
+{
+  "_what": "Authoring input for gates/golden_publish.py. These are complete canonical records, published over the write surface and then compared field by field against this file. Both publishable 1.8 types require every member, so a record is whole or it is rejected; there is no patch form to author.",
+  "_rules": [
+    "Expected values come from this file, never from the gateway. A gate that asked the endpoint what it stored and then checked it served that would pass for any endpoint, including a broken one.",
+    "Identity fields (provider_id, org) are in the body here because this batch reads them from the request. 1.9 candidate entry 4 records that they should come from the credential instead; when they do, this file loses them and the gate checks the server set them.",
+    "The authority in every URI is demo.spatialdds.org, so these records are only acceptable to an endpoint serving as that authority."
+  ],
+  "authority": "demo.spatialdds.org",
+  "scene": "ut-austin-south-mall",
+  "service": {
+    "path": "/ut-austin-south-mall/discovery/announce/v1",
+    "fqn": "spatial.disco.Announce",
+    "key": "austin-vps",
+    "record": {
+      "service_id": "austin-vps",
+      "name": "Austin VPS, published over HTTP",
+      "kind": "VPS",
+      "version": "2026-q4",
+      "org": "openarcloud.example",
+      "hints": [],
+      "caps": {
+        "supported_profiles": [
+          {
+            "name": "spatial.core",
+            "major": 1,
+            "min_minor": 8,
+            "max_minor": 8
+          },
+          {
+            "name": "spatial.disco",
+            "major": 1,
+            "min_minor": 8,
+            "max_minor": 8
+          }
+        ],
+        "preferred_profiles": [],
+        "features": [
+          "web-binding/json"
+        ]
+      },
+      "topics": [
+        {
+          "name": "spatialdds/ut-austin-south-mall/frames/geo_anchor/v1",
+          "type": "geo_anchor",
+          "version": "v1",
+          "qos_profile": "",
+          "target_rate_hz": 0.0,
+          "max_chunk_bytes": 0
+        },
+        {
+          "name": "spatialdds/ut-austin-south-mall/content/content_announce/v1",
+          "type": "content_announce",
+          "version": "v1",
+          "qos_profile": "",
+          "target_rate_hz": 0.0,
+          "max_chunk_bytes": 0
+        }
+      ],
+      "coverage": [
+        {
+          "has_crs": true,
+          "crs": "EPSG:4326",
+          "has_bbox": false,
+          "bbox": [
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "has_aabb": false,
+          "aabb": {
+            "min_xyz": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "max_xyz": [
+              0.0,
+              0.0,
+              0.0
+            ]
+          },
+          "global": false,
+          "has_frame_ref": false,
+          "frame_ref": {
+            "uuid": "b1f0c2a4-5d6e-4f80-9a1b-2c3d4e5f6071",
+            "fqn": "ut-austin/south-mall/map",
+            "has_coord_convention": true,
+            "coord_convention": "ENU",
+            "has_scale": true,
+            "scale_status": "SCALE_DECLARED",
+            "meters_per_unit": 1.0,
+            "display_unit": "m"
+          },
+          "has_coverage_window": false,
+          "coverage_window_start": {
+            "sec": "0",
+            "nanosec": 0
+          },
+          "coverage_window_end": {
+            "sec": "0",
+            "nanosec": 0
+          },
+          "has_circle": true,
+          "circle_center": [
+            -97.73934584,
+            30.28495359,
+            158.0
+          ],
+          "circle_radius_m": 25.0
+        }
+      ],
+      "coverage_frame_ref": {
+        "uuid": "b1f0c2a4-5d6e-4f80-9a1b-2c3d4e5f6071",
+        "fqn": "ut-austin/south-mall/map",
+        "has_coord_convention": true,
+        "coord_convention": "ENU",
+        "has_scale": true,
+        "scale_status": "SCALE_DECLARED",
+        "meters_per_unit": 1.0,
+        "display_unit": "m"
+      },
+      "has_coverage_eval_time": false,
+      "coverage_eval_time": {
+        "sec": "0",
+        "nanosec": 0
+      },
+      "transforms": [],
+      "manifest_uri": "spatialdds://demo.spatialdds.org/south-mall/service/austin-vps",
+      "auth_hint": "",
+      "stamp": {
+        "sec": "1791559800",
+        "nanosec": 0
+      },
+      "ttl_sec": 86400,
+      "coverage_source_ids": []
+    }
+  },
+  "content": {
+    "path": "/ut-austin-south-mall/content/content_announce/v1",
+    "fqn": "spatial.disco.ContentAnnounce",
+    "key": "content/south-mall-tour",
+    "record": {
+      "content_id": "content/south-mall-tour",
+      "provider_id": "openarcloud.example/austin",
+      "title": "South Mall walking tour",
+      "summary": "A short audio tour published over the web binding.",
+      "tags": [
+        "tour",
+        "audio",
+        "campus"
+      ],
+      "class_id": "https://schema.org/LandmarksOrHistoricalBuildings",
+      "manifest_uri": "spatialdds://demo.spatialdds.org/south-mall/content/south-mall-tour",
+      "coverage": [
+        {
+          "has_crs": true,
+          "crs": "EPSG:4326",
+          "has_bbox": false,
+          "bbox": [
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "has_aabb": false,
+          "aabb": {
+            "min_xyz": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "max_xyz": [
+              0.0,
+              0.0,
+              0.0
+            ]
+          },
+          "global": false,
+          "has_frame_ref": false,
+          "frame_ref": {
+            "uuid": "b1f0c2a4-5d6e-4f80-9a1b-2c3d4e5f6071",
+            "fqn": "ut-austin/south-mall/map",
+            "has_coord_convention": true,
+            "coord_convention": "ENU",
+            "has_scale": true,
+            "scale_status": "SCALE_DECLARED",
+            "meters_per_unit": 1.0,
+            "display_unit": "m"
+          },
+          "has_coverage_window": false,
+          "coverage_window_start": {
+            "sec": "0",
+            "nanosec": 0
+          },
+          "coverage_window_end": {
+            "sec": "0",
+            "nanosec": 0
+          },
+          "has_circle": true,
+          "circle_center": [
+            -97.73932919,
+            30.28496797,
+            158.0
+          ],
+          "circle_radius_m": 6.0
+        }
+      ],
+      "coverage_frame_ref": {
+        "uuid": "b1f0c2a4-5d6e-4f80-9a1b-2c3d4e5f6071",
+        "fqn": "ut-austin/south-mall/map",
+        "has_coord_convention": true,
+        "coord_convention": "ENU",
+        "has_scale": true,
+        "scale_status": "SCALE_DECLARED",
+        "meters_per_unit": 1.0,
+        "display_unit": "m"
+      },
+      "has_coverage_eval_time": false,
+      "coverage_eval_time": {
+        "sec": "0",
+        "nanosec": 0
+      },
+      "transforms": [],
+      "available_from": {
+        "sec": "1791559800",
+        "nanosec": 0
+      },
+      "available_until": {
+        "sec": "0",
+        "nanosec": 0
+      },
+      "stamp": {
+        "sec": "1791559800",
+        "nanosec": 0
+      },
+      "ttl_sec": 86400
+    }
+  },
+  "manifest": {
+    "id": "spatialdds://demo.spatialdds.org/south-mall/content/south-mall-tour",
+    "profile": "spatial.manifest/1.8",
+    "rtype": "content",
+    "ttl_sec": 7200,
+    "content": {
+      "content_id": "content/south-mall-tour",
+      "title": "South Mall walking tour",
+      "summary": "A short audio tour published over the web binding."
+    },
+    "assets": [
+      {
+        "uri": "https://example.org/south-mall-tour.json",
+        "media_type": "application/json",
+        "hash": "sha256:abababababababababababababababababababababababababababababababab"
+      }
+    ],
+    "stamp": {
+      "sec": "1791559800",
+      "nanosec": 0
+    }
+  },
+  "canonical_probe": {
+    "_why": "Published as `sent` and expected back as `canonical`. They differ by members the 1.8 type does not declare, which the vendored schemas permit (additionalProperties: true) and the wire cannot carry. Without this the golden gate could not tell the round trip from a body stored as it arrived: every other authored record here is already canonical, and int-versus-float is not a difference either, because the ECMA-262 number rule renders 6 and 6.0 identically. An endpoint that stored undeclared members would be letting a dialect into the registry.",
+    "path": "/ut-austin-south-mall/content/content_announce/v1",
+    "fqn": "spatial.disco.ContentAnnounce",
+    "key": "content/canonical-probe",
+    "sent": {
+      "content_id": "content/canonical-probe",
+      "provider_id": "openarcloud.example/austin",
+      "title": "A record that is valid but not canonical",
+      "summary": "A short audio tour published over the web binding.",
+      "tags": [
+        "tour",
+        "audio",
+        "campus"
+      ],
+      "class_id": "https://schema.org/LandmarksOrHistoricalBuildings",
+      "manifest_uri": "spatialdds://demo.spatialdds.org/south-mall/content/canonical-probe",
+      "coverage": [
+        {
+          "has_crs": true,
+          "crs": "EPSG:4326",
+          "has_bbox": false,
+          "bbox": [
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "has_aabb": false,
+          "aabb": {
+            "min_xyz": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "max_xyz": [
+              0.0,
+              0.0,
+              0.0
+            ]
+          },
+          "global": false,
+          "has_frame_ref": false,
+          "frame_ref": {
+            "uuid": "b1f0c2a4-5d6e-4f80-9a1b-2c3d4e5f6071",
+            "fqn": "ut-austin/south-mall/map",
+            "has_coord_convention": true,
+            "coord_convention": "ENU",
+            "has_scale": true,
+            "scale_status": "SCALE_DECLARED",
+            "meters_per_unit": 1.0,
+            "display_unit": "m"
+          },
+          "has_coverage_window": false,
+          "coverage_window_start": {
+            "sec": "0",
+            "nanosec": 0
+          },
+          "coverage_window_end": {
+            "sec": "0",
+            "nanosec": 0
+          },
+          "has_circle": true,
+          "circle_center": [
+            -97.73932919,
+            30.28496797,
+            158.0
+          ],
+          "circle_radius_m": 6.0,
+          "vendor_hint": 7
+        }
+      ],
+      "coverage_frame_ref": {
+        "uuid": "b1f0c2a4-5d6e-4f80-9a1b-2c3d4e5f6071",
+        "fqn": "ut-austin/south-mall/map",
+        "has_coord_convention": true,
+        "coord_convention": "ENU",
+        "has_scale": true,
+        "scale_status": "SCALE_DECLARED",
+        "meters_per_unit": 1.0,
+        "display_unit": "m"
+      },
+      "has_coverage_eval_time": false,
+      "coverage_eval_time": {
+        "sec": "0",
+        "nanosec": 0
+      },
+      "transforms": [],
+      "available_from": {
+        "sec": "1791559800",
+        "nanosec": 0
+      },
+      "available_until": {
+        "sec": "0",
+        "nanosec": 0
+      },
+      "stamp": {
+        "sec": "1791559800",
+        "nanosec": 0
+      },
+      "ttl_sec": 86400,
+      "vendor_note": "a member spatial.disco.ContentAnnounce does not declare"
+    },
+    "canonical": {
+      "content_id": "content/canonical-probe",
+      "provider_id": "openarcloud.example/austin",
+      "title": "A record that is valid but not canonical",
+      "summary": "A short audio tour published over the web binding.",
+      "tags": [
+        "tour",
+        "audio",
+        "campus"
+      ],
+      "class_id": "https://schema.org/LandmarksOrHistoricalBuildings",
+      "manifest_uri": "spatialdds://demo.spatialdds.org/south-mall/content/canonical-probe",
+      "coverage": [
+        {
+          "has_crs": true,
+          "crs": "EPSG:4326",
+          "has_bbox": false,
+          "bbox": [
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "has_aabb": false,
+          "aabb": {
+            "min_xyz": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "max_xyz": [
+              0.0,
+              0.0,
+              0.0
+            ]
+          },
+          "global": false,
+          "has_frame_ref": false,
+          "frame_ref": {
+            "uuid": "b1f0c2a4-5d6e-4f80-9a1b-2c3d4e5f6071",
+            "fqn": "ut-austin/south-mall/map",
+            "has_coord_convention": true,
+            "coord_convention": "ENU",
+            "has_scale": true,
+            "scale_status": "SCALE_DECLARED",
+            "meters_per_unit": 1.0,
+            "display_unit": "m"
+          },
+          "has_coverage_window": false,
+          "coverage_window_start": {
+            "sec": "0",
+            "nanosec": 0
+          },
+          "coverage_window_end": {
+            "sec": "0",
+            "nanosec": 0
+          },
+          "has_circle": true,
+          "circle_center": [
+            -97.73932919,
+            30.28496797,
+            158.0
+          ],
+          "circle_radius_m": 6.0
+        }
+      ],
+      "coverage_frame_ref": {
+        "uuid": "b1f0c2a4-5d6e-4f80-9a1b-2c3d4e5f6071",
+        "fqn": "ut-austin/south-mall/map",
+        "has_coord_convention": true,
+        "coord_convention": "ENU",
+        "has_scale": true,
+        "scale_status": "SCALE_DECLARED",
+        "meters_per_unit": 1.0,
+        "display_unit": "m"
+      },
+      "has_coverage_eval_time": false,
+      "coverage_eval_time": {
+        "sec": "0",
+        "nanosec": 0
+      },
+      "transforms": [],
+      "available_from": {
+        "sec": "1791559800",
+        "nanosec": 0
+      },
+      "available_until": {
+        "sec": "0",
+        "nanosec": 0
+      },
+      "stamp": {
+        "sec": "1791559800",
+        "nanosec": 0
+      },
+      "ttl_sec": 86400
+    }
+  }
+}

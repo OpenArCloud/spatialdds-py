@@ -24,7 +24,7 @@ if str(ROOT) not in sys.path:
 
 from aiohttp import web                                        # noqa: E402
 
-from spatialdds_web import gateway, gw_http                    # noqa: E402
+from spatialdds_web import gateway, gw_http, publish           # noqa: E402
 
 DEFAULT_MCAP = ROOT / "samples" / "queuing-retail-sample.mcap"
 DEFAULT_MANIFESTS = ROOT / "samples" / "manifests"
@@ -34,7 +34,18 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--mcap", type=Path, default=DEFAULT_MCAP,
                     help="a typed SpatialDDS 1.8 MCAP with embedded omgidl "
-                         "schemas")
+                         "schemas. Optional once --journal is given: a "
+                         "journal carries its own types.")
+    ap.add_argument("--no-mcap", action="store_true",
+                    help="start with no seed recording at all")
+    ap.add_argument("--publish", action="store_true",
+                    help="enable the implementation-defined write surface "
+                         "(PUT/DELETE on instance URLs). Off by default; "
+                         "operator-scoped when on, so --token applies.")
+    ap.add_argument("--journal", type=Path, default=None,
+                    help="an MCAP journal of accepted publishes. Replayed "
+                         "after the seed on startup and appended to as "
+                         "records are accepted, so restart is the same state.")
     ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--port", type=int, default=8787)
     ap.add_argument("--manifests", type=Path, default=DEFAULT_MANIFESTS,
@@ -53,11 +64,12 @@ def main() -> int:
                          "generated if not given")
     a = ap.parse_args()
 
-    if not a.mcap.is_file():
-        raise SystemExit(f"no such recording: {a.mcap}")
+    seed = None if a.no_mcap else a.mcap
+    if seed is not None and not seed.is_file():
+        raise SystemExit(f"no such recording: {seed}")
     token = a.token or secrets.token_urlsafe(24)
     st = gateway.build_state(
-        a.mcap, a.manifests if a.manifests and a.manifests.is_dir() else None)
+        seed, a.manifests if a.manifests and a.manifests.is_dir() else None)
     # The manifest hands clients absolute URLs, so the base has to be the
     # address a client can reach rather than the socket this process bound.
     # Behind a TLS terminator those differ, and the failure is quiet: the
@@ -66,8 +78,9 @@ def main() -> int:
     base = a.public_url.rstrip("/") if a.public_url else \
         f"http://{a.host}:{a.port}"
 
-    print(f"recording     {a.mcap}")
-    print(f"              sha256 {st.source_sha256}")
+    print(f"recording     {seed if seed else '(none: empty registry)'}")
+    if seed is not None:
+        print(f"              sha256 {st.source_sha256}")
     print(f"serving       {base}"
           + (f"  (bound {a.host}:{a.port})" if a.public_url else ""))
     print(f"bearer token  {token}\n")
@@ -106,8 +119,39 @@ def main() -> int:
     # process exited -- a startup banner that appears only after shutdown.
     sys.stdout.flush()
 
+    jr = None
+    if a.journal is not None:
+        jr = publish.Journal(a.journal, st)
+        n = jr.replay()
+        print(f"  journal     {a.journal}, {n} entry(ies) replayed")
+    if a.publish:
+        # Defensive, and unreachable by construction: a bound endpoint always
+        # has a host, so with no --public-url the authority is `host:port`.
+        # That is a coherent namespace rather than an absent one, which is why
+        # the warning below matters more than this guard -- publishing against
+        # a loopback authority works and is almost never what was meant.
+        if not gateway.base_authority(base):
+            raise SystemExit(
+                "--publish needs an authority to accept records into, and "
+                "this endpoint has none. Pass --public-url.")
+        if not a.public_url:
+            print(f"  WARNING     publishing as authority "
+                  f"{gateway.base_authority(base)!r}; records must name that "
+                  f"authority in every URI. Pass --public-url to publish into "
+                  f"a real namespace.")
+        if st.model is None:
+            raise SystemExit(
+                "--publish needs the types, and this endpoint learned none. "
+                "Seed it with --mcap or --journal; a journal carries its own "
+                "IDL.")
+        print(f"  publish     ON, operator-scoped, journal "
+              f"{'on' if jr else 'OFF (in memory only)'}")
+    else:
+        print("  publish     off (read-only; --publish enables it)")
+
     try:
-        web.run_app(gw_http.make_app(st, base, token), host=a.host,
+        web.run_app(gw_http.make_app(st, base, token, a.publish, jr),
+                    host=a.host,
                     port=a.port, print=None)
     except OSError as e:
         # An already-bound port is the one failure where everything downstream

@@ -936,3 +936,56 @@ page's own export fence rather than from the gate.
 *The rule, as standing: an instrument may not modify its subject to measure it.
 If a gate pre-processes the artefact under test, what it certifies is the
 pre-processor.*
+
+## Findings from the publish path, 2026-10-13
+
+### 25. 1.8 has no withdrawal record addressable as a web resource
+
+Publishing needs its inverse: a record must be able to leave a registry, and a
+journal of accepted writes has to be able to say that it did. 1.8 offers no way
+to express it as a typed web resource.
+
+* `Depart` is `{service_id, stamp}` — a service withdrawal, and the right
+  record for exactly one of the two publishable kinds.
+* Nothing expresses a **content** withdrawal. `ContentAnnounce` carries no
+  lifecycle member, so the §2.14 terminal-sample-then-dispose convention this
+  repository already honours for tracks has nothing to hang on.
+* And `Depart`'s well-known topic is `spatialdds/discovery/depart/v1` — four
+  segments, which N.3's five-segment grammar cannot address at all. That is
+  finding 16, arriving from a second direction: it was a gap for reading the
+  discovery topics and it is a blocker for writing them.
+
+So a dispose cannot be journalled as a typed message. This endpoint records it
+as an MCAP metadata record named `spatialdds-web:dispose`, which any MCAP tool
+can read and which is a convention of this endpoint rather than of the binding.
+Labeled in `docs/PUBLISH.md`, gated in `gates/journal_replay.py`, and carried
+as a gap in 1.9 candidate entry 4.
+
+*Smallest change:* either a withdrawal record that covers content as `Depart`
+covers services, or an N.3 rule for addressing the four-segment well-known
+discovery topics so `Depart` becomes reachable — the second is an erratum and
+closes finding 16 as well, which makes it the better buy.
+
+### 26. The publish path needed the inverse of the JSON mapping, and nobody had written it
+
+`Writer` encodes decoded values; N.1 canonical JSON is not that. `int64` is an
+unconditional decimal string in JSON and an integer on the wire, an octet run
+is base64 in JSON and bytes on the wire, and a union is tagged on `"type"` in
+JSON and on `_discriminator` through the decoder. So canonicalizing an accepted
+body by round trip — the property that makes a published instance
+indistinguishable from a replayed one — was impossible until the inverse
+projection existed.
+
+It is `webjson.Lifter`, and it is short: only those three rules actually differ
+between the two representations. Everything else — enumerator names, floats,
+bools, nesting — is already in the form the writer wants.
+
+Not a specification finding. Recorded because it is the half of the mapping a
+**client library** will need to send anything, and because `MAPPING.md`
+documents the projection in one direction only. A second implementation writing
+a publisher will have to derive this, and the three rules above are the whole
+of it.
+
+*Smallest change, spec-side:* one paragraph in `MAPPING.md` stating the three
+rules as invertible, so the inverse is a reading of the document rather than a
+rediscovery.
