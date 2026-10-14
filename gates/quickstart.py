@@ -50,6 +50,10 @@ import examples as ex                                         # noqa: E402
 from harness import report                                   # noqa: E402
 
 README = ROOT / "README.md"
+# Every document whose commands a reader is meant to run. The walkthrough
+# joins the front page here rather than getting a gate of its own: the rule is
+# the same one, and a second gate would be a second place for it to drift.
+DOCS = [README, ROOT / "docs" / "WALKTHROUGH.md"]
 SHELL = "/bin/zsh" if Path("/bin/zsh").exists() else "/bin/sh"
 
 
@@ -93,8 +97,19 @@ def listening(port: int) -> str:
 
 
 def main() -> int:
+    """Every document whose commands are meant to be run, walked in order."""
     checks: list[tuple[str, bool, str]] = []
-    blocks = fences(README.read_text())
+    for doc in DOCS:
+        rc = walk(doc, checks)
+        if rc is not None:
+            return rc
+    return report("quickstart", checks,
+                  "every page can be pasted, not merely interpreted")
+
+
+def walk(doc: Path, checks: list) -> int | None:
+    name = doc.relative_to(ROOT).as_posix()
+    blocks = fences(doc.read_text())
     plain = [b for b in blocks if b[1] == "sh" and not b[3]]
     assert len(plain) >= 2, "expected an install/serve fence and an export fence"
     serve_fence, export_fence = plain[0], plain[1]
@@ -119,9 +134,10 @@ def main() -> int:
     missing = [p for p in (packages[0] if packages else [])
                if __import__("importlib.util", fromlist=["util"])
                .find_spec(p) is None]
-    checks.append((f"the install line's packages are importable "
-                   f"({', '.join(packages[0]) if packages else 'none named'})",
-                   not missing, f"not installed: {missing}"))
+    if packages:
+        checks.append((f"{name}: the install line's packages are importable "
+                       f"({', '.join(packages[0])})",
+                       not missing, f"not installed: {missing}"))
 
     si = next((k for k, l in enumerate(serve_fence[2])
                if "run_gateway.py" in l), None)
@@ -129,9 +145,10 @@ def main() -> int:
     m = re.search(r"--mcap\s+(\S+)", serve)
     port = int(re.search(r"--port\s+(\d+)", serve).group(1)) \
         if re.search(r"--port\s+(\d+)", serve) else 8787
-    checks.append(("the serve line names a recording", bool(m), serve))
+    checks.append((f"{name}: the serve line names a recording", bool(m),
+                   serve))
     if not m:
-        return report("quickstart", checks, "no serve line to walk")
+        return report("quickstart", checks, f"{name} has no serve line")
     served = (ROOT / m.group(1)).resolve()
 
     # Every marker on the page must introduce a runnable command fence. A
@@ -146,23 +163,24 @@ def main() -> int:
     WANT = {"sh": "sh", "py": "sh", "py-fails": "sh", "js": "js",
             "js-ok": "js"}
     marked = [b for b in blocks if b[3]]
-    misplaced = [f"README.md:{b[0]} is ```{b[1] or '(none)'}, "
+    misplaced = [f"{name}:{b[0]} is ```{b[1] or '(none)'}, "
                  f"mode {b[3].split()[1]} wants "
                  f"```{WANT.get(b[3].split()[1], '?')}"
                  for b in marked
                  if b[1] != WANT.get(b[3].split()[1])]
-    checks.append((f"every marker sits on a fence holding its command alone "
+    checks.append((f"{name}: every marker sits on a fence holding its "
+                   f"command alone "
                    f"({len(marked) - len(misplaced)} of {len(marked)})",
                    bool(marked) and not misplaced,
                    "; ".join(misplaced) or "no marked fence on the page"))
     runnable = [b for b in marked if b[1] == "sh"]
-    wrong = [f"README.md:{b[0]} names {b[3].split()[0]!r}" for b in runnable
+    wrong = [f"{name}:{b[0]} names {b[3].split()[0]!r}" for b in runnable
              if ex.RECORDINGS[b[3].split()[0]][0].resolve() != served]
-    checks.append((f"every tier names the recording the serve line serves "
-                   f"({served.name}, {len(runnable)} tier(s))",
+    checks.append((f"{name}: every tier names the recording the serve line "
+                   f"serves ({served.name}, {len(runnable)} tier(s))",
                    not wrong, "; ".join(wrong)))
 
-    checks.append((f"the page stands the endpoint up {len(phases)} time(s), "
+    checks.append((f"{name}: stands the endpoint up {len(phases)} time(s), "
                    f"and every marked shell tier belongs to one "
                    f"({sum(len(c) for _s, c in phases)} of {len(runnable)})",
                    bool(phases)
@@ -171,22 +189,21 @@ def main() -> int:
 
     busy = listening(port)
     if busy:
-        checks.append((f"port {port}, as the serve line writes it, is free",
-                       False, f"held by: {busy[:110]}"))
+        checks.append((f"{name}: port {port}, as the serve line writes it, "
+                       f"is free", False, f"held by: {busy[:110]}"))
         return report("quickstart", checks,
-                      "cannot observe the page on its own port")
+                      f"cannot observe {name} on its own port")
 
     env_text = "\n".join(export_fence[2])
     for serve_line, cmd_blocks in phases:
-        rc = await_phase(serve_line, cmd_blocks, env_text, port, checks)
+        rc = await_phase(name, serve_line, cmd_blocks, env_text, port, checks)
         if rc is not None:
             return rc
-    return report("quickstart", checks,
-                  "the page can be pasted, not merely interpreted")
+    return None
 
 
-def await_phase(serve: str, cmd_blocks: list, env_text: str, port: int,
-                checks: list) -> int | None:
+def await_phase(name: str, serve: str, cmd_blocks: list, env_text: str,
+                port: int, checks: list) -> int | None:
     child = subprocess.Popen([sys.executable] + serve.split()[1:], cwd=ROOT,
                              stdout=subprocess.PIPE,
                              stderr=subprocess.STDOUT, text=True)
@@ -201,16 +218,19 @@ def await_phase(serve: str, cmd_blocks: list, env_text: str, port: int,
             time.sleep(0.1)
         if child.poll() is not None:
             out = (child.stdout.read() if child.stdout else "")[-300:]
-            checks.append(("the serve line starts an endpoint", False,
+            checks.append((f"{name}: the serve line starts an endpoint",
+                           False,
                            f"exited {child.returncode}: {out.strip()}"))
-            return report("quickstart", checks, "the serve line did not serve")
-        checks.append((f"the serve line's own process is listening on {port}",
+            return report("quickstart", checks,
+                          f"{name}'s serve line did not serve")
+        checks.append((f"{name}: the serve line's own process is listening on "
+                       f"{port}",
                        bool(owner) and owner.split()[1] == str(child.pid),
                        f"{owner[:80]!r} vs started pid {child.pid}"))
 
         for line, _tag, body, marker, want in cmd_blocks:
             if want is None:
-                checks.append((f"README.md:{line}: its output fence follows it",
+                checks.append((f"{name}:{line}: its output fence follows it",
                                False, "no ```console fence after the command"))
                 continue
             script = f"{env_text}\n" + "\n".join(body)
@@ -226,7 +246,7 @@ def await_phase(serve: str, cmd_blocks: list, env_text: str, port: int,
                             if w != g), f"{len(exp)} want, {len(have)} got")
                 err = (r.stderr.strip().splitlines() or [""])[0][:100]
                 detail = bad + (f"; stderr: {err}" if err else "")
-            checks.append((f"README.md:{line} pasted verbatim", ok, detail))
+            checks.append((f"{name}:{line} pasted verbatim", ok, detail))
     finally:
         child.terminate()
         try:

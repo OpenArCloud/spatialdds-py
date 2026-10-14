@@ -29,7 +29,9 @@ for a browser and would also write the credential into every proxy log and
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
+from pathlib import Path
 from typing import Any
 
 from aiohttp import WSMsgType, web
@@ -53,6 +55,12 @@ def _etag(doc: Any) -> str:
     """A strong ETag over the canonical form, so it is the content digest."""
     return f'"sha256:{webjson.digest(doc)}"'
 
+
+# The media types the committed assets actually are. Guessing from an
+# extension at large is how a server ends up serving JavaScript as text.
+MEDIA = {".gltf": "model/gltf+json", ".txt": "text/plain",
+         ".json": "application/json", ".glb": "model/gltf-binary"}
+ASSET_PATH = "/assets"
 
 PROBLEM = "application/problem+json"
 PROBLEM_NS = "urn:spatialdds-web:problem:"
@@ -375,6 +383,63 @@ async def instance(request: web.Request) -> web.Response:
                            "X-SpatialDDS-Access": res.access})
 
 
+def asset_path(root: Path, name: str) -> Path | None:
+    """The file a requested asset name means, or None if it is not one.
+
+    The rule is load-bearing, not defensive: aiohttp matches `{name}` against
+    the raw path segment and URL-decodes it afterwards, so `..%2F..%2Fx`
+    arrives here as a name containing slashes and `(root / name).resolve()`
+    would happily leave the directory. Pulled out of the handler so it can
+    also be checked directly, over names a request could not carry.
+    """
+    target = (root / name).resolve()
+    inside = str(target).startswith(str(root.resolve()) + "/")
+    return target if inside and target.is_file() else None
+
+
+async def asset(request: web.Request) -> web.Response:
+    """The bytes a content manifest's ref points at.
+
+    **Implementation-defined, like the write surface.** Appendix N defines no
+    asset route: a manifest's `assets[].uri` is a plain HTTPS URL and nothing
+    says the endpoint that serves the manifest also serves the bytes. Most
+    deployments will point those URLs at a CDN, and this repository's committed
+    fountain manifests point at raw.githubusercontent.
+
+    It exists because the publish walkthrough has to be followable without a
+    push and without the network: a chain that ends at a URL only reachable
+    after this commit is published is not a chain anyone can run. So the duck's
+    ref points here, the walkthrough fetches real bytes, and the gate
+    byte-compares them against the committed file. Swap the authored ref back
+    to an external URL and this route is unused -- it is a convenience for the
+    demo, not a claim about the binding.
+
+    Public-cacheable, ETag over the bytes, no directory traversal: one path
+    segment, resolved inside the assets directory and refused otherwise.
+    """
+    root: Path | None = request.app["assets"]
+    name = request.match_info["name"]
+    if root is None:
+        return _problem(404, "no-assets", "This endpoint serves no assets",
+                        "No asset directory was configured.",
+                        instance=str(request.rel_url))
+    target = asset_path(root, name)
+    if target is None:
+        return _problem(
+            404, "no-such-asset", "No such asset",
+            f"This endpoint serves no asset named {name!r}.",
+            instance=str(request.rel_url), held=sorted(
+                f.name for f in root.iterdir() if f.is_file()))
+    raw = target.read_bytes()
+    etag = f'"sha256:{hashlib.sha256(raw).hexdigest()}"'
+    headers = {"ETag": etag, **_cache_headers(gateway.PUBLIC)}
+    if request.headers.get("If-None-Match", "") == etag:
+        return web.Response(status=304, headers=headers)
+    return web.Response(body=raw, status=200, headers=headers,
+                        content_type=MEDIA.get(target.suffix,
+                                               "application/octet-stream"))
+
+
 # ---- the write surface -----------------------------------------------------
 # Implementation-defined, off unless `--publish` is given, and operator-scoped
 # when it is on. A read-only client cannot tell a published instance from a
@@ -636,7 +701,8 @@ async def root(request: web.Request) -> web.Response:
 
 def make_app(state: gateway.State, base: str, token: str | None,
              publish_enabled: bool = False,
-             journal: "publish.Journal | None" = None) -> web.Application:
+             journal: "publish.Journal | None" = None,
+             assets: Path | None = None) -> web.Application:
     app = web.Application()
     app["state"] = state
     app["base"] = base.rstrip("/")
@@ -648,6 +714,7 @@ def make_app(state: gateway.State, base: str, token: str | None,
     app["publish"] = publish_enabled
     app["journal"] = journal
     app["subs"] = {}
+    app["assets"] = assets
     app.add_routes([
         web.get("/", root),
         web.get(f"{WELL_KNOWN}/schemas", schemas_index),
@@ -657,6 +724,7 @@ def make_app(state: gateway.State, base: str, token: str | None,
         web.get(f"{WELL_KNOWN}/bootstrap", no_dds),
         web.get(f"{WELL_KNOWN}/resolver", resolver),
         web.get(gateway.RESOLVE_PATH, resolve),
+        web.get(f"{ASSET_PATH}/{{name}}", asset),
         # The latched-resource pattern: the on-bus topic name with
         # `spatialdds/` removed, collection then instance.
         web.get("/{scene}/{stream}/{type}/{version}", collection),

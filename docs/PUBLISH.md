@@ -101,6 +101,24 @@ convention of this endpoint rather than of the binding. Labeled here, gated in
 `gates/journal_replay.py`, and recorded as finding 25 and a gap in the
 candidates entry.
 
+## The asset route, also implementation-defined
+
+`GET /assets/{name}` serves the bytes in `--assets` (default
+`samples/assets/`), public-cacheable with an ETag over the bytes. Appendix N
+defines no asset route: a manifest's `assets[].uri` is a plain URL and usually
+points at a CDN, which is where this repository's committed fountain manifests
+point. It exists so the publish walkthrough can be followed without a push and
+without the network — a chain ending at a URL that only resolves after the
+commit is published is not a chain anyone can run. Point the duck's authored
+ref at an external URL and the route goes unused.
+
+One path segment, resolved and required to land inside the assets directory.
+That rule is load-bearing rather than defensive: aiohttp matches the raw
+segment and decodes afterwards, so `..%2F..%2Fx` arrives as a name with
+slashes in it. `gw_http.asset_path` is a separate function so the rule can be
+checked over names a request cannot carry, and `gates/publish_duck.py` checks
+it both ways.
+
 ## Live behaviour
 
 A publish accepted while subscribers are connected streams as a `sample` on the
@@ -131,6 +149,8 @@ terminates exactly as before, which every existing WebSocket gate depends on and
 ## Gates
 
 `golden_publish`, `publish_reject`, `journal_replay`, `publish_live`,
-`publish_offswitch`. Expected values come from
+`publish_offswitch`, `publish_duck`. The walkthrough in
+[WALKTHROUGH.md](WALKTHROUGH.md) is walked command by command by
+`gates/quickstart.py`. Expected values come from
 `samples/published-records.input.json`, which is authored data; see
 [EVIDENCE.md](EVIDENCE.md).

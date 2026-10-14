@@ -17,11 +17,12 @@ spatialdds_web/   idlmodel (wire model from embedded IDL), xcdr2 (reader+writer)
 webjson/          schemas, serializer tables, golden vectors, MAPPING, PROVENANCE
 samples/          two recordings, their inputs, assets, content manifests,
                   and the authored records the publish gates check against
-examples/         everything a reader runs: curl, browser console, seven
+examples/         everything a reader runs: curl, browser console, eight
                   scripts, and the migration pair under examples/migration/
 gates/            everything above
 tools/            run_gateway.py, author_anchors.py
-docs/             WIRE, EVIDENCE, LAYOUT, RESOLUTION, PUBLISH
+docs/             WIRE, EVIDENCE, LAYOUT, RESOLUTION, PUBLISH,
+                  WALKTHROUGH
 deploy/           Dockerfile and RUNBOOK for the hosted endpoint, unbuilt
 ```
 

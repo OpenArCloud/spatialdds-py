@@ -458,5 +458,81 @@
       },
       "ttl_sec": 86400
     }
+  },
+  "service_manifest": {
+    "id": "spatialdds://demo.spatialdds.org/south-mall/service/austin-vps",
+    "profile": "spatial.manifest/1.8",
+    "rtype": "service",
+    "service": {
+      "service_id": "austin-vps",
+      "kind": "VPS",
+      "name": "Austin VPS, published over HTTP",
+      "org": "openarcloud.example",
+      "version": "2026-q4"
+    },
+    "profiles": [
+      "Core",
+      "SLAM Frontend",
+      "AR+Geo"
+    ],
+    "request": {
+      "features_topic": "feat.keyframe",
+      "image_blob_role": "image/jpeg",
+      "prior_topic": "geo.fix"
+    },
+    "response": {
+      "rich": "pg.nodegeo",
+      "minimal": "geo.fix"
+    },
+    "limits": {
+      "max_fps": 10,
+      "max_image_px": 1920
+    },
+    "auth": {
+      "scheme": "bearer",
+      "issuer": "https://demo.spatialdds.org"
+    },
+    "coverage": {
+      "frame_ref": {
+        "fqn": "earth-fixed",
+        "uuid": ""
+      },
+      "has_bbox": false,
+      "global": false,
+      "has_circle": true,
+      "circle_center": [
+        -97.73934584,
+        30.28495359,
+        158.0
+      ],
+      "circle_radius_m": 25.0,
+      "geohash": [
+        "9v6krc"
+      ]
+    },
+    "stamp": {
+      "sec": "1791559800",
+      "nanosec": 0
+    },
+    "ttl_sec": 1800
+  },
+  "_derivation": {
+    "source": "SpatialDDS-spec manifests/v1.8/vps_manifest.json",
+    "carried_over": [
+      "profiles",
+      "request",
+      "response",
+      "limits",
+      "coverage shape"
+    ],
+    "changed": {
+      "envelope": "Wrapped in the {id, profile, rtype, service} envelope \u00a73.3.0's own prose example uses. The source file has none, so nothing in it states the URI it answers to and \u00a77.5.2 cannot resolve it -- finding 28.",
+      "schema_version": "Dropped. The source says `spatial.core/1.7` inside the v1.8 directory, and \u00a72 establishes `profile: spatial.manifest/1.8` as the manifest profile string. Wrong key, stale value -- finding 27.",
+      "auth": "oauth2/auth.acme.com -> bearer against this authority, which is what this endpoint actually accepts.",
+      "coverage": "SF bbox -> a declared circle at the fountain, the form \u00a73.3.4 prefers for a footprint someone chose, matching the recording's own announce.",
+      "transforms": "Omitted. The source's example transforms a ship-fixed frame to earth-fixed; a fixed VPS at a fountain has nothing to transform, and inventing one would be worse than its absence.",
+      "$comment keys": "Dropped. They are documentation in the source, not record data.",
+      "ttl_sec": "Added, 1800. \u00a77.5.2 lets a manifest govern its own cache lifetime and the N.4 erratum makes that the max-age; a manifest without one takes the resolver default."
+    }
   }
 }

@@ -16,6 +16,7 @@ a gate goes red rather than a reader going in circles.
 | [`migration/scd_content.py`](migration/scd_content.py) | OSCP Spatial Content Discovery: announce, §7.5.2-resolved URI, manifest, asset. Fountain, served as its authority. |
 | [`publish_service.py`](publish_service.py) | The SSD successor in the write direction: PUT an announce, then find it. Needs `--publish`. |
 | [`publish_content.py`](publish_content.py) | The SCD successor in the write direction: PUT a content record and its manifest, then resolve it. Needs `--publish`. |
+| [`publish_duck.py`](publish_duck.py) | Write to bytes in one file: publish a duck, resolve its URI, fetch the model. Needs `--publish`. |
 
 ## The endpoint
 
@@ -213,6 +214,29 @@ Point either at an endpoint without `--publish` and it says so and stops:
 ```console
   $BASE/ut-austin-south-mall/discovery/announce/v1/austin-vps refused the publish: 405 The publish surface is an implementation-defined extension and is off unless the endpoint was started with --publish. Nothing about the read side changes either way.
 ```
+
+## publish_duck.py
+
+The one example that runs the whole chain in a single file: `PUT` the content
+manifest, `PUT` the announce that places it, then back out through the read
+path — the content collection, the resolved URI, and the asset's ref fetched,
+so the last line is a byte count rather than a promise.
+
+The duck is placed by its own announce's position and coverage. No anchor
+references it, because no 1.8 anchor type can carry a content reference; see
+[docs/WALKTHROUGH.md](../docs/WALKTHROUGH.md), which is what 1.9 candidates
+entry 2 is about.
+
+<!-- gate: publish py examples/publish_duck.py -->
+```console
+  manifest -> 201   announce -> 201
+  content here: content/duck, content/fountain-label, content/fountain-marker
+  resolved spatialdds://demo.spatialdds.org/south-mall/content/duck
+  fetched model/gltf+json 1432 bytes, hash matches: True
+```
+
+The middle line is the point of the walkthrough: the duck arrives beside the
+recording's own two content records rather than in place of them.
 
 ## How the gate reads this file
 

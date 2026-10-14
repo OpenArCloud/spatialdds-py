@@ -989,3 +989,54 @@ of it.
 *Smallest change, spec-side:* one paragraph in `MAPPING.md` stating the three
 rules as invertible, so the inverse is a reading of the document rather than a
 rediscovery.
+
+## Findings from deriving the VPS manifest, 2026-10-13
+
+Both from adapting the specification's own `manifests/v1.8/vps_manifest.json`
+into a record this endpoint can serve. Neither is this repository's to fix.
+
+### 27. Every v1.8 manifest example carries a 1.7 version string, under the wrong key
+
+All four files in `manifests/v1.8/` declare:
+
+```json
+"schema_version": "spatial.core/1.7"
+```
+
+Two defects in one line. The value is stale by a minor version, in the
+directory named for the newer one. And the key is not the one the
+specification's own prose uses: §2's profile table defines
+`spatial.manifest/1.8` as the manifest profile, and §3.3.0's worked example
+carries `"profile": "spatial.manifest/1.8"`. So a reader following the prose
+and a reader copying the example file produce different documents.
+
+| file | declares |
+|---|---|
+| `anchors_manifest.json` | `spatial.core/1.7` |
+| `content_experience_manifest.json` | `spatial.core/1.7` |
+| `mapping_service_manifest.json` | `spatial.core/1.7` |
+| `vps_manifest.json` | `spatial.core/1.7` |
+
+*Smallest change:* replace `schema_version` with
+`"profile": "spatial.manifest/1.8"` in all four. An erratum; nothing moves but
+the string the examples were already supposed to carry.
+
+### 28. No manifest example states the URI it answers to, so none is resolvable
+
+§7.5.2 resolves a `spatialdds://` URI to a manifest. A resolver therefore has
+to know which URI a given manifest is the answer for, and nothing in
+`manifests/v1.8/*.json` says: the VPS example's closest field is
+`"service_id": "svc:vps:acme/sf-downtown"`, which is an identifier and not a
+URI.
+
+§3.3.0's prose example does carry it — `"id": "spatialdds://acme-vps.example/
+sf-downtown/service/vps-main"` — so the envelope exists and the standalone
+example files simply omit it. This repository's manifests follow the prose and
+the gateway keys its resolver store on `id`, which is what let finding 18's
+resolution work at all.
+
+*Smallest change:* add the `{id, profile, rtype}` envelope to the four example
+files, matching §3.3.0. Same erratum as 27, and it makes the examples usable
+with §7.5.2 rather than merely illustrative. Worth a sentence in §7.5.2 too:
+a manifest MUST declare the URI it resolves for, or a resolver cannot index
+one it was handed.

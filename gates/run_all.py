@@ -53,6 +53,11 @@ def gates() -> list[dict]:
     no_input = None if pub_input.is_file() else (
         f"needs {pub_input.relative_to(ROOT)}, the authored records the "
         f"publish gates take their expected values from")
+    duck_input = ROOT / "samples" / "duck.input.json"
+    duck_asset = ROOT / "samples" / "assets" / "duck.gltf"
+    no_duck = None if duck_input.is_file() and duck_asset.is_file() else (
+        f"needs {duck_input.relative_to(ROOT)} and the committed asset it "
+        f"declares")
     no_node = None if shutil.which("node") else (
         "needs node to execute the browser console snippets in "
         "examples/browser.md; the gate fails rather than passes on an "
@@ -109,6 +114,9 @@ def gates() -> list[dict]:
         {"name": "publish_offswitch", "what": "with publishing off, reads are byte-identical and writes are 405",
          "cmd": ["gates/publish_offswitch.py"],
          "skip": no_fountain or no_web or no_input},
+        {"name": "publish_duck", "what": "a published record followed from PUT to fetched bytes",
+         "cmd": ["gates/publish_duck.py"],
+         "skip": no_fountain or no_web or no_input or no_duck},
     ]
 
 

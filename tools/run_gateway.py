@@ -28,6 +28,7 @@ from spatialdds_web import gateway, gw_http, publish           # noqa: E402
 
 DEFAULT_MCAP = ROOT / "samples" / "queuing-retail-sample.mcap"
 DEFAULT_MANIFESTS = ROOT / "samples" / "manifests"
+DEFAULT_ASSETS = ROOT / "samples" / "assets"
 
 
 def main() -> int:
@@ -54,6 +55,13 @@ def main() -> int:
                          "spatialdds:// URI in its own `id`. Resolution "
                          "(§7.5.2) is offered only for what is held here, and "
                          "only when --public-url names their authority.")
+    ap.add_argument("--assets", type=Path, default=DEFAULT_ASSETS,
+                    help="a directory of asset bytes served read-only at "
+                         "/assets/<name>. Implementation-defined: Appendix N "
+                         "defines no asset route, and a manifest's "
+                         "assets[].uri is an ordinary URL that usually points "
+                         "elsewhere. Here so the walkthrough can be followed "
+                         "without a push.")
     ap.add_argument("--public-url", default=None,
                     help="the URL clients reach this endpoint at, when that "
                          "differs from --host:--port -- behind a reverse "
@@ -150,7 +158,9 @@ def main() -> int:
         print("  publish     off (read-only; --publish enables it)")
 
     try:
-        web.run_app(gw_http.make_app(st, base, token, a.publish, jr),
+        web.run_app(gw_http.make_app(st, base, token, a.publish, jr,
+                                     a.assets if a.assets
+                                     and a.assets.is_dir() else None),
                     host=a.host,
                     port=a.port, print=None)
     except OSError as e:

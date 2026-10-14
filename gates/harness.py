@@ -23,6 +23,7 @@ from spatialdds_web import gateway, gw_http                    # noqa: E402
 MCAP = ROOT / "samples" / "queuing-retail-sample.mcap"
 FOUNTAIN = ROOT / "samples" / "fountain-anchors.mcap"
 MANIFESTS = ROOT / "samples" / "manifests"
+ASSETS = ROOT / "samples" / "assets"
 SUMMARY = ROOT / "samples" / "queuing-retail-sample.summary.json"
 TOKEN = "gate-token-not-a-secret"
 
@@ -73,7 +74,7 @@ class Gateway:
             self.journal = _pub.Journal(self.journal_path, self.state)
             self.journal.replay()
         app = gw_http.make_app(self.state, "http://127.0.0.1", self.token,
-                               self.publish, self.journal)
+                               self.publish, self.journal, ASSETS)
         self._runner = web.AppRunner(app)
         await self._runner.setup()
         site = web.TCPSite(self._runner, "127.0.0.1", 0)
