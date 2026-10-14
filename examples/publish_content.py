@@ -28,3 +28,4 @@ print(f'  PUT manifest  -> {m.status_code}  {man["id"]}')
 print("  GET list      -> " + ", ".join(sorted(c["content_id"] for c in requests.get(coll, timeout=10).json())))
 back = requests.get(BASE + "/spatialdds/resolve", params={"uri": man["id"]}, timeout=10)
 print(f'  GET resolve   -> {back.json()["rtype"]} {back.json()["id"]} ttl {back.json()["ttl_sec"]} -> {back.headers["Cache-Control"]}')
+print("\n" + json.dumps(back.json(), indent=2))   # the record itself, as the resolver returned it

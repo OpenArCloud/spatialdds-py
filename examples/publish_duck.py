@@ -15,8 +15,7 @@ docs/WALKTHROUGH.md. That absence is the exhibit, not an omission.
 """
 import hashlib, json, os, pathlib, requests, sys
 BASE = os.environ.get("SPATIALDDS_ENDPOINT") or "https://demo.spatialdds.org"
-AUTH = {"Authorization": "Bearer " + (os.environ.get("SPATIALDDS_TOKEN") or sys.exit(
-    "set SPATIALDDS_TOKEN: the publish surface is operator-scoped"))}
+AUTH = {"Authorization": "Bearer " + (os.environ.get("SPATIALDDS_TOKEN") or sys.exit("  set SPATIALDDS_TOKEN: the surface is operator-scoped; the gateway's banner prints the export line"))}
 d = json.loads((pathlib.Path(__file__).parents[1] / "samples/duck.input.json").read_text())
 man, ann = d["manifest"], d["announce"]
 coll, key = BASE + ann["path"], ann["key"].replace("/", "%2F")
@@ -29,7 +28,8 @@ except requests.RequestException as e:
 print(f'  PUT manifest  -> {m.status_code}  {man["id"]}')
 print(f'  PUT announce  -> {a.status_code}  {ann["key"]}')
 print("  GET list      -> " + ", ".join(sorted(c["content_id"] for c in requests.get(coll, timeout=10).json())))
-ref = requests.get(BASE + "/spatialdds/resolve", params={"uri": man["id"]}, timeout=10).json()["assets"][0]
-print(f'  GET resolve   -> {ref["media_type"]} {ref["uri"]}')
-raw = requests.get(BASE + "/" + ref["uri"].split("/", 3)[3], timeout=10).content
-print(f'  GET asset     -> {len(raw)} bytes, hash matches: {hashlib.sha256(raw).hexdigest() == ref["hash"].split(":")[1]}')
+doc = requests.get(BASE + "/spatialdds/resolve", params={"uri": man["id"]}, timeout=10).json()
+print(f'  GET resolve   -> {doc["assets"][0]["media_type"]} {doc["assets"][0]["uri"]}')
+raw = requests.get(BASE + "/" + doc["assets"][0]["uri"].split("/", 3)[3], timeout=10).content
+print(f'  GET asset     -> {len(raw)} bytes, hash matches: {hashlib.sha256(raw).hexdigest() == doc["assets"][0]["hash"].split(":")[1]}')
+print("\n" + json.dumps(doc, indent=2))   # the record itself, as the resolver returned it

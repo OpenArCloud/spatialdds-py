@@ -34,3 +34,4 @@ print("  GET search    -> " + ", ".join(sorted(s["service"]["service_id"] for s 
       requests.get(f"{BASE}/.well-known/spatialdds/search", timeout=10).json()["results"])))
 back = requests.get(f"{BASE}/spatialdds/resolve", params={"uri": rec["record"]["manifest_uri"]}, timeout=10).json()
 print(f'  GET resolve   -> {back.get("rtype")} {back.get("id")} ttl {back.get("ttl_sec")}')
+print("\n" + json.dumps(back, indent=2))   # the record itself, as the resolver returned it

@@ -166,7 +166,8 @@ line.
 ```
 
 The chain ends where a client's does: an asset reference and the digest the
-manifest declares for it. Fetching those bytes and comparing them needs the
+manifest declares for it, with the whole manifest printed so the reference is
+read in context. Fetching those bytes and comparing them needs the
 network and a checkout, so it is `gates/content_resolution.py --remote` rather
 than an example.
 
@@ -190,10 +191,70 @@ python3 tools/run_gateway.py --mcap samples/fountain-anchors.mcap --port 8787 \
   PUT manifest  -> 201  spatialdds://demo.spatialdds.org/south-mall/service/austin-vps
   GET search    -> austin-vps, fountain-anchors
   GET resolve   -> service spatialdds://demo.spatialdds.org/south-mall/service/austin-vps ttl 1800
+
+{
+  "auth": {
+    "issuer": "https://demo.spatialdds.org",
+    "scheme": "bearer"
+  },
+  "coverage": {
+    "circle_center": [
+      -97.73934584,
+      30.28495359,
+      158.0
+    ],
+    "circle_radius_m": 25.0,
+    "frame_ref": {
+      "fqn": "earth-fixed",
+      "uuid": ""
+    },
+    "geohash": [
+      "9v6krc"
+    ],
+    "global": false,
+    "has_bbox": false,
+    "has_circle": true
+  },
+  "id": "spatialdds://demo.spatialdds.org/south-mall/service/austin-vps",
+  "limits": {
+    "max_fps": 10,
+    "max_image_px": 1920
+  },
+  "profile": "spatial.manifest/1.8",
+  "profiles": [
+    "Core",
+    "SLAM Frontend",
+    "AR+Geo"
+  ],
+  "request": {
+    "features_topic": "feat.keyframe",
+    "image_blob_role": "image/jpeg",
+    "prior_topic": "geo.fix"
+  },
+  "response": {
+    "minimal": "geo.fix",
+    "rich": "pg.nodegeo"
+  },
+  "rtype": "service",
+  "service": {
+    "kind": "VPS",
+    "name": "Austin VPS, published over HTTP",
+    "org": "openarcloud.example",
+    "service_id": "austin-vps",
+    "version": "2026-q4"
+  },
+  "stamp": {
+    "nanosec": 0,
+    "sec": "1791559800"
+  },
+  "ttl_sec": 1800
+}
 ```
 
-The last line is the point: the published service is in the registry the read
-path serves, beside the one the recording carried.
+Each line proves one hop; the dump at the end is the payoff. A one-line proof
+tells you it worked and hides what you published, so the script finishes by
+printing the manifest the resolver returned — not the body it sent, which would
+only prove the script can echo itself.
 
 ## publish_content.py
 
@@ -208,6 +269,29 @@ resolver answering for a URI that did not exist a moment earlier, with the
   PUT manifest  -> 201  spatialdds://demo.spatialdds.org/south-mall/content/south-mall-tour
   GET list      -> content/fountain-label, content/fountain-marker, content/south-mall-tour
   GET resolve   -> content spatialdds://demo.spatialdds.org/south-mall/content/south-mall-tour ttl 7200 -> public, max-age=7200
+
+{
+  "assets": [
+    {
+      "hash": "sha256:abababababababababababababababababababababababababababababababab",
+      "media_type": "application/json",
+      "uri": "https://example.org/south-mall-tour.json"
+    }
+  ],
+  "content": {
+    "content_id": "content/south-mall-tour",
+    "summary": "A short audio tour published over the web binding.",
+    "title": "South Mall walking tour"
+  },
+  "id": "spatialdds://demo.spatialdds.org/south-mall/content/south-mall-tour",
+  "profile": "spatial.manifest/1.8",
+  "rtype": "content",
+  "stamp": {
+    "nanosec": 0,
+    "sec": "1791559800"
+  },
+  "ttl_sec": 7200
+}
 ```
 
 Point either at an endpoint without `--publish` and it says so and stops:
@@ -236,10 +320,73 @@ entry 2 is about.
   GET list      -> content/duck, content/fountain-label, content/fountain-marker
   GET resolve   -> model/gltf+json https://demo.spatialdds.org/assets/duck.gltf
   GET asset     -> 1432 bytes, hash matches: True
+
+{
+  "assets": [
+    {
+      "hash": "sha256:8f73ee013981fc5c6ff4f0bb564b18a2a227fd25ba872f1f47bf9b87a3e488fe",
+      "media_type": "model/gltf+json",
+      "meta": [
+        {
+          "entries": [
+            {
+              "key": "committed_path",
+              "value": "samples/assets/duck.gltf"
+            },
+            {
+              "key": "bytes",
+              "value": "1432"
+            }
+          ],
+          "json": "",
+          "namespace": "spatialdds-web"
+        }
+      ],
+      "uri": "https://demo.spatialdds.org/assets/duck.gltf"
+    }
+  ],
+  "content": {
+    "class_id": "https://schema.org/CreativeWork",
+    "content_id": "content/duck",
+    "summary": "An original glTF duck, placed by its own pose beside the fountain.",
+    "tags": [
+      "duck",
+      "glTF",
+      "walkthrough"
+    ],
+    "title": "A duck at the Littlefield Fountain"
+  },
+  "coverage": {
+    "circle_center": [
+      -97.73935,
+      30.2849859,
+      158.0
+    ],
+    "circle_radius_m": 2.0,
+    "frame_ref": {
+      "fqn": "earth-fixed",
+      "uuid": ""
+    },
+    "global": false,
+    "has_bbox": false,
+    "has_circle": true
+  },
+  "id": "spatialdds://demo.spatialdds.org/south-mall/content/duck",
+  "profile": "spatial.manifest/1.8",
+  "rtype": "content",
+  "stamp": {
+    "nanosec": 0,
+    "sec": "1791559800"
+  },
+  "ttl_sec": 3600
+}
 ```
 
-The middle line is the point of the walkthrough: the duck arrives beside the
-recording's own two content records rather than in place of them.
+The `GET list` line is the walkthrough's point in miniature: the duck arrives
+beside the recording's own two content records rather than in place of them.
+And the dump is what a client receives — `assets[0].hash` is the digest of the
+committed `samples/assets/duck.gltf`, and `assets[0].meta` records the path it
+was authored from, so the document says where its own bytes came from.
 
 ## How the gate reads this file
 

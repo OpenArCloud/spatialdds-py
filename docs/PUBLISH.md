@@ -151,6 +151,9 @@ terminates exactly as before, which every existing WebSocket gate depends on and
 `golden_publish`, `publish_reject`, `journal_replay`, `publish_live`,
 `publish_offswitch`, `publish_duck`. The walkthrough in
 [WALKTHROUGH.md](WALKTHROUGH.md) is walked command by command by
-`gates/quickstart.py`. Expected values come from
+`gates/quickstart.py`, including its step 8, which prints the three published
+documents in full -- the VPS manifest, the duck's manifest, and the announce
+from its own instance URL -- so the record a client receives is on the page
+rather than described. Expected values come from
 `samples/published-records.input.json`, which is authored data; see
 [EVIDENCE.md](EVIDENCE.md).

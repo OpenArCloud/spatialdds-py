@@ -166,3 +166,303 @@ sha256:8f73ee013981fc5c6ff4f0bb564b18a2a227fd25ba872f1f47bf9b87a3e488fe
 That last pair is the whole claim: a URI that did not exist before step 3
 resolves to a manifest whose ref returns the committed asset's exact bytes.
 `gates/publish_duck.py` byte-compares them against `samples/assets/duck.gltf`.
+
+## 8. See what you published
+
+The steps above each prove one hop in a line. This one shows the records
+themselves — what a published VPS and a published duck actually look like on
+the wire, and what a reader's client will receive. Three documents, printed in
+full.
+
+**The VPS manifest**, resolved through §7.5.2. Derived from the
+specification's own `manifests/v1.8/vps_manifest.json`; the `profile` and `id`
+it carries are the two things that example is missing (findings 27 and 28).
+
+<!-- gate: publish sh -->
+```sh
+export BASE=http://127.0.0.1:8787
+curl -s --get "$BASE/spatialdds/resolve" \
+      --data-urlencode "uri=spatialdds://demo.spatialdds.org/south-mall/service/austin-vps" \
+  | python3 -m json.tool
+```
+
+```console
+{
+    "auth": {
+        "issuer": "https://demo.spatialdds.org",
+        "scheme": "bearer"
+    },
+    "coverage": {
+        "circle_center": [
+            -97.73934584,
+            30.28495359,
+            158.0
+        ],
+        "circle_radius_m": 25.0,
+        "frame_ref": {
+            "fqn": "earth-fixed",
+            "uuid": ""
+        },
+        "geohash": [
+            "9v6krc"
+        ],
+        "global": false,
+        "has_bbox": false,
+        "has_circle": true
+    },
+    "id": "spatialdds://demo.spatialdds.org/south-mall/service/austin-vps",
+    "limits": {
+        "max_fps": 10,
+        "max_image_px": 1920
+    },
+    "profile": "spatial.manifest/1.8",
+    "profiles": [
+        "Core",
+        "SLAM Frontend",
+        "AR+Geo"
+    ],
+    "request": {
+        "features_topic": "feat.keyframe",
+        "image_blob_role": "image/jpeg",
+        "prior_topic": "geo.fix"
+    },
+    "response": {
+        "minimal": "geo.fix",
+        "rich": "pg.nodegeo"
+    },
+    "rtype": "service",
+    "service": {
+        "kind": "VPS",
+        "name": "Austin VPS, published over HTTP",
+        "org": "openarcloud.example",
+        "service_id": "austin-vps",
+        "version": "2026-q4"
+    },
+    "stamp": {
+        "nanosec": 0,
+        "sec": "1791559800"
+    },
+    "ttl_sec": 1800
+}
+```
+
+**The duck's manifest.** `assets[0].hash` is the digest of the committed
+`samples/assets/duck.gltf`, and `assets[0].meta` records the path it was
+authored from, so the document says where its own bytes came from.
+
+<!-- gate: publish sh -->
+```sh
+export BASE=http://127.0.0.1:8787
+curl -s --get "$BASE/spatialdds/resolve" \
+      --data-urlencode "uri=spatialdds://demo.spatialdds.org/south-mall/content/duck" \
+  | python3 -m json.tool
+```
+
+```console
+{
+    "assets": [
+        {
+            "hash": "sha256:8f73ee013981fc5c6ff4f0bb564b18a2a227fd25ba872f1f47bf9b87a3e488fe",
+            "media_type": "model/gltf+json",
+            "meta": [
+                {
+                    "entries": [
+                        {
+                            "key": "committed_path",
+                            "value": "samples/assets/duck.gltf"
+                        },
+                        {
+                            "key": "bytes",
+                            "value": "1432"
+                        }
+                    ],
+                    "json": "",
+                    "namespace": "spatialdds-web"
+                }
+            ],
+            "uri": "https://demo.spatialdds.org/assets/duck.gltf"
+        }
+    ],
+    "content": {
+        "class_id": "https://schema.org/CreativeWork",
+        "content_id": "content/duck",
+        "summary": "An original glTF duck, placed by its own pose beside the fountain.",
+        "tags": [
+            "duck",
+            "glTF",
+            "walkthrough"
+        ],
+        "title": "A duck at the Littlefield Fountain"
+    },
+    "coverage": {
+        "circle_center": [
+            -97.73935,
+            30.2849859,
+            158.0
+        ],
+        "circle_radius_m": 2.0,
+        "frame_ref": {
+            "fqn": "earth-fixed",
+            "uuid": ""
+        },
+        "global": false,
+        "has_bbox": false,
+        "has_circle": true
+    },
+    "id": "spatialdds://demo.spatialdds.org/south-mall/content/duck",
+    "profile": "spatial.manifest/1.8",
+    "rtype": "content",
+    "stamp": {
+        "nanosec": 0,
+        "sec": "1791559800"
+    },
+    "ttl_sec": 3600
+}
+```
+
+**The announce itself**, from the instance URL a `GET` serves — the same URL
+the `PUT` in step 1 went to. This is the typed SpatialDDS record, canonical
+JSON per N.1: `int64` members as decimal strings, enums by name, `has_*`
+guards present. A published instance is indistinguishable from a replayed one,
+and this is the form that holds for both.
+
+Two things are worth noticing in it. Its `topics` entries carry
+`qos_profile: ""` and no `durability`, while the same topics *in a search
+result* carry `durability` and a `url` — because `TopicMeta` has neither field,
+so the service manifest adds them and the raw record cannot (findings 17 and
+the N.7 `url` addition). And `manifest_uri` points at the document printed
+first on this page: the announce names its manifest, and the manifest resolves.
+
+<!-- gate: publish sh -->
+```sh
+export BASE=http://127.0.0.1:8787
+curl -s "$BASE/ut-austin-south-mall/discovery/announce/v1/austin-vps" \
+  | python3 -m json.tool
+```
+
+```console
+{
+    "auth_hint": "",
+    "caps": {
+        "features": [
+            "web-binding/json"
+        ],
+        "preferred_profiles": [],
+        "supported_profiles": [
+            {
+                "major": 1,
+                "max_minor": 8,
+                "min_minor": 8,
+                "name": "spatial.core"
+            },
+            {
+                "major": 1,
+                "max_minor": 8,
+                "min_minor": 8,
+                "name": "spatial.disco"
+            }
+        ]
+    },
+    "coverage": [
+        {
+            "aabb": {
+                "max_xyz": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "min_xyz": [
+                    0.0,
+                    0.0,
+                    0.0
+                ]
+            },
+            "bbox": [
+                0.0,
+                0.0,
+                0.0,
+                0.0
+            ],
+            "circle_center": [
+                -97.73934584,
+                30.28495359,
+                158.0
+            ],
+            "circle_radius_m": 25.0,
+            "coverage_window_end": {
+                "nanosec": 0,
+                "sec": "0"
+            },
+            "coverage_window_start": {
+                "nanosec": 0,
+                "sec": "0"
+            },
+            "crs": "EPSG:4326",
+            "frame_ref": {
+                "coord_convention": "ENU",
+                "display_unit": "m",
+                "fqn": "ut-austin/south-mall/map",
+                "has_coord_convention": true,
+                "has_scale": true,
+                "meters_per_unit": 1.0,
+                "scale_status": "SCALE_DECLARED",
+                "uuid": "b1f0c2a4-5d6e-4f80-9a1b-2c3d4e5f6071"
+            },
+            "global": false,
+            "has_aabb": false,
+            "has_bbox": false,
+            "has_circle": true,
+            "has_coverage_window": false,
+            "has_crs": true,
+            "has_frame_ref": false
+        }
+    ],
+    "coverage_eval_time": {
+        "nanosec": 0,
+        "sec": "0"
+    },
+    "coverage_frame_ref": {
+        "coord_convention": "ENU",
+        "display_unit": "m",
+        "fqn": "ut-austin/south-mall/map",
+        "has_coord_convention": true,
+        "has_scale": true,
+        "meters_per_unit": 1.0,
+        "scale_status": "SCALE_DECLARED",
+        "uuid": "b1f0c2a4-5d6e-4f80-9a1b-2c3d4e5f6071"
+    },
+    "coverage_source_ids": [],
+    "has_coverage_eval_time": false,
+    "hints": [],
+    "kind": "VPS",
+    "manifest_uri": "spatialdds://demo.spatialdds.org/south-mall/service/austin-vps",
+    "name": "Austin VPS, published over HTTP",
+    "org": "openarcloud.example",
+    "service_id": "austin-vps",
+    "stamp": {
+        "nanosec": 0,
+        "sec": "1791559800"
+    },
+    "topics": [
+        {
+            "max_chunk_bytes": 0,
+            "name": "spatialdds/ut-austin-south-mall/frames/geo_anchor/v1",
+            "qos_profile": "",
+            "target_rate_hz": 0.0,
+            "type": "geo_anchor",
+            "version": "v1"
+        },
+        {
+            "max_chunk_bytes": 0,
+            "name": "spatialdds/ut-austin-south-mall/content/content_announce/v1",
+            "qos_profile": "",
+            "target_rate_hz": 0.0,
+            "type": "content_announce",
+            "version": "v1"
+        }
+    ],
+    "transforms": [],
+    "ttl_sec": 86400,
+    "version": "2026-q4"
+}
+```
