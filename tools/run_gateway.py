@@ -115,6 +115,27 @@ def main() -> int:
               f"for {', '.join(auth)}, but this endpoint answers as "
               f"{gateway.base_authority(base)!r}; pass --public-url to serve "
               f"resolution")
+    # The lines a person needs in their second terminal, ready to paste.
+    # The banner already printed a token; printing the token without the
+    # export that uses it leaves the reader to assemble it, which is where
+    # every hand-run of this walkthrough stumbled.
+    # The REACHABLE address, not the advertised one. `--public-url` sets what
+    # the manifests advertise, which is frequently a name the reader's machine
+    # cannot resolve; pasting that would hand them a variable that fails on
+    # first use.
+    reach = f"http://{'127.0.0.1' if a.host == '0.0.0.0' else a.host}:{a.port}"
+    print(f"\n  paste this into the second terminal:\n")
+    print(f"    export BASE={reach}")
+    print(f"    export SPATIALDDS_ENDPOINT={reach}")
+    if a.publish:
+        print(f"    export TOK={token}")
+        print(f"    export SPATIALDDS_TOKEN={token}")
+    if a.public_url and gateway.base_authority(base) != reach.split("//")[1]:
+        print(f"\n  note  this endpoint advertises {base} and is reachable at "
+              f"{reach}. Examples that follow an advertised URL verbatim --"
+              f"\n        hello_spatial.py, anchors.py -- need the two to "
+              f"agree, so serve without --public-url for those.")
+
     print(f"\n  discovery   {base}/.well-known/spatialdds/search")
     print(f"  schemas     {base}/.well-known/spatialdds/schemas")
     if meta:

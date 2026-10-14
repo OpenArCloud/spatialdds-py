@@ -239,9 +239,15 @@ def run(block: Block, base: str,
             # is resolved by the shell from the environment, the way a reader's
             # shell resolves it after the export block -- not by this gate
             # rewriting the command first.
-            r = subprocess.run(["sh", "-c", "\n".join(block.program)],
-                               cwd=ROOT, env=env, capture_output=True,
-                               text=True, timeout=120)
+            # The documented port is rewritten to the one this gate serves
+            # on. `gates/quickstart.py` is the gate that runs these fences
+            # byte-for-byte on the port the document names; this one answers
+            # the different question of whether the command works against an
+            # endpoint, and says so in its docstring.
+            prog = "\n".join(block.program).replace(LOCAL,
+                                                    base.split("//", 1)[1])
+            r = subprocess.run(["sh", "-c", prog], cwd=ROOT, env=env,
+                               capture_output=True, text=True, timeout=120)
             got, err = r.stdout, r.stderr
         else:
             host = base.split("//", 1)[1]
@@ -373,6 +379,26 @@ async def main() -> int:
                            "Traceback" not in r.stderr,
                            (r.stderr.strip().splitlines() or ["no output"])[-1]
                            [:120]))
+
+    # Isolation. The walks above run a configuration's blocks against one
+    # endpoint in document order, which is how the gates have always run them
+    # and is not how a person does: they open a terminal and run one script.
+    # A script that only works because another ran first passes the walk and
+    # fails the reader, which is the composition-blindness defect inverted.
+    for b in blocks:
+        if b.mode not in ("py", "py-fails"):
+            continue
+        mcap, advertise = RECORDINGS[b.rec]
+        gw = await Gateway(state(mcap), token=TOKEN_FOR.get(b.rec, TOKEN),
+                           advertise=advertise,
+                           publish=b.rec in PUBLISHING).start()
+        try:
+            ok, detail = await asyncio.get_running_loop().run_in_executor(
+                None, run, b, gw.base, TOKEN_FOR.get(b.rec, TOKEN))
+        finally:
+            await gw.stop()
+        checks.append((f"{b.target} alone against a fresh [{b.rec}] endpoint",
+                       ok, detail))
 
     scripts = sorted(p.relative_to(ROOT).as_posix()
                      for p in (ROOT / "examples").rglob("*.py"))

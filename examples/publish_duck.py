@@ -14,17 +14,22 @@ docs/WALKTHROUGH.md. That absence is the exhibit, not an omission.
         python3 examples/publish_duck.py
 """
 import hashlib, json, os, pathlib, requests, sys
-BASE = os.environ.get("SPATIALDDS_ENDPOINT", "https://demo.spatialdds.org")
+BASE = os.environ.get("SPATIALDDS_ENDPOINT") or "https://demo.spatialdds.org"
 AUTH = {"Authorization": "Bearer " + (os.environ.get("SPATIALDDS_TOKEN") or sys.exit(
     "set SPATIALDDS_TOKEN: the publish surface is operator-scoped"))}
 d = json.loads((pathlib.Path(__file__).parents[1] / "samples/duck.input.json").read_text())
 man, ann = d["manifest"], d["announce"]
 coll, key = BASE + ann["path"], ann["key"].replace("/", "%2F")
-m = requests.put(BASE + "/spatialdds/resolve", json=man, headers=AUTH)
-a = requests.put(f"{coll}/{key}", json=ann["record"], headers=AUTH)
-{m.status_code, a.status_code} <= {200, 201} or sys.exit(f"  refused: {m.status_code}/{a.status_code}")
-print(f"  manifest -> {m.status_code}   announce -> {a.status_code}")
-print("  content here: " + ", ".join(sorted(c["content_id"] for c in requests.get(coll).json())))
-ref = requests.get(BASE + "/spatialdds/resolve", params={"uri": man["id"]}).json()["assets"][0]
-raw = requests.get(BASE + "/" + ref["uri"].split("/", 3)[3]).content
-print(f'  resolved {man["id"]}\n  fetched {ref["media_type"]} {len(raw)} bytes, hash matches: {hashlib.sha256(raw).hexdigest() == ref["hash"].split(":")[1]}')
+try:
+    m = requests.put(BASE + "/spatialdds/resolve", json=man, headers=AUTH, timeout=10)
+    a = requests.put(f"{coll}/{key}", json=ann["record"], headers=AUTH, timeout=10)
+except requests.RequestException as e:
+    sys.exit(f"  {BASE} is not answering ({type(e).__name__}). Serve it: python3 tools/run_gateway.py --mcap samples/fountain-anchors.mcap --port 8787 --public-url https://demo.spatialdds.org --token tok --publish")
+{m.status_code, a.status_code} <= {200, 201} or sys.exit(f"  refused: manifest {m.status_code}, announce {a.status_code}. 405 means no --publish, 401 a wrong token")
+print(f'  PUT manifest  -> {m.status_code}  {man["id"]}')
+print(f'  PUT announce  -> {a.status_code}  {ann["key"]}')
+print("  GET list      -> " + ", ".join(sorted(c["content_id"] for c in requests.get(coll, timeout=10).json())))
+ref = requests.get(BASE + "/spatialdds/resolve", params={"uri": man["id"]}, timeout=10).json()["assets"][0]
+print(f'  GET resolve   -> {ref["media_type"]} {ref["uri"]}')
+raw = requests.get(BASE + "/" + ref["uri"].split("/", 3)[3], timeout=10).content
+print(f'  GET asset     -> {len(raw)} bytes, hash matches: {hashlib.sha256(raw).hexdigest() == ref["hash"].split(":")[1]}')

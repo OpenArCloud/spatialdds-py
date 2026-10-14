@@ -17,21 +17,20 @@ python3 tools/run_gateway.py --mcap samples/fountain-anchors.mcap --port 8787
 ```
 
 That command keeps running, so the rest goes in a second terminal. Every block
-below is run from the repository root, and every block is copy-safe: a command
-block holds only commands, and the output beside it is what you should see.
+below is run from the repository root and is self-contained: it sets the
+variables it needs, so you can paste any one of them into a fresh shell without
+having run the others. The gateway also prints these export lines at startup,
+with the real port and token.
 
-```sh
-export BASE=http://127.0.0.1:8787
-```
-
-The demo endpoint, once it is online, is the same commands with
-`export BASE=https://demo.spatialdds.org` instead.
+Against the demo endpoint once it is online, the only change is
+`export BASE=https://demo.spatialdds.org` in place of the loopback address.
 
 **One curl.** Ask what covers a geohash cell; get back the URL of everything
 there.
 
 <!-- gate: fountain sh -->
 ```sh
+export BASE=http://127.0.0.1:8787
 curl -s "$BASE/.well-known/spatialdds/search?geohash=9v6krc" \
     | python3 -c 'import json,sys; [print(t["type"], t["url"]) for t in json.load(sys.stdin)["results"][0]["service"]["topics"]]'
 ```
@@ -58,7 +57,8 @@ read typed samples until the latched set is complete.
 
 <!-- gate: fountain sh -->
 ```sh
-SPATIALDDS_ENDPOINT=$BASE python3 examples/hello_spatial.py
+export SPATIALDDS_ENDPOINT=http://127.0.0.1:8787
+python3 examples/hello_spatial.py
 ```
 
 ```console
@@ -108,6 +108,7 @@ Then one PUT, and the record is in the registry the read path serves:
 
 <!-- gate: publish sh -->
 ```sh
+export BASE=http://127.0.0.1:8787
 python3 -c 'import json; print(json.dumps(json.load(open("samples/published-records.input.json"))["service"]["record"]))' \
     | curl -s -X PUT "$BASE/ut-austin-south-mall/discovery/announce/v1/austin-vps" \
         -H "Authorization: Bearer tok" -H "Content-Type: application/json" \
@@ -119,9 +120,15 @@ python3 -c 'import json; print(json.dumps(json.load(open("samples/published-reco
 published austin-vps | Austin VPS, published over HTTP
 ```
 
-[`publish_service.py`](examples/publish_service.py) and
-[`publish_content.py`](examples/publish_content.py) do the same in thirteen
-lines each, and read the record back out through search and the resolver.
+[`publish_service.py`](examples/publish_service.py),
+[`publish_content.py`](examples/publish_content.py) and
+[`publish_duck.py`](examples/publish_duck.py) each do a whole round trip in one
+file — publish, then read back through search, the resolver, and for the duck
+the asset's bytes.
+
+For the full sequence by hand, see
+[docs/WALKTHROUGH.md](docs/WALKTHROUGH.md): a VPS and a duck, published and
+followed back to bytes, in seven commands.
 
 ## Examples
 
@@ -134,8 +141,9 @@ lines each, and read the record back out through search and the resolver.
 | [`anchors.py`](examples/anchors.py) | Anchors with their method and positional uncertainty. |
 | [`migration/ssd_search.py`](examples/migration/ssd_search.py) | OSCP Spatial Service Discovery, and the search path that replaces it. |
 | [`migration/scd_content.py`](examples/migration/scd_content.py) | OSCP Spatial Content Discovery: announce, resolved URI, manifest, asset. Wants the endpoint served as its own authority. |
-| [`publish_service.py`](examples/publish_service.py) | Publish a service announce, then find it. Needs `--publish`. |
-| [`publish_content.py`](examples/publish_content.py) | Publish a content record and its manifest, then resolve it. Needs `--publish`. |
+| [`publish_service.py`](examples/publish_service.py) | Publish a service announce and its manifest, then read both back. Needs `--publish`. |
+| [`publish_content.py`](examples/publish_content.py) | Publish a content record and its manifest, then read both back. Needs `--publish`. |
+| [`publish_duck.py`](examples/publish_duck.py) | Publish a duck, then resolve its URI and fetch the model bytes. Needs `--publish`. |
 
 Every claim here is gated and conformance-tested: see
 [docs/EVIDENCE.md](docs/EVIDENCE.md).

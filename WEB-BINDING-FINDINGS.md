@@ -799,13 +799,13 @@ That closes the loop this repository opened when it needed `Gateway.connect` for
 the same reason. The seam exists on both sides now, named the same thing, for
 the same stated reason.
 
-## The two instrument-defect classes, consolidated, 2026-10-11
+## The instrument-defect classes, consolidated, 2026-10-11 (third added 2026-10-13)
 
-Owed since the instances crossed six. Both classes are already described where
-they were found — the first at "A defect class, named because it has now
-happened twice", the second at finding 23 — and a class scattered across dated
-sections is not something anyone can apply. This is the roll-up: two classes,
-their instances, and one sentence each.
+Owed since the instances crossed six. Each class is already described where it
+was found — the first at "A defect class, named because it has now happened
+twice", the second at finding 23, the third at finding 29 — and a class
+scattered across dated sections is not something anyone can apply. This is the
+roll-up: three classes, their instances, and one sentence each.
 
 ### Class one: the self-observing instrument
 
@@ -884,11 +884,38 @@ the per-part verdicts as inputs to it rather than substitutes for it. Where a
 document and an annotation can disagree about what to run, gate the document —
 the annotation is for the gate's convenience, and the document is the product.**
 
-### What both classes have in common
+### Class three: the fragment-blind instrument
+
+The inverse of class two. An instrument that executes the composition
+faithfully and never executes the pieces the way the audience will, so it
+assembles context the reader does not have.
+
+1. **Finding 29, the human path.** Ten command blocks across `README.md` and
+   `docs/WALKTHROUGH.md` failed on an unset variable in a fresh shell while
+   nineteen gates were green. `gates/quickstart.py` prepended each document's
+   export fence before running a block — which is what a reader's shell carries
+   *if they paste the fences in order from the top*, and not what anyone does.
+   The gate's shell never forgot a variable, so the gate never saw it.
+2. **The same shape in the examples**, found by the same walk: scripts were
+   only ever run in a configuration's document order, so one that worked
+   because another had run first would have passed. `publish_service.py` was
+   publishing an announce whose `manifest_uri` resolved to nothing.
+
+Related to class one's newest member rather than to class two: finding 24's
+gate *repaired* its input, and this one *supplied* input the reader lacks.
+Both are the instrument making the world tidier than it is.
+
+**The rule, as standing: run the artefact the way its audience will, and where
+the audience has two ways through — in order, and one piece at a time — run
+both.** `gates/quickstart.py` now injects nothing, including the environment,
+and `gates/examples.py` runs every script alone against its own fresh endpoint
+as well as in document order.
+
+### What all three classes have in common
 
 The instrument was never tested against the thing it claims to measure. The fix
-is the same move in both: make the measured thing go wrong, and confirm the
-instrument says so.
+is the same move in all three: make the measured thing go wrong — or take away
+what the instrument was quietly supplying — and confirm it says so.
 
 ## 24. The gate repaired its input, then reported no defect, 2026-10-11
 
@@ -1040,3 +1067,52 @@ files, matching §3.3.0. Same erratum as 27, and it makes the examples usable
 with §7.5.2 rather than merely illustrative. Worth a sentence in §7.5.2 too:
 a manifest MUST declare the URI it resolves for, or a resolver cannot index
 one it was handed.
+
+## A third face of the same class, 2026-10-13
+
+### 29. The gates ran compositions; a person runs fragments
+
+James ran the publish-and-retrieve path by hand and it stumbled in ten places
+the suite could not see. Reproduced before anything was changed — fresh clone,
+fresh shells, every command block pasted alone, every example run with nothing
+before it — and the count was: **three of three command blocks in `README.md`,
+seven of seven in `docs/WALKTHROUGH.md`, all failing on an unset variable.**
+The suite was green on all ten.
+
+**Why.** `gates/quickstart.py` prepended the document's export fence to every
+command block before running it. That is what a reader's shell carries *if they
+paste the fences in order from the top*. It is not what a reader does: they open
+a second terminal, scroll to the command they want, and paste that block. The
+gate's shell never forgot a variable, so the gate never saw the defect.
+
+**The class, in its third costume.** The self-observing instrument measures its
+own machinery. The composition-blind instrument checks the parts and misses the
+sequence. This is the inverse of the second: **the instrument checked a
+composition and missed the fragments.** A gate that assembles context the user
+will not have is as blind as one that checks parts the user will not run
+separately, and both are blind in the same way — the instrument's world is
+tidier than the reader's.
+
+*The rule:* run the artefact the way its audience will, and where the audience
+has two ways (in order, and one block at a time), run both.
+
+### The ten, and what fixed each
+
+| stumble | fix |
+|---|---|
+| `README.md` ×3 and `docs/WALKTHROUGH.md` ×7 fail on unset `$BASE`/`$TOK` | every command block restates the exports it needs; the export-only fences are gone, because a fence that exists to be remembered is a fence that will not be |
+| `SPATIALDDS_ENDPOINT=$BASE` with `BASE` unset sets it to `""`, and `environ.get(k, default)` returns `""` — so the default never applied and the script died on an empty URL | `environ.get(k) or default` in all eight examples: unset and empty now behave the same |
+| `WALKTHROUGH` step 7 piped `curl` into `wc -c` and printed `0` **with exit 0** — a silent wrong answer | the byte count is read in Python, which exits non-zero with a sentence when nothing came back. *Exit 0 is not evidence*, again |
+| `publish_service.py` published an announce whose `manifest_uri` resolved to "No manifest for that URI" | it publishes the manifest too, and resolves it back; all three publish examples are now whole round trips |
+| every example answered an unreachable endpoint with a `requests` traceback | one line naming the URL tried and the serve line that fixes it, in all eight |
+| a 405 or 401 said what was refused but not what to do | the refusal names `--publish` and the token, and the banner prints the export lines |
+| the startup banner printed a token but not the exports that use it | it prints the paste-ready lines, with the **reachable** address rather than the advertised one — pasting the advertised name would hand the reader a variable that fails on first use |
+| `hello_spatial.py` and `anchors.py` traceback against the authority-configured endpoint the publish documents tell you to serve | the banner says so when the two differ, and the unreachable sentence covers the rest |
+| `README.md` listed neither `publish_duck.py` nor the walkthrough | both added |
+
+**Gated, so none of it comes back.** `gates/quickstart.py` injects nothing,
+including the environment: a block that needs an export must carry it.
+`gates/examples.py` gained an isolation mode — every script run alone against
+its own fresh endpoint, in addition to the document-order walks. Both were
+fault-injected: a block stripped of its export, and an example made to depend
+on another having run.

@@ -186,9 +186,10 @@ python3 tools/run_gateway.py --mcap samples/fountain-anchors.mcap --port 8787 \
 
 <!-- gate: publish py examples/publish_service.py -->
 ```console
-  PUT austin-vps   -> 201 created
-  ETag "sha256:b239e6960a297c4149fb2bed887137449a7b91cc6e2f695c5fcf9a0dba5a9c3e"
-  search now returns: austin-vps, fountain-anchors
+  PUT announce  -> 201  austin-vps
+  PUT manifest  -> 201  spatialdds://demo.spatialdds.org/south-mall/service/austin-vps
+  GET search    -> austin-vps, fountain-anchors
+  GET resolve   -> service spatialdds://demo.spatialdds.org/south-mall/service/austin-vps ttl 1800
 ```
 
 The last line is the point: the published service is in the registry the read
@@ -203,16 +204,17 @@ resolver answering for a URI that did not exist a moment earlier, with the
 
 <!-- gate: publish py examples/publish_content.py -->
 ```console
-  announce -> 201   manifest -> 201
-  resolved spatialdds://demo.spatialdds.org/south-mall/content/south-mall-tour
-    ttl_sec 7200 -> public, max-age=7200
+  PUT announce  -> 201  content/south-mall-tour
+  PUT manifest  -> 201  spatialdds://demo.spatialdds.org/south-mall/content/south-mall-tour
+  GET list      -> content/fountain-label, content/fountain-marker, content/south-mall-tour
+  GET resolve   -> content spatialdds://demo.spatialdds.org/south-mall/content/south-mall-tour ttl 7200 -> public, max-age=7200
 ```
 
 Point either at an endpoint without `--publish` and it says so and stops:
 
 <!-- gate: fountain py-fails examples/publish_service.py -->
 ```console
-  $BASE/ut-austin-south-mall/discovery/announce/v1/austin-vps refused the publish: 405 The publish surface is an implementation-defined extension and is off unless the endpoint was started with --publish. Nothing about the read side changes either way.
+  refused: announce 405, manifest 405. 405 means no --publish, 401 a wrong token
 ```
 
 ## publish_duck.py
@@ -229,10 +231,11 @@ entry 2 is about.
 
 <!-- gate: publish py examples/publish_duck.py -->
 ```console
-  manifest -> 201   announce -> 201
-  content here: content/duck, content/fountain-label, content/fountain-marker
-  resolved spatialdds://demo.spatialdds.org/south-mall/content/duck
-  fetched model/gltf+json 1432 bytes, hash matches: True
+  PUT manifest  -> 201  spatialdds://demo.spatialdds.org/south-mall/content/duck
+  PUT announce  -> 201  content/duck
+  GET list      -> content/duck, content/fountain-label, content/fountain-marker
+  GET resolve   -> model/gltf+json https://demo.spatialdds.org/assets/duck.gltf
+  GET asset     -> 1432 bytes, hash matches: True
 ```
 
 The middle line is the point of the walkthrough: the duck arrives beside the

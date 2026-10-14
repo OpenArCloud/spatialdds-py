@@ -19,9 +19,13 @@ So this gate does no normalising. Rules, in order of importance:
    the documented output are the URLs a reader sees. If something already holds
    that port this gate FAILS and names the occupant, because a gate that cannot
    observe its subject must not report green.
-3. **The environment comes from the page.** The export fence is prepended to
-   each command fence, which is what a reader's shell carries after pasting it.
-   Nothing else is injected.
+3. **Nothing is injected, including the environment.** An earlier version
+   prepended the document's export fence to every command fence, and that is
+   why it missed the next defect: a reader opens a second terminal, scrolls to
+   the command they want, and pastes that block alone. Ten command blocks
+   failed that way while this gate was green, because the gate's shell never
+   forgot a variable. Each block now carries the exports it needs, and a block
+   that does not fails here.
 4. Commands and their expected output live in **separate fences**, so that each
    is independently copyable. A marker introduces the command fence; the next
    `console` fence is its expected output.
@@ -111,8 +115,11 @@ def walk(doc: Path, checks: list) -> int | None:
     name = doc.relative_to(ROOT).as_posix()
     blocks = fences(doc.read_text())
     plain = [b for b in blocks if b[1] == "sh" and not b[3]]
-    assert len(plain) >= 2, "expected an install/serve fence and an export fence"
-    serve_fence, export_fence = plain[0], plain[1]
+    assert plain, f"{doc} has no unmarked sh fence to take a serve line from"
+    serve_fence = plain[0]
+    # There is deliberately no export fence to find any more. A document that
+    # kept one invited every block after it to depend on it, which is the
+    # defect this gate exists to catch.
     # The page may stand the endpoint up more than once -- the publish section
     # restarts it with the write surface on -- so the walk is a sequence of
     # phases in document order: an unmarked fence holding a serve line opens a
@@ -194,15 +201,21 @@ def walk(doc: Path, checks: list) -> int | None:
         return report("quickstart", checks,
                       f"cannot observe {name} on its own port")
 
-    env_text = "\n".join(export_fence[2])
+    # **Nothing is prepended.** The previous version pasted the document's
+    # export fence in front of every command block, which is precisely why it
+    # never saw what a person sees: a reader opens a second terminal, scrolls
+    # to the command they want, and pastes that block alone. Every one of the
+    # ten command blocks in this repository failed that way while the gate was
+    # green, because the gate's shell never forgot a variable. A block that
+    # needs an export now has to carry it.
     for serve_line, cmd_blocks in phases:
-        rc = await_phase(name, serve_line, cmd_blocks, env_text, port, checks)
+        rc = await_phase(name, serve_line, cmd_blocks, port, checks)
         if rc is not None:
             return rc
     return None
 
 
-def await_phase(name: str, serve: str, cmd_blocks: list, env_text: str,
+def await_phase(name: str, serve: str, cmd_blocks: list,
                 port: int, checks: list) -> int | None:
     child = subprocess.Popen([sys.executable] + serve.split()[1:], cwd=ROOT,
                              stdout=subprocess.PIPE,
@@ -233,7 +246,7 @@ def await_phase(name: str, serve: str, cmd_blocks: list, env_text: str,
                 checks.append((f"{name}:{line}: its output fence follows it",
                                False, "no ```console fence after the command"))
                 continue
-            script = f"{env_text}\n" + "\n".join(body)
+            script = "\n".join(body)
             r = subprocess.run([SHELL, "-c", script], cwd=ROOT,
                                capture_output=True, text=True, timeout=180)
             have = [l.rstrip() for l in r.stdout.splitlines()]

@@ -31,74 +31,97 @@ python3 tools/run_gateway.py --mcap samples/fountain-anchors.mcap --port 8787 \
     --journal /tmp/registry.mcap
 ```
 
-```sh
-export BASE=http://127.0.0.1:8787
-export TOK=tok
-```
+Every numbered block below sets the two variables it needs, so any one of them
+can be pasted into a fresh shell without having run the others. The gateway
+prints these same export lines at startup, with the real port and token.
 
-## 1. The VPS announce
+## 1. The VPS announce, and the search that finds it
 
 <!-- gate: publish sh -->
 ```sh
+export BASE=http://127.0.0.1:8787
+export TOK=tok
 python3 -c 'import json; print(json.dumps(json.load(open("samples/published-records.input.json"))["service"]["record"]))' \
   | curl -s -X PUT "$BASE/ut-austin-south-mall/discovery/announce/v1/austin-vps" \
       -H "Authorization: Bearer $TOK" -H "Content-Type: application/json" --data @- \
-  | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d["service_id"], "|", d["kind"], "|", d["manifest_uri"])'
+  | python3 -c 'import json,sys; d=json.load(sys.stdin); print("PUT    ", d["service_id"], "|", d["kind"], "|", d["manifest_uri"])'
+curl -s "$BASE/.well-known/spatialdds/search" \
+  | python3 -c 'import json,sys; print("GET     search ->", ", ".join(sorted(r["service"]["service_id"] for r in json.load(sys.stdin)["results"])))'
 ```
 
 ```console
-austin-vps | VPS | spatialdds://demo.spatialdds.org/south-mall/service/austin-vps
+PUT     austin-vps | VPS | spatialdds://demo.spatialdds.org/south-mall/service/austin-vps
+GET     search -> austin-vps, fountain-anchors
 ```
 
-## 2. The VPS manifest
+## 2. The VPS manifest, and the URI that now resolves
 
 The announce names a `manifest_uri`; this is the manifest it names, published
 into the same store the resolver reads.
 
 <!-- gate: publish sh -->
 ```sh
+export BASE=http://127.0.0.1:8787
+export TOK=tok
 python3 -c 'import json; print(json.dumps(json.load(open("samples/published-records.input.json"))["service_manifest"]))' \
   | curl -s -X PUT "$BASE/spatialdds/resolve" \
       -H "Authorization: Bearer $TOK" -H "Content-Type: application/json" --data @- \
-  | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d["rtype"], d["id"], "ttl", d["ttl_sec"])'
+  | python3 -c 'import json,sys; d=json.load(sys.stdin); print("PUT    ", d["rtype"], d["id"], "ttl", d["ttl_sec"])'
+curl -s --get "$BASE/spatialdds/resolve" \
+      --data-urlencode "uri=spatialdds://demo.spatialdds.org/south-mall/service/austin-vps" \
+  | python3 -c 'import json,sys; d=json.load(sys.stdin); print("GET     resolve ->", d.get("rtype"), "ttl", d.get("ttl_sec"))'
 ```
 
 ```console
-service spatialdds://demo.spatialdds.org/south-mall/service/austin-vps ttl 1800
+PUT     service spatialdds://demo.spatialdds.org/south-mall/service/austin-vps ttl 1800
+GET     resolve -> service ttl 1800
 ```
 
 ## 3. The duck's manifest
 
 <!-- gate: publish sh -->
 ```sh
+export BASE=http://127.0.0.1:8787
+export TOK=tok
 python3 -c 'import json; print(json.dumps(json.load(open("samples/duck.input.json"))["manifest"]))' \
   | curl -s -X PUT "$BASE/spatialdds/resolve" \
       -H "Authorization: Bearer $TOK" -H "Content-Type: application/json" --data @- \
-  | python3 -c 'import json,sys; d=json.load(sys.stdin); a=d["assets"][0]; print(d["id"], "->", a["media_type"], a["uri"])'
+  | python3 -c 'import json,sys; d=json.load(sys.stdin); a=d["assets"][0]; print("PUT    ", d["id"], "->", a["media_type"])'
+curl -s --get "$BASE/spatialdds/resolve" \
+      --data-urlencode "uri=spatialdds://demo.spatialdds.org/south-mall/content/duck" \
+  | python3 -c 'import json,sys; print("GET     resolve ->", json.load(sys.stdin)["assets"][0]["uri"])'
 ```
 
 ```console
-spatialdds://demo.spatialdds.org/south-mall/content/duck -> model/gltf+json https://demo.spatialdds.org/assets/duck.gltf
+PUT     spatialdds://demo.spatialdds.org/south-mall/content/duck -> model/gltf+json
+GET     resolve -> https://demo.spatialdds.org/assets/duck.gltf
 ```
 
-## 4. The duck's announce
+## 4. The duck's announce, and the siblings it joins
 
 <!-- gate: publish sh -->
 ```sh
+export BASE=http://127.0.0.1:8787
+export TOK=tok
 python3 -c 'import json; print(json.dumps(json.load(open("samples/duck.input.json"))["announce"]["record"]))' \
   | curl -s -X PUT "$BASE/ut-austin-south-mall/content/content_announce/v1/content%2Fduck" \
       -H "Authorization: Bearer $TOK" -H "Content-Type: application/json" --data @- \
-  | python3 -c 'import json,sys; d=json.load(sys.stdin); c=d["coverage"][0]; print(d["content_id"], "at", c["circle_center"][1], c["circle_center"][0], "r", c["circle_radius_m"])'
+  | python3 -c 'import json,sys; d=json.load(sys.stdin); c=d["coverage"][0]; print("PUT    ", d["content_id"], "at", c["circle_center"][1], c["circle_center"][0], "r", c["circle_radius_m"])'
+curl -s "$BASE/ut-austin-south-mall/content/content_announce/v1" \
+  | python3 -c 'import json,sys; print("GET     list ->", ", ".join(sorted(c["content_id"] for c in json.load(sys.stdin))))'
 ```
 
 ```console
-content/duck at 30.2849859 -97.73935 r 2.0
+PUT     content/duck at 30.2849859 -97.73935 r 2.0
+GET     list -> content/duck, content/fountain-label, content/fountain-marker
 ```
 
 ## 5. Search finds the service
 
 <!-- gate: publish sh -->
 ```sh
+export BASE=http://127.0.0.1:8787
+export TOK=tok
 curl -s "$BASE/.well-known/spatialdds/search?geohash=9v6krc" \
   | python3 -c 'import json,sys; print(", ".join(sorted(r["service"]["service_id"] for r in json.load(sys.stdin)["results"])))'
 ```
@@ -111,6 +134,8 @@ austin-vps, fountain-anchors
 
 <!-- gate: publish sh -->
 ```sh
+export BASE=http://127.0.0.1:8787
+export TOK=tok
 curl -s "$BASE/ut-austin-south-mall/content/content_announce/v1" \
   | python3 -c 'import json,sys; print(", ".join(sorted(c["content_id"] for c in json.load(sys.stdin))))'
 ```
@@ -123,15 +148,19 @@ content/duck, content/fountain-label, content/fountain-marker
 
 <!-- gate: publish sh -->
 ```sh
+export BASE=http://127.0.0.1:8787
+export TOK=tok
 curl -s --get "$BASE/spatialdds/resolve" \
       --data-urlencode "uri=spatialdds://demo.spatialdds.org/south-mall/content/duck" \
   | python3 -c 'import json,sys; print(json.load(sys.stdin)["assets"][0]["hash"])'
-curl -s "$BASE/assets/duck.gltf" | wc -c | tr -d " "
+python3 -c 'import os, sys, urllib.request
+b = urllib.request.urlopen(os.environ["BASE"] + "/assets/duck.gltf").read()
+print(f"{len(b)} bytes") if b else sys.exit("  nothing came back")'
 ```
 
 ```console
 sha256:8f73ee013981fc5c6ff4f0bb564b18a2a227fd25ba872f1f47bf9b87a3e488fe
-1432
+1432 bytes
 ```
 
 That last pair is the whole claim: a URI that did not exist before step 3

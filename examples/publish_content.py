@@ -11,16 +11,20 @@ earlier.
         python3 examples/publish_content.py
 """
 import json, os, pathlib, requests, sys
-BASE = os.environ.get("SPATIALDDS_ENDPOINT", "https://demo.spatialdds.org")
+BASE = os.environ.get("SPATIALDDS_ENDPOINT") or "https://demo.spatialdds.org"
 AUTH = {"Authorization": "Bearer " + (os.environ.get("SPATIALDDS_TOKEN") or sys.exit(
     "set SPATIALDDS_TOKEN: the publish surface is operator-scoped"))}
 doc = json.loads((pathlib.Path(__file__).parents[1] / "samples/published-records.input.json").read_text())
 con, man = doc["content"], doc["manifest"]
-a = requests.put(f'{BASE}{con["path"]}/{con["key"].replace("/", "%2F")}', json=con["record"], headers=AUTH)
-m = requests.put(f"{BASE}/spatialdds/resolve", json=man, headers=AUTH)
-{a.status_code, m.status_code} <= {200, 201} or sys.exit(
-    f'  refused: announce {a.status_code}, manifest {m.status_code}: {a.json().get("detail", "")}')
-print(f'  announce -> {a.status_code}   manifest -> {m.status_code}')
-back = requests.get(f"{BASE}/spatialdds/resolve", params={"uri": man["id"]})
-print(f'  resolved {back.json()["id"]}\n    ttl_sec {back.json()["ttl_sec"]} '
-      f'-> {back.headers["Cache-Control"]}')
+coll = BASE + con["path"]
+try:
+    a = requests.put(f'{coll}/{con["key"].replace("/", "%2F")}', json=con["record"], headers=AUTH, timeout=10)
+    m = requests.put(BASE + "/spatialdds/resolve", json=man, headers=AUTH, timeout=10)
+except requests.RequestException as e:
+    sys.exit(f"  {BASE} is not answering ({type(e).__name__}). Serve it: python3 tools/run_gateway.py --mcap samples/fountain-anchors.mcap --port 8787 --public-url https://demo.spatialdds.org --token tok --publish")
+{a.status_code, m.status_code} <= {200, 201} or sys.exit(f'  refused: announce {a.status_code}, manifest {m.status_code}. 405 means no --publish, 401 a wrong token')
+print(f'  PUT announce  -> {a.status_code}  {con["key"]}')
+print(f'  PUT manifest  -> {m.status_code}  {man["id"]}')
+print("  GET list      -> " + ", ".join(sorted(c["content_id"] for c in requests.get(coll, timeout=10).json())))
+back = requests.get(BASE + "/spatialdds/resolve", params={"uri": man["id"]}, timeout=10)
+print(f'  GET resolve   -> {back.json()["rtype"]} {back.json()["id"]} ttl {back.json()["ttl_sec"]} -> {back.headers["Cache-Control"]}')

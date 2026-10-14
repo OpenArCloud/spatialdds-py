@@ -18,19 +18,18 @@ checkout and an example should need neither.
     SPATIALDDS_ENDPOINT=http://127.0.0.1:8787 python3 examples/migration/scd_content.py
 """
 import os, requests, sys
-BASE = os.environ.get("SPATIALDDS_ENDPOINT", "https://demo.spatialdds.org")
+BASE = os.environ.get("SPATIALDDS_ENDPOINT") or "https://demo.spatialdds.org"
 # Against the authority itself every advertised URL is followed as given. A
 # local copy of it answers to a different name, so only the path is reused --
 # the one substitution a reader running their own endpoint needs, and one a
 # real client never does.
 at = lambda u: f"{BASE}/{u.split('/', 3)[3]}"
-svc = requests.get(f"{BASE}/.well-known/spatialdds/search").json()["results"][0]["service"]
+try: svc = requests.get(f"{BASE}/.well-known/spatialdds/search", timeout=10).json()["results"][0]["service"]
+except requests.RequestException as e: sys.exit(f"  {BASE} is not answering ({type(e).__name__}). Serve it: python3 tools/run_gateway.py --mcap samples/fountain-anchors.mcap --port 8787 --public-url https://demo.spatialdds.org")
 topic = next((t for t in svc["topics"] if t["type"] == "content_announce"), None) or sys.exit(
     f'{BASE} serves no content_announce topic; it offers: {", ".join(t["type"] for t in svc["topics"])}')
-meta = requests.get(f"{BASE}/.well-known/spatialdds/resolver").json()
-resolve = at(meta.get("https_base") or sys.exit(
-    f'{BASE} is not an authority, so nothing resolves; serve it as one with'
-    f' --public-url https://demo.spatialdds.org'))
+meta = requests.get(f"{BASE}/.well-known/spatialdds/resolver", timeout=10).json()
+resolve = at(meta.get("https_base") or sys.exit(f"  {BASE} is not an authority, so nothing resolves; serve it as one with --public-url https://demo.spatialdds.org"))
 for ann in requests.get(at(topic["url"])).json():
     man = requests.get(resolve, params={"uri": ann["manifest_uri"]}).json()
     a = man["assets"][0]
