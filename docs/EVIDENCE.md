@@ -37,8 +37,9 @@ python3 gates/run_all.py
   PASS     publish_live        a publish reaches a subscriber already on the socket
   PASS     publish_offswitch   with publishing off, reads are byte-identical and writes are 405
   PASS     publish_duck        a published record followed from PUT to fetched bytes
+  PASS     publish_anchor      a published anchor is an anchor, and the content it names resolves
 
-19 gates: 19 passed, 0 failed, 0 skipped
+20 gates: 20 passed, 0 failed, 0 skipped
 ```
 
 Expected values come from the recording, not from this gateway: per-topic
@@ -68,6 +69,7 @@ served that many would pass for any gateway, including a broken one.
 | `publish_live` | a subscriber already on the socket receives a publish as a `sample` and a dispose as a `dispose`, on the same envelope a replayed sample has, and a later subscriber replays the published record as latched state |
 | `publish_offswitch` | the one that matters: with the surface off, eight reads are byte-identical to an endpoint built without it, the write verbs are `405` problem documents, an attempted DELETE leaves its instance untouched, and a subscription still terminates by itself |
 | `publish_duck` | the duck followed from `PUT` to fetched bytes: the committed asset's size and digest match what the authored input declares, the manifest and announce are accepted and served as authored, the content collection holds the duck **and** both recorded content records, the URI resolves with the manifest's own `ttl_sec` as `max-age`, and the ref's bytes are byte-identical to `samples/assets/duck.gltf`. Plus the asset route's containment rule, checked over HTTP and over names a request cannot carry; plus the VPS loop — the manifest derived from the specification's own `manifests/v1.8/vps_manifest.json`, resolved with its TTL, and its announce findable by search |
+| `publish_anchor` | a published anchor is an anchor: every served field equals the authored record, its ETag is the digest of its canonical form, it validates against the vendored schema, and its `confidence` really is the monotone summary of its `cov` — so a record this endpoint accepted cannot contradict its own claim level. It stands beside the recording's five with those five byte-unchanged; its `manifest_uri` resolves and the ref fetches the committed asset byte for byte, which is the write-side twin of §8.2; and the refusals include the authority check's **anchor leg**, which had no data to exercise it until the revision gave anchors a URI to carry |
 | `quickstart` | the README's front page **and `docs/WALKTHROUGH.md`** executed **as text a reader pastes**, with no normalising: each command fence goes to the shell byte-for-byte, on the port the serve line actually names, **with nothing injected — not even the environment**: an earlier version prepended the page's export fence, which is why it was green while all ten command blocks failed in a fresh shell (finding 29). Every marker must sit on a fence holding its command alone, so a fence mixing prompt and output cannot return; every tier must name the recording the serve line serves; and a busy port is a FAIL naming the occupant rather than a skip. The first version of this gate stripped the prompt and expanded `$BASE` before running, and passed while the page was unrunnable — finding 24 |
 
 During development the decoder was additionally checked against a

@@ -1182,3 +1182,37 @@ narrow, counted tolerance rather than either a failure or a shrug.
 *Not a spec finding.* The specification's position is stated and consistent;
 this is what honouring it costs an implementation that keeps older recordings,
 and the cost is one prefix check and one model union.
+
+## 31. `GeoAnchor.checksum` is an integrity field nothing can verify, 2026-10-15
+
+Found by authoring a `GeoAnchor` outside a recording for the first time, which
+is what publishing one requires.
+
+`checksum` is REQUIRED on the wire and its IDL comment reads
+`// integrity/versioning`. §3's manifest table calls it "Integrity hash for the
+anchor data". Nothing anywhere says **what it digests or in what form** — not
+the IDL, not Appendix C's binding paragraph for the 1.8 revision, not the
+conformance suite. The vendored schema types it `string`.
+
+So a receiving endpoint cannot verify it. This one accepts any string, because
+there is no rule to check against, and two publishers computing "the checksum
+of the anchor data" will not agree: over the canonical JSON or the XCDR2 bytes,
+including the checksum member or excluding it, before or after the 1.8
+revision's two appended members.
+
+It has teeth because §7.5.2 counts "a checksum field in the body" as one of the
+three acceptable integrity signals, and the conformance suite's
+`_has_integrity` honours that. An endpoint can therefore satisfy an integrity
+requirement with a string that integrity-checks nothing.
+
+This repository's convention, stated where it is used and not offered as a
+rule: `tools/author_anchors.py` and `samples/duck.input.json` both set it to
+`sha256:` over the anchor's own *authoring entry*, which is reproducible from
+committed data and is explicitly not a reading of the specification.
+
+*Smallest change:* one sentence saying what the digest covers — the canonical
+form of the record with `checksum` itself omitted is the obvious candidate,
+since any other choice is self-referential — or, if it is meant to be opaque
+publisher bookkeeping, say that and drop it from §7.5.2's list of integrity
+signals. Either resolves it; the present state lets it count as integrity
+while meaning whatever the publisher likes.

@@ -17,6 +17,7 @@ a gate goes red rather than a reader going in circles.
 | [`publish_service.py`](publish_service.py) | The SSD successor in the write direction: PUT an announce, then find it. Needs `--publish`. |
 | [`publish_content.py`](publish_content.py) | The SCD successor in the write direction: PUT a content record and its manifest, then resolve it. Needs `--publish`. |
 | [`publish_duck.py`](publish_duck.py) | Write to bytes in one file: publish a duck, resolve its URI, fetch the model. Needs `--publish`. |
+| [`publish_anchor.py`](publish_anchor.py) | The open-anchors gesture in two PUTs: publish content, then an anchor naming it. Needs `--publish`. |
 
 ## The endpoint
 
@@ -388,6 +389,92 @@ beside the recording's own two content records rather than in place of them.
 And the dump is what a client receives — `assets[0].hash` is the digest of the
 committed `samples/assets/duck.gltf`, and `assets[0].meta` records the path it
 was authored from, so the document says where its own bytes came from.
+
+## publish_anchor.py
+
+The open-anchors gesture in two PUTs: publish the duck's manifest, then publish
+an anchor whose `manifest_uri` names it. The 1.8 revision made the reference
+expressible; this is what using it looks like from the write side.
+
+**Method is the claim level.** The anchor says `VisualFix` with a covariance of
+about ±0.70 m at worst, and that is what a reader inherits — content named by
+it inherits the anchor's frame and precision. Publishing does not turn a visual
+fix into surveyed truth, and `gates/publish_anchor.py` checks that
+`confidence` is the monotone summary of `cov` that `GeoAnchor` asks for, so a
+record this endpoint accepted cannot contradict itself.
+
+<!-- gate: publish py examples/publish_anchor.py -->
+```console
+  PUT manifest  -> 201  spatialdds://demo.spatialdds.org/south-mall/content/duck
+  PUT anchor    -> 201  anchor/duck-perch  method VisualFix
+  GET anchors   -> anchor/duck-perch, anchor/fountain-east-rim, anchor/fountain-north-rim, anchor/fountain-plaque, anchor/fountain-south-rim, anchor/fountain-west-rim
+  GET resolve   -> model/gltf+json https://demo.spatialdds.org/assets/duck.gltf
+
+{
+  "anchor_id": "anchor/duck-perch",
+  "checksum": "sha256:3845ad6403ca9b8bd353ae33f3c039f19523a88da68c2d13e863e8d374c4b522",
+  "confidence": 0.5882,
+  "cov": {
+    "pos": [
+      0.16000000000000003,
+      0.0,
+      0.0,
+      0.0,
+      0.16000000000000003,
+      0.0,
+      0.0,
+      0.0,
+      0.48999999999999994
+    ],
+    "type": "COV_POS3"
+  },
+  "frame_ref": {
+    "coord_convention": "ENU",
+    "display_unit": "m",
+    "fqn": "ut-austin/south-mall/map",
+    "has_coord_convention": true,
+    "has_scale": true,
+    "meters_per_unit": 1.0,
+    "scale_status": "SCALE_DECLARED",
+    "uuid": "b1f0c2a4-5d6e-4f80-9a1b-2c3d4e5f6071"
+  },
+  "geopose": {
+    "alt_m": 158.0,
+    "cov": {
+      "pos": [
+        0.16000000000000003,
+        0.0,
+        0.0,
+        0.0,
+        0.16000000000000003,
+        0.0,
+        0.0,
+        0.0,
+        0.48999999999999994
+      ],
+      "type": "COV_POS3"
+    },
+    "lat_deg": 30.284993,
+    "lon_deg": -97.739301,
+    "q": [
+      0.0,
+      0.0,
+      0.0,
+      1.0
+    ],
+    "stamp": {
+      "nanosec": 0,
+      "sec": "1791559800"
+    }
+  },
+  "manifest_uri": "spatialdds://demo.spatialdds.org/south-mall/content/duck",
+  "map_id": "ut-austin/south-mall",
+  "method": "VisualFix"
+}
+```
+
+The third line is the point: the published anchor stands beside the recording's
+five rather than replacing any of them, and the one it names resolves.
 
 ## How the gate reads this file
 

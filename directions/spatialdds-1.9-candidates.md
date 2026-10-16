@@ -311,6 +311,16 @@ or both.
   anything; no notion of a publisher owning its records.
 * **Server-set identity fields.** See the design rule above.
 * **Upstream WebSocket streaming** for high-rate publishers.
+* **Anchor provenance.** `geo_anchor` joined the publishable kinds after the
+  1.8 revision, under this same deferral rather than ahead of it: nothing
+  records who published an anchor, or whether it refines an earlier one. A
+  self-describing anchor published to a web registry, able to bind content at
+  its own stated precision, is the open-anchors direction taking its first
+  real step — which is what stops the two identity questions above from being
+  theoretical. The honesty line the implementation carries instead is that
+  **method is the claim level**: a published anchor asserts a pose at the
+  confidence its own `method` and `cov` declare, and publishing does not
+  upgrade that claim.
 
 ### Evidence
 

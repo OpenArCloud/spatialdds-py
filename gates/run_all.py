@@ -117,6 +117,9 @@ def gates() -> list[dict]:
         {"name": "publish_duck", "what": "a published record followed from PUT to fetched bytes",
          "cmd": ["gates/publish_duck.py"],
          "skip": no_fountain or no_web or no_input or no_duck},
+        {"name": "publish_anchor", "what": "a published anchor is an anchor, and the content it names resolves",
+         "cmd": ["gates/publish_anchor.py"],
+         "skip": no_fountain or no_web or no_duck or no_js},
     ]
 
 

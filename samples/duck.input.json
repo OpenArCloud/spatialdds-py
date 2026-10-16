@@ -174,5 +174,110 @@
       },
       "ttl_sec": 86400
     }
+  },
+  "anchor": {
+    "_why": "The anchor half of the open-anchors gesture: publish the duck's manifest, then publish an anchor that names it. The 1.8 revision (spec 297c433) made the reference expressible; this is what using it looks like from the write side.",
+    "_claim": "method is VisualFix and cov says +/-0.70 m at worst. That is the claim level a reader inherits, and publishing does not raise it. confidence is 1/(1+sigma_max), so the scalar and the matrix cannot contradict.",
+    "_checksum": "A digest of this entry's authoring form, the same convention tools/author_anchors.py uses. GeoAnchor's IDL says only \"integrity/versioning\", so the construction is this repository's and not a rule to infer.",
+    "path": "/ut-austin-south-mall/frames/geo_anchor/v1",
+    "fqn": "spatial.core.GeoAnchor",
+    "key": "anchor/duck-perch",
+    "authoring_entry": {
+      "anchor_id": "anchor/duck-perch",
+      "map_id": "ut-austin/south-mall",
+      "method": "VisualFix",
+      "geopose": {
+        "lat_deg": 30.284993,
+        "lon_deg": -97.739301,
+        "alt_m": 158.0,
+        "q": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      },
+      "sigma_enu_m": [
+        0.4,
+        0.4,
+        0.7
+      ],
+      "rho_en": 0.0,
+      "cov_pos3_row_major": [
+        0.16000000000000003,
+        0.0,
+        0.0,
+        0.0,
+        0.16000000000000003,
+        0.0,
+        0.0,
+        0.0,
+        0.48999999999999994
+      ],
+      "confidence": 0.5882,
+      "note": "Authored for the anchor-publish walkthrough: a visual fix a few metres north-east of the rim anchors, weaker than the surveyed north rim and stronger than the GNSS plaque. Not surveyed, and publishing it does not make it so.",
+      "content": "content/duck"
+    },
+    "record": {
+      "anchor_id": "anchor/duck-perch",
+      "map_id": "ut-austin/south-mall",
+      "frame_ref": {
+        "uuid": "b1f0c2a4-5d6e-4f80-9a1b-2c3d4e5f6071",
+        "fqn": "ut-austin/south-mall/map",
+        "has_coord_convention": true,
+        "coord_convention": "ENU",
+        "has_scale": true,
+        "scale_status": "SCALE_DECLARED",
+        "meters_per_unit": 1.0,
+        "display_unit": "m"
+      },
+      "geopose": {
+        "lat_deg": 30.284993,
+        "lon_deg": -97.739301,
+        "alt_m": 158.0,
+        "q": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "stamp": {
+          "sec": "1791559800",
+          "nanosec": 0
+        },
+        "cov": {
+          "type": "COV_POS3",
+          "pos": [
+            0.16000000000000003,
+            0.0,
+            0.0,
+            0.0,
+            0.16000000000000003,
+            0.0,
+            0.0,
+            0.0,
+            0.48999999999999994
+          ]
+        }
+      },
+      "method": "VisualFix",
+      "confidence": 0.5882,
+      "checksum": "sha256:3845ad6403ca9b8bd353ae33f3c039f19523a88da68c2d13e863e8d374c4b522",
+      "cov": {
+        "type": "COV_POS3",
+        "pos": [
+          0.16000000000000003,
+          0.0,
+          0.0,
+          0.0,
+          0.16000000000000003,
+          0.0,
+          0.0,
+          0.0,
+          0.48999999999999994
+        ]
+      },
+      "manifest_uri": "spatialdds://demo.spatialdds.org/south-mall/content/duck"
+    }
   }
 }

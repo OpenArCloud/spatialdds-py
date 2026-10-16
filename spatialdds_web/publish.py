@@ -46,6 +46,12 @@ from spatialdds_web import gateway, webjson, xcdr2
 PUBLISHABLE: dict[str, str] = {
     "announce": "spatial.disco.Announce",
     "content_announce": "spatial.disco.ContentAnnounce",
+    # Anchors joined in the batch after the 1.8 revision. Mechanically this is
+    # a third row: the same routes, token, validation, journal, events and
+    # If-Match. What is new is what the record means -- a published anchor
+    # asserts a pose at the confidence its own `method` and `cov` declare, and
+    # publishing does not upgrade that claim. See docs/PUBLISH.md.
+    "geo_anchor": "spatial.core.GeoAnchor",
 }
 
 # A dispose has no 1.8 record. `Depart` is a service withdrawal and nothing

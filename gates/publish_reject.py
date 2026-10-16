@@ -61,9 +61,14 @@ async def main() -> int:
         foreign["manifest_uri"] = "spatialdds://someone.else.example/z/service/q"
         await expect("another authority's URI", 403, "foreign-authority",
                      foreign)
+        # A topic that is genuinely read-only. This probe used to aim at
+        # geo_anchor, which stopped being the right target the moment anchors
+        # became publishable -- it then returned 400 for a bad body instead of
+        # 405 for a forbidden topic, which is a different claim. Zones have no
+        # write surface and are not about to get one.
         await expect("a topic that is not publishable", 405, "not-publishable",
                      spec["record"],
-                     path="/ut-austin-south-mall/frames/geo_anchor/v1/x")
+                     path="/ut-austin-south-mall/regions/spatial_zone/v1/x")
         mism = copy.deepcopy(spec["record"])
         mism["service_id"] = "not-the-url-key"
         await expect("a body whose key is not the URL's", 400, "key-mismatch",

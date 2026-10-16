@@ -44,16 +44,44 @@ existing". **An absent `If-Match` is an unconditional replace.** That is a
 choice rather than a reading, and it is recorded in the candidates entry as an
 open question for 1.9 rather than settled here forever.
 
-Since the 1.8 revision a `GeoAnchor` can carry a `manifest_uri`, and the
-fountain recording exercises it — but anchors are **not** publishable here, so
-an anchor that names content arrives by re-authoring a recording rather than by
-a `PUT`. Accepting a third record kind is a separate batch.
+Three record kinds are publishable: `announce`, `content_announce`, and
+`geo_anchor`. Everything else this endpoint serves stays read-only, and a `PUT`
+to any other topic is a `405` naming the three. All three types require every
+member, so a body is a whole record and never a patch; there is no `PATCH`.
 
-Exactly two record kinds are publishable: `announce` and `content_announce`,
-the SSD and SCD successors. Everything else this endpoint serves stays
-read-only, and a `PUT` to any other topic is a `405` naming the two. Both 1.8
-types require every member, so a body is a whole record and never a patch;
-there is no `PATCH`.
+### What publishing an anchor means
+
+Mechanically an anchor publish is the third row in a table: the same routes,
+token, validation, journal, WebSocket events and `If-Match` as the other two,
+and no new routes. Three things are worth saying plainly, because the mechanics
+do not say them.
+
+**Method is the claim level.** A published anchor asserts a pose at exactly the
+confidence its own `method` and `cov` declare — `Surveyed`, `VisualFix`,
+`GNSS`, `Fusion`. Publishing does not upgrade a claim into surveyed truth. The
+record's own evidence fields are the reader's whole basis, and
+`gates/publish_anchor.py` checks that `confidence` really is the monotone
+summary of `cov` that `GeoAnchor` asks for, so the two cannot contradict each
+other in a record this endpoint accepted.
+
+**Content linkage is real now, and goes exactly as far as specified.** The 1.8
+revision (spec `297c433`) gave `GeoAnchor` an optional `manifest_uri`, so a
+published anchor may name a content manifest the way the fountain's plaque
+anchor does. Content named that way inherits the anchor's frame and precision —
+its `method` and `cov` are the claim level the binding carries — and that is
+all the revision says. An anchor whose `manifest_uri` names an authority this
+endpoint does not serve gets the same `403` as any other foreign-authority URI;
+that leg of the authority check had no data to exercise it until the revision
+gave anchors a URI to carry.
+
+**Provenance is deferred with the rest of identity.** Who published an anchor,
+and whether it refines an earlier one, are the per-provider-token and
+server-set-identity questions already on the deferred list below; anchors
+joined the write surface under the same deferral rather than ahead of it. Worth
+observing once: a self-describing anchor published to a web registry, able to
+bind content at its own stated precision, is the open-anchors direction taking
+its first real step — which is also why the deferred provenance questions stop
+being theoretical.
 
 ## Access
 
@@ -154,7 +182,7 @@ terminates exactly as before, which every existing WebSocket gate depends on and
 ## Gates
 
 `golden_publish`, `publish_reject`, `journal_replay`, `publish_live`,
-`publish_offswitch`, `publish_duck`. The walkthrough in
+`publish_offswitch`, `publish_duck`, `publish_anchor`. The walkthrough in
 [WALKTHROUGH.md](WALKTHROUGH.md) is walked command by command by
 `gates/quickstart.py`, including its step 8, which prints the three published
 documents in full -- the VPS manifest, the duck's manifest, and the announce

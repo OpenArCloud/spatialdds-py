@@ -126,6 +126,39 @@ PUT     content/duck at 30.2849859 -97.73935 r 2.0
 GET     list -> content/duck, content/fountain-label, content/fountain-marker
 ```
 
+## 4b. Anchor the duck, and see what it inherits
+
+The 1.8 revision gave `GeoAnchor` a `manifest_uri`, so the duck can be anchored
+rather than only placed. Two PUTs did the content; this is the anchor that
+names it.
+
+**Method is the claim level.** This anchor says `VisualFix`, with a covariance
+of about ±0.70 m at worst and a `confidence` that is the monotone summary of
+it. Content named by an anchor inherits the anchor's frame and precision, so
+the duck is now located to that standard and no better. Publishing it did not
+make it surveyed.
+
+<!-- gate: publish sh -->
+```sh
+export BASE=http://127.0.0.1:8787
+export TOK=tok
+python3 -c 'import json; print(json.dumps(json.load(open("samples/duck.input.json"))["anchor"]["record"]))' \
+  | curl -s -X PUT "$BASE/ut-austin-south-mall/frames/geo_anchor/v1/anchor%2Fduck-perch" \
+      -H "Authorization: Bearer $TOK" -H "Content-Type: application/json" --data @- \
+  | python3 -c 'import json,sys; d=json.load(sys.stdin); print("PUT    ", d["anchor_id"], "|", d["method"], "| conf", d["confidence"], "|", d["manifest_uri"])'
+curl -s "$BASE/ut-austin-south-mall/frames/geo_anchor/v1" \
+  | python3 -c 'import json,sys; print("GET     anchors ->", ", ".join(sorted(a["anchor_id"] for a in json.load(sys.stdin))))'
+```
+
+```console
+PUT     anchor/duck-perch | VisualFix | conf 0.5882 | spatialdds://demo.spatialdds.org/south-mall/content/duck
+GET     anchors -> anchor/duck-perch, anchor/fountain-east-rim, anchor/fountain-north-rim, anchor/fountain-plaque, anchor/fountain-south-rim, anchor/fountain-west-rim
+```
+
+The published anchor stands beside the recording's five. The plaque anchor
+already named the label's manifest from the recording; this one names the
+duck's from a `PUT`, which is the same member reached two ways.
+
 ## 5. Search finds the service
 
 <!-- gate: publish sh -->

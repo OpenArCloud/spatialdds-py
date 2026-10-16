@@ -144,6 +144,7 @@ followed back to bytes, in seven commands.
 | [`publish_service.py`](examples/publish_service.py) | Publish a service announce and its manifest, then read both back. Needs `--publish`. |
 | [`publish_content.py`](examples/publish_content.py) | Publish a content record and its manifest, then read both back. Needs `--publish`. |
 | [`publish_duck.py`](examples/publish_duck.py) | Publish a duck, then resolve its URI and fetch the model bytes. Needs `--publish`. |
+| [`publish_anchor.py`](examples/publish_anchor.py) | The open-anchors gesture in two PUTs: publish content, then an anchor that names it. Needs `--publish`. |
 
 Every claim here is gated and conformance-tested: see
 [docs/EVIDENCE.md](docs/EVIDENCE.md).
