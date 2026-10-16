@@ -8,16 +8,21 @@
 # checkout. Upstream is authoritative; nothing here is hand-edited.
 
 repository = https://github.com/OpenArCloud/SpatialDDS-spec
-commit = 3c091d38d6536d12ecb6fea12155db07221910f6
+artifacts_commit = 9c3e1f27c17681b26e88dbc1e64f9e9c84273805
+# The commit the generated artifacts above were produced at. The
+# normative *text* this gateway implements is pinned separately in
+# docs/EVIDENCE.md, because prose and artifacts move on different
+# commits: 169fabd amended Appendix N without regenerating anything,
+# and 9c3e1f2 regenerated without changing the appendix.
 source_tree = web-binding/
 
 mapping.file = webjson/MAPPING.md
-mapping.sha256 = 67b4c94dbff86db0d23a2f2a810ff3e0aac1f318399ef48c80559afe061892c0
+mapping.sha256 = 52d350b8a0dab7ae141b63ec53f65ec7d7dd4003a0c0f06fd6ba406dcde164d6
 serializer_tables.file = webjson/serializer_tables.json
-serializer_tables.sha256 = 8b51e0c764ae9bd0e30535fbc5579fdc1a8d1f0ce53aec480acc0fb9c219517f
+serializer_tables.sha256 = 7ea2a8a20fd278a413a1664ae08dce8d023bde1fbbe22ac3bb01845b437a4b4f
 schemas.count = 112
-schemas.set_sha256 = ea9ad7577a00623fcaad312b1676b688a0233735f20832465af68443b0313f81
-golden.count = 4
+schemas.set_sha256 = a913c32667886033a45739f99052b7573c8f91de6b18b9b9f0f28e9be0818a2b
+golden.count = 8
 
 # The recording. This is the data interface: a typed SpatialDDS 1.8 MCAP,
 # carrying its own IDL in its schema records, which is the only description

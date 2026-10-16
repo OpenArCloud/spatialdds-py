@@ -3,7 +3,7 @@
   "_rules": [
     "Expected values come from this file and from the committed asset, never from the gateway.",
     "The asset's hash and byte count are computed from samples/assets/duck.gltf at authoring time; the gate recomputes them from the committed file, so a silent edit to either side fails.",
-    "The duck is placed by its announce's own position and coverage. No anchor references it, because no 1.8 anchor type can carry a content reference (1.9 candidates entry 2). That is not a simplification here; it is the live exhibit of why the entry exists.",
+    "The duck is placed by its announce's own position and coverage. Nothing points at it, which until the 1.8 revision was the only option: GeoAnchor gained manifest_uri in spec 297c433, closing 1.9 candidates entry 2, and the fountain recording exercises it. Anchors remain read-only on this endpoint, so pinning the duck to one is a separate batch rather than a line in this file.",
     "assets[0].uri points at this endpoint's own /assets route, which is implementation-defined, so the walkthrough can fetch real bytes without a push. Point it anywhere else and only that line changes."
   ],
   "authority": "demo.spatialdds.org",

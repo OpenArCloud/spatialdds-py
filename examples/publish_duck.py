@@ -6,9 +6,10 @@ the content collection showing the duck beside the fountain's own content, the
 `spatialdds://` URI resolved, and the asset's ref fetched so the last line is
 a byte count rather than a promise.
 
-The duck is placed by its announce's own position and coverage. No anchor
-references it, because no 1.8 anchor type can carry a content reference -- see
-docs/WALKTHROUGH.md. That absence is the exhibit, not an omission.
+The duck is placed by its announce's own position and coverage. Nothing points
+at it here; since the 1.8 revision an anchor could, and the fountain recording
+shows one doing it, but anchors stay read-only on this endpoint -- see
+docs/WALKTHROUGH.md.
 
     SPATIALDDS_ENDPOINT=http://127.0.0.1:8787 SPATIALDDS_TOKEN=tok \\
         python3 examples/publish_duck.py

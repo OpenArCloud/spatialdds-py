@@ -4,9 +4,11 @@
     "Every value the recording carries is in this file. tools/author_anchors.py does no arithmetic on it; it serializes.",
     "confidence is a monotone summary of cov, derived from sigma_max as 1/(1+sigma_max), so the scalar and the matrix cannot contradict (GeoAnchor's own requirement).",
     "cov is COV_POS3, row-major 3x3, in the anchor's local ENU tangent frame at the encoded GeoPose position (\u00a73.2).",
-    "Nothing here is carried that the 1.8 types cannot express. Content is positioned by its own pose and coverage, per the content-record model; anchors do not reference content, because no 1.8 anchor type can.",
+    "Nothing here is carried that the 1.8 types cannot express. Content is positioned by its own pose and coverage, per the content-record model; and since the 1.8 revision an anchor may also name a content manifest, which the plaque anchor does.",
     "Declared coverage states the producer's actual shape; derived coverage uses the parameter-free enclosure. The service block's circle is declared, so it is a circle.",
-    "authority is the DNS name that resolves this sample's spatialdds:// URIs (\u00a77.5.2), and is deliberately not org: the publisher is OpenArCloud, the resolving authority is the demo host. They coincide here by construction so the sample can resolve its own URIs; real deployments routinely split them."
+    "authority is the DNS name that resolves this sample's spatialdds:// URIs (\u00a77.5.2), and is deliberately not org: the publisher is OpenArCloud, the resolving authority is the demo host. They coincide here by construction so the sample can resolve its own URIs; real deployments routinely split them.",
+    "topic_durability is the durability of every topic this recording carries, and TopicMeta gained the member in the 1.8 revision (spec 9c3e1f2, closing finding 17). All three topics here are latched definitions, so the value is TRANSIENT_LOCAL. It is stated here rather than defaulted in the tool because it is a fact about the recording.",
+    "The plaque anchor names content/fountain-label through the 1.8 revision's GeoAnchor.manifest_uri (spec 297c433, closing 1.9 candidates entry 2). The pairing is deliberate and ordinary: the label is the text on the plaque, so an anchor at the plaque naming the label manifest is the kind of reference a reader can believe. The other four anchors name nothing and carry \"\" -- absence is data, and \u00a78.2 needs an anchor with a reference while the binding needs an exhibit of one without."
   ],
   "domain": "ut-austin-south-mall",
   "frame_ref": {
@@ -190,7 +192,8 @@
         0.81
       ],
       "confidence": 0.5263,
-      "note": "GNSS only under tree cover, deliberately the weakest fix"
+      "note": "GNSS only under tree cover, deliberately the weakest fix",
+      "content": "content/fountain-label"
     }
   ],
   "content": [
@@ -243,6 +246,7 @@
       "center_lon": -97.73934584,
       "center_alt_m": 158.0,
       "radius_m": 25.0
-    }
+    },
+    "topic_durability": "TRANSIENT_LOCAL"
   }
 }

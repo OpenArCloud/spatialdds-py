@@ -1116,3 +1116,69 @@ including the environment: a block that needs an export must carry it.
 its own fresh endpoint, in addition to the document-order walks. Both were
 fault-injected: a block stripped of its export, and an example made to depend
 on another having run.
+
+## Dispositions from the 1.8 revision, 2026-10-15
+
+The revision window opened and closed with two commits, both of which this
+repository had asked for. Status changes only; the findings stay where they
+were written.
+
+**Finding 17 — `TopicMeta` could not carry the durability N.7 requires.
+CLOSED** by spec `9c3e1f2`. `TopicMeta` gained `string durability` taking the
+two DDS kinds, APPENDABLE and wire-compatible. It was the bridged shape's first
+concrete blocker, found before anyone had built one, and it is now a member a
+bridged gateway can read instead of a fact it would have had to invent.
+
+The closure creates its own small risk, so it came with a check: `durability`
+now has **two** sources for the same topic — the recording's `Announce` and the
+manifest this gateway derives from what it serves. `gates/anchor_serve.py`
+compares them per topic. Two places that can disagree about one fact is a class
+this repository has met more than once.
+
+**Finding 15 — §8.2's skip reason predated the finding that explained it.
+CLOSED, and the scenario now runs.** The restated reason was that `GeoAnchor`
+carried no `manifest_uri`, so no recording could un-skip it. Spec `297c433`
+added the member; the fountain recording's plaque anchor names the label's
+content manifest, and §8.2 resolves it. The scenario was never reworded to
+something passable — it waited for the field it was written for, and got it.
+
+**1.9 candidates entries 2 and 3** are marked LANDED in this repository's copy
+of the candidates file, pointing at the specification CHANGELOG, matching what
+the spec side already did.
+
+### 30. An older recording cannot agree with regenerated artifacts, and that is compatibility rather than disagreement
+
+`gates/wire_model.py` cross-checks the IDL a recording carries against the
+published serializer tables, and the retail recording is a **vendored
+pre-revision artifact**: it was cut by the SceneScape adapter before the 1.8
+revision and cannot be re-cut here. Its `GeoAnchor` has eight members; the
+regenerated tables have nine.
+
+On the wire that is exactly what APPENDABLE means — a reader tolerates a
+producer that omits trailing members — so the gate now tolerates a **strict
+prefix**: members appended after the recording was cut are compatibility, and
+the count and the member names are printed on every run so that "the readings
+agree" can never quietly mean "they differ in a way I allowed". A reorder, a
+rename, or an insertion anywhere but the end still fails, which is
+fault-injected.
+
+The same fact bit `gates/golden_json.py` differently: its model came from the
+retail recording alone, so the revision's two new golden vectors projected
+`manifest_uri` as absent. The golden vectors are the specification's own
+artifacts and span the whole type tree, and no single recording here carries
+every type, so the model is now the union of both recordings with the newer
+definitions winning.
+
+This is the same question `webjson/MAPPING.md` raised in its new **Open
+questions** section, arriving from a second direction: the literal rule makes
+every declared member `required`, so a regenerated schema rejects a producer
+that predates the revision even though the wire would accept it. This gateway
+hit that too — one revision behind, it failed `validates against its published
+schema` on the one member it had not regenerated to carry. The mapping records
+it as a 1.9-scale decision; recorded here as the gate-level consequence, which
+is that a suite comparing old recordings to new artifacts needs an explicit,
+narrow, counted tolerance rather than either a failure or a shrug.
+
+*Not a spec finding.* The specification's position is stated and consistent;
+this is what honouring it costs an implementation that keeps older recordings,
+and the cost is one prefix check and one model union.

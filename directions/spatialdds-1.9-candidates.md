@@ -161,7 +161,14 @@ positioned by their own pose and coverage until this lands.
 
 ## 3. `durability` on `TopicMeta`
 
-**Status:** candidate. Raised while adding a service announce to the
+**Status: LANDED in the 1.8 revision 2026-10-15** (SpatialDDS-spec CHANGELOG,
+"Version 1.8 Revision 2026-10-15", second item). `TopicMeta` gained an optional
+`string durability` carrying the DDS kind, APPENDABLE and wire-compatible, so a
+bridged gateway can populate the N.7-required manifest durability from the bus
+type (closes finding 17). Kept here as the record; the revision supersedes it.
+The revision window is now closed; entry 1 and everything after is 1.9.
+
+**Status (as raised):** candidate. Raised while adding a service announce to the
 fountain-anchors recording. **The bridged deployment shape's first concrete
 blocker, found before anyone built one.**
 

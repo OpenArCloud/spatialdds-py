@@ -1089,6 +1089,12 @@
           "fqn": "spatial.core.CovMatrix",
           "t": "union"
         }
+      ],
+      [
+        "manifest_uri",
+        {
+          "t": "str"
+        }
       ]
     ],
     "kind": "struct"
@@ -2517,6 +2523,12 @@
         "max_chunk_bytes",
         {
           "t": "int"
+        }
+      ],
+      [
+        "durability",
+        {
+          "t": "str"
         }
       ]
     ],

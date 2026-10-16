@@ -188,6 +188,37 @@ async def run() -> int:
                        len(far.get("results", [])) == 0,
                        f"{len(far.get('results', []))} result(s)"))
 
+        # Two sources of one fact. Since the 1.8 revision the recording's
+        # Announce carries `durability` on each TopicMeta entry, and N.7 has
+        # always required it on each manifest topic entry -- and the gateway
+        # derives the manifest's from what it serves while the announce's
+        # comes from the recording. Two places that can disagree about the
+        # same thing is a defect class this repository has met before, so they
+        # are compared per topic rather than trusted to coincide.
+        async with s.get(gw.base + "/.well-known/spatialdds/search") as r:
+            man = (await r.json())["results"][0]
+        from_manifest = {t["name"]: t["durability"]
+                         for t in man["service"]["topics"]}
+        ares = next(x for x in st.resources.values()
+                    if x.fqn == "spatial.disco.Announce")
+        async with s.get(gw.base + ares.path) as r:
+            ann = (await r.json())[0]
+        from_announce = {t["name"]: t.get("durability") for t in ann["topics"]}
+        shared = sorted(set(from_manifest) & set(from_announce))
+        disagree = [f"{t}: manifest {from_manifest[t]!r} vs announce "
+                    f"{from_announce[t]!r}" for t in shared
+                    if from_manifest[t] != from_announce[t]]
+        checks.append((f"the manifest's durability and the announce's "
+                       f"TopicMeta durability agree on every topic both name "
+                       f"({len(shared)} of {len(from_announce)})",
+                       bool(shared) and not disagree, "; ".join(disagree)))
+        # The announce names its own topics, so a topic it describes that the
+        # manifest does not would mean the gateway is serving less than the
+        # recording declares.
+        missing = sorted(set(from_announce) - set(from_manifest))
+        checks.append((f"and the manifest covers every topic the announce "
+                       f"declares", not missing, f"absent: {missing}"))
+
     await gw.stop()
     return report(f"serve and read {MCAP.name}", checks,
                   "the recording is served unmodified and discovery finds it")

@@ -3,7 +3,8 @@
   "_rules": [
     "Expected values come from this file, never from the gateway. A gate that asked the endpoint what it stored and then checked it served that would pass for any endpoint, including a broken one.",
     "Identity fields (provider_id, org) are in the body here because this batch reads them from the request. 1.9 candidate entry 4 records that they should come from the credential instead; when they do, this file loses them and the gate checks the server set them.",
-    "The authority in every URI is demo.spatialdds.org, so these records are only acceptable to an endpoint serving as that authority."
+    "The authority in every URI is demo.spatialdds.org, so these records are only acceptable to an endpoint serving as that authority.",
+    "TopicMeta entries carry durability since the 1.8 revision (spec 9c3e1f2, closing finding 17). The value is TRANSIENT_LOCAL because the topics this announce describes are latched definitions. Before the revision the member did not exist and a bridged gateway had nowhere to read N.7's required manifest durability from; now it does, and the gateway's own manifest and this record are checked against each other per topic by gates/anchor_serve.py."
   ],
   "authority": "demo.spatialdds.org",
   "scene": "ut-austin-south-mall",
@@ -45,7 +46,8 @@
           "version": "v1",
           "qos_profile": "",
           "target_rate_hz": 0.0,
-          "max_chunk_bytes": 0
+          "max_chunk_bytes": 0,
+          "durability": "TRANSIENT_LOCAL"
         },
         {
           "name": "spatialdds/ut-austin-south-mall/content/content_announce/v1",
@@ -53,7 +55,8 @@
           "version": "v1",
           "qos_profile": "",
           "target_rate_hz": 0.0,
-          "max_chunk_bytes": 0
+          "max_chunk_bytes": 0,
+          "durability": "TRANSIENT_LOCAL"
         }
       ],
       "coverage": [

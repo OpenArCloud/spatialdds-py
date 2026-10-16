@@ -87,6 +87,47 @@ def main() -> int:
 
     # The frame reference comes from the input's single frame_ref.
     fr = d["frame_ref"]
+    # The 1.8 revision's content reference, both legs. Expected values come
+    # from the input's `content` key and from the authority it states, never
+    # from the served record.
+    auth = doc["authority"]
+    for aid, a in sorted(by_id.items()):
+        if aid not in served:
+            continue
+        got = served[aid].data.get("manifest_uri")
+        want_uri = (f"spatialdds://{auth}/south-mall/content/"
+                    f"{a['content'].split('/')[-1]}") if a.get("content") else ""
+        leg = "names content" if a.get("content") else "names none"
+        checks.append((f"{aid}: manifest_uri {leg}"
+                       f"{' (' + want_uri.split('/')[-1] + ')' if want_uri else ''}",
+                       got == want_uri, f"got {got!r}, want {want_uri!r}"))
+    named = [a for a in by_id.values() if a.get("content")]
+    checks.append((f"both legs of the new member are exhibited: "
+                   f"{len(named)} anchor(s) name content and "
+                   f"{len(by_id) - len(named)} name none",
+                   0 < len(named) < len(by_id),
+                   "one leg is unexercised, so the member has no served "
+                   "counter-example"))
+    # And the manifest an anchor names must be one the endpoint holds, or
+    # §8.2 resolves nothing and the reference is decoration.
+    held = set(gateway.load_manifests(ROOT / "samples" / "manifests"))
+    dangling = sorted(served[a["anchor_id"]].data["manifest_uri"]
+                      for a in named
+                      if served[a["anchor_id"]].data["manifest_uri"] not in held)
+    checks.append((f"every anchor-named manifest is committed and held "
+                   f"({len(held)} manifest(s) in samples/manifests)",
+                   not dangling, f"dangling: {dangling}"))
+
+    # TopicMeta durability, the revision's other half.
+    atopic = next(r.topic for r in st.resources.values()
+                  if r.fqn == "spatial.disco.Announce")
+    ann = next(iter(st.latched[atopic].values())).data
+    want_dur = doc["service"]["topic_durability"]
+    bad = [t for t in ann["topics"] if t.get("durability") != want_dur]
+    checks.append((f"every TopicMeta entry carries durability "
+                   f"{want_dur!r} from the input ({len(ann['topics'])} entry)",
+                   not bad, f"{[(t['type'], t.get('durability')) for t in bad]}"))
+
     checks.append((f"frame_ref.uuid and .fqn are the input's",
                    fr["uuid"] == doc["frame_ref"]["uuid"]
                    and fr["fqn"] == doc["frame_ref"]["fqn"],

@@ -46,6 +46,7 @@ def main() -> int:
                    "too few types matched to be a meaningful comparison"))
 
     kind_bad, order_bad, enum_bad, union_bad, renamed = [], [], [], [], []
+    appended: list[str] = []
     for fqn in common:
         agg, tbl = model.aggregates[fqn], tables[fqn]
         if agg.kind != tbl.get("kind"):
@@ -61,7 +62,20 @@ def main() -> int:
             # fixed. This no longer reconciles the two spellings -- it fails on
             # the mangled one, so a regression to it cannot pass.
             if mine != theirs:
-                order_bad.append(f"{fqn}: {mine[:4]} vs {theirs[:4]}")
+                # An APPENDABLE type may have gained members since this
+                # recording was cut, and on the wire that is compatibility
+                # rather than disagreement: a reader tolerates a producer
+                # that omits trailing members. This recording is a vendored
+                # pre-revision artifact and cannot be re-cut, so the 1.8
+                # revision's `GeoAnchor.manifest_uri` is exactly that case.
+                #
+                # Tolerated only as a strict prefix, and counted. A reorder,
+                # a rename, or an insertion anywhere but the end still fails,
+                # which is what keeps this from becoming a licence.
+                if theirs[:len(mine)] == mine and len(theirs) > len(mine):
+                    appended.append(f"{fqn}: +{theirs[len(mine):]}")
+                else:
+                    order_bad.append(f"{fqn}: {mine} vs {theirs}")
         elif agg.kind == "enum":
             if agg.enumerators != tbl["members"]:
                 enum_bad.append(f"{fqn}")
@@ -71,8 +85,14 @@ def main() -> int:
 
     checks.append(("every shared type has the same kind in both readings",
                    not kind_bad, "; ".join(kind_bad[:3])))
-    checks.append(("every struct has the same members in the same order",
-                   not order_bad, "; ".join(order_bad[:3])))
+    checks.append(("every struct has the same members in the same order, "
+                   "allowing only members appended since the recording was "
+                   "cut", not order_bad, "; ".join(order_bad[:3])))
+    # Not a pass/fail: the tolerated set is printed so that "the readings
+    # agree" can never quietly mean "the readings differ in a way I allowed".
+    print(f"  note {len(appended)} type(s) have members appended since this "
+          f"recording was cut, tolerated as APPENDABLE compatibility"
+          + (f": {'; '.join(appended)}" if appended else ""))
     checks.append(("every enum has the same members in the same order",
                    not enum_bad, "; ".join(enum_bad[:3])))
     checks.append(("every union has the same cases in the same order",

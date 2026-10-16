@@ -84,6 +84,15 @@ TOKEN_FOR = {"publish": "tok"}
 MARKER = re.compile(r"^<!--\s*gate:\s*(.+?)\s*-->$")
 MENTION = re.compile(r"<!--\s*gate:\s*.+?\s*-->")
 LOCAL = "127.0.0.1:8787"          # the URL the browser snippets carry inline
+# Any loopback port a document names, not just one. examples/curl.md serves
+# the fountain on 8787 and the retail sample on 8788, and a substitution that
+# knew only the first port silently pointed the second half of the page at a
+# dead address.
+LOOPBACK = re.compile(r"http://127\.0\.0\.1:\d+")
+
+
+def rebase(text: str, base: str) -> str:
+    return LOOPBACK.sub(base, text)
 DEMO = "https://demo.spatialdds.org"   # the placeholder the front page carries
 INLINE: list[str] = []            # markers quoted in prose, deliberately unread
 
@@ -244,8 +253,7 @@ def run(block: Block, base: str,
             # byte-for-byte on the port the document names; this one answers
             # the different question of whether the command works against an
             # endpoint, and says so in its docstring.
-            prog = "\n".join(block.program).replace(LOCAL,
-                                                    base.split("//", 1)[1])
+            prog = rebase("\n".join(block.program), base)
             r = subprocess.run(["sh", "-c", prog], cwd=ROOT, env=env,
                                capture_output=True, text=True, timeout=120)
             got, err = r.stdout, r.stderr
@@ -276,8 +284,8 @@ def run(block: Block, base: str,
     # The documented output names the port the README's serve line uses. This
     # gate serves on an ephemeral one, so the host is rewritten on the
     # *expected* side only; the command itself is never touched.
-    want = [l.replace("$BASE", base).replace("http://127.0.0.1:8787", base)
-            .rstrip() for l in block.expected]
+    want = [rebase(l.replace("$BASE", base), base).rstrip()
+            for l in block.expected]
     have = [l.rstrip() for l in got.splitlines()]
     if want == have:
         return True, ""

@@ -308,10 +308,11 @@ manifest, `PUT` the announce that places it, then back out through the read
 path — the content collection, the resolved URI, and the asset's ref fetched,
 so the last line is a byte count rather than a promise.
 
-The duck is placed by its own announce's position and coverage. No anchor
-references it, because no 1.8 anchor type can carry a content reference; see
-[docs/WALKTHROUGH.md](../docs/WALKTHROUGH.md), which is what 1.9 candidates
-entry 2 is about.
+The duck is placed by its own announce's position and coverage. Nothing points
+at it here, but not because nothing could any more: the 1.8 revision gave
+`GeoAnchor` a `manifest_uri` and the fountain recording uses it. Anchors stay
+read-only on this endpoint, so pinning the duck to one is a separate batch. See
+[docs/WALKTHROUGH.md](../docs/WALKTHROUGH.md).
 
 <!-- gate: publish py examples/publish_duck.py -->
 ```console

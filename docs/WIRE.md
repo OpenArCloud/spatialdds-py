@@ -155,11 +155,17 @@ that the declared footprint encloses the one the gateway would have derived: a
 declared coverage smaller than the resources it covers is an under-report, and
 that is the one direction coverage must never err.
 
-Anchor-attached assets are a separate capability, and 1.8 has no field for it:
-no anchor type can reference content. That is written up as entry 2 of the
-1.9 candidates, and it is why the conformance suite's §8.2 scenario still
-skips — the scenario reads "fetch an anchor's asset by reference", and the
-reference has nowhere to live yet.
+**Anchor-attached assets landed.** The 1.8 revision (spec `297c433`) gave
+`GeoAnchor` an optional `manifest_uri`, mirroring `ContentAnnounce`'s member
+exactly: same type, same name, empty-is-absent, no `has_` guard, appended under
+APPENDABLE so older anchors are unchanged in meaning and on the wire. This
+recording exercises both legs — the plaque anchor names the label's content
+manifest, and the other four carry `""`, because absence is data and a member
+with no served counter-example is a member nobody has checked.
+
+That closes 1.9 candidates entry 2 and unblocks the conformance suite's §8.2
+scenario, which had skipped since it was written: it reads "fetch an anchor's
+asset by reference", and until the revision the reference had nowhere to live.
 
 **The sample's content host and its URI authority coincide by construction.**
 The recording's URIs are `spatialdds://demo.spatialdds.org/...`, and

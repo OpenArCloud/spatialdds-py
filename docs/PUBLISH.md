@@ -44,6 +44,11 @@ existing". **An absent `If-Match` is an unconditional replace.** That is a
 choice rather than a reading, and it is recorded in the candidates entry as an
 open question for 1.9 rather than settled here forever.
 
+Since the 1.8 revision a `GeoAnchor` can carry a `manifest_uri`, and the
+fountain recording exercises it — but anchors are **not** publishable here, so
+an anchor that names content arrives by re-authoring a recording rather than by
+a `PUT`. Accepting a third record kind is a separate batch.
+
 Exactly two record kinds are publishable: `announce` and `content_announce`,
 the SSD and SCD successors. Everything else this endpoint serves stays
 read-only, and a `PUT` to any other topic is a `405` naming the two. Both 1.8

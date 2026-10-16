@@ -31,7 +31,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "gates"))
 
-from harness import MCAP, report                               # noqa: E402
+from harness import FOUNTAIN, MCAP, report                     # noqa: E402
 from spatialdds_web import gateway, webjson                    # noqa: E402
 
 GOLDEN = ROOT / "webjson" / "golden"
@@ -41,7 +41,22 @@ ECMA_PAIRS = [(0.1, "0.1"), (0.1 + 0.2, "0.30000000000000004"),
 
 
 def main() -> int:
+    # Both recordings, merged. The golden vectors are the specification's own
+    # artifacts and cover types across the whole tree; no single recording
+    # here carries every type, and the retail one is a vendored pre-revision
+    # artifact whose IDL predates `GeoAnchor.manifest_uri` and `TopicMeta`
+    # entirely. Taking the union is what lets a vector be checked against the
+    # IDL that actually defines its type, rather than against whichever
+    # recording happened to be the default.
     model = gateway.wire_model(MCAP)
+    for extra in (FOUNTAIN,):
+        if extra.is_file():
+            m2 = gateway.wire_model(extra)
+            # Later definitions win on conflict, which here means the newer
+            # recording's post-revision types replace the older ones.
+            model.aggregates.update(m2.aggregates)
+            model.typedefs.update(m2.typedefs)
+    model._leaves = None
     tables = json.loads((ROOT / "webjson"
                          / "serializer_tables.json").read_text())
     proj = webjson.Projector(model, tables)

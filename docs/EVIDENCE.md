@@ -120,12 +120,20 @@ rather than the endpoint's 300, and a fault injection confirms `max-age` follows
 a changed `ttl_sec`. See [`RESOLUTION.md`](RESOLUTION.md).
 
 **The normative text this endpoint implements.** `webjson/PROVENANCE` pins the
-commit the *generated artifacts* come from. The *prose* this gateway now obeys
-goes one commit further: SpatialDDS-spec `169fabd`, which amends N.2 and N.4
-(findings 18 and 19). That commit is prose-only, and the vendored artifacts were
-checked to be unchanged between the pinned commit and it rather than assumed to
-be. Until `169fabd` is published, this endpoint is conformant against text that
-is not yet public, so the specification push leads and this repository follows.
+commit the *generated artifacts* come from, now `9c3e1f2` — the 1.8 revision's
+second commit. Text and artifacts move on different commits and the pins say so
+separately: `169fabd` amended Appendix N without regenerating anything, and
+`9c3e1f2` regenerated without amending the appendix.
+
+The revision added two members this repository had asked for — `297c433` gave
+`GeoAnchor` a `manifest_uri` (1.9 candidates entry 2) and `9c3e1f2` gave
+`TopicMeta` a `durability` (entry 3, closing finding 17). Both are APPENDABLE
+and wire-compatible. The re-vendor changed four artifacts: those two schemas,
+`Announce` (which embeds `TopicMeta`), and the serializer tables; `MAPPING.md`
+also grew an **Open questions** section about the literal rule making every
+member `required`, which this gateway demonstrated by failing
+`validates against its published schema` while one revision behind. Four new
+golden vectors arrived with it, two per member, covering present and absent.
 
 ## Standing it up from a harness
 
@@ -162,9 +170,18 @@ address it is reached at. Both shapes now run, and both pass:
 
 | shape | run | result |
 |---|---|---|
-| non-authority | `--endpoint http://127.0.0.1:PORT` | 14 checks, 13 passed, 1 skipped |
-| authority | `--endpoint https://demo.spatialdds.org --connect http://127.0.0.1:PORT` | 14 checks, 13 passed, 1 skipped |
-| authority, publish surface **on** | the same, plus `--publish` on the endpoint | 14 checks, 13 passed, 1 skipped |
+| serving the fountain, as the deploy does | `--endpoint https://demo.spatialdds.org --connect http://127.0.0.1:PORT` | **14 checks, 14 passed, 0 failed, 0 skipped** |
+| the same, publish surface **on** | plus `--publish` on the endpoint | **14 checks, 14 passed, 0 failed, 0 skipped** |
+| serving the retail recording | the same connect form | 14 checks, 13 passed, 0 failed, 1 skipped |
+
+**§8.2 is exercised for the first time** in the first two rows: *1
+anchor-referenced manifest(s) resolved, 1 ref(s) fetchable*. It had skipped
+since it was written, because no 1.8 anchor type could carry the reference the
+scenario needs; the revision landed the member and the fountain recording's
+plaque anchor names the label's content manifest. The third row still reports
+it UNEXERCISED, correctly: the retail recording has no anchors, so there is
+nothing for the scenario to follow, and that is an absence rather than a
+defect.
 
 The third row is the point of the write surface being implementation-defined:
 the suite's result is identical with it enabled, because it never touches those

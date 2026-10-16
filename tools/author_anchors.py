@@ -101,7 +101,7 @@ def geopose(g: dict, stamp: dict, cov_row_major: list[float]) -> dict:
             "cov": {"_discriminator": "COV_POS3", "pos": cov_row_major}}
 
 
-def geo_anchor(a: dict, fr: dict, stamp: dict) -> dict:
+def geo_anchor(a: dict, fr: dict, stamp: dict, authority: str) -> dict:
     return {
         "anchor_id": a["anchor_id"],
         "map_id": a["map_id"],
@@ -112,6 +112,16 @@ def geo_anchor(a: dict, fr: dict, stamp: dict) -> dict:
         "checksum": "sha256:" + hashlib.sha256(
             json.dumps(a, sort_keys=True).encode()).hexdigest(),
         "cov": {"_discriminator": "COV_POS3", "pos": a["cov_pos3_row_major"]},
+        # The 1.8 revision's content reference (297c433), mirroring
+        # ContentAnnounce.manifest_uri exactly: empty string when absent, no
+        # has_ guard. The input names the content id; the URI is built from
+        # the same authority every other URI in this recording uses, so the
+        # anchor and the content it names cannot end up in different
+        # namespaces. An anchor with no `content` key carries "" -- absence
+        # is data, and both legs get a served exhibit.
+        "manifest_uri": (f"spatialdds://{authority}/south-mall/content/"
+                         f"{a['content'].split('/')[-1]}"
+                         if a.get("content") else ""),
     }
 
 
@@ -187,11 +197,20 @@ def announce(svc: dict, fr: dict, stamp: dict, authority: str,
     }
 
 
-def topic_meta(name: str, type_seg: str, version: str) -> dict:
-    """A TopicMeta row. Note it has no durability member: Appendix N.7 requires
-    one on a *manifest* topic entry, and the bus type cannot carry it."""
+def topic_meta(name: str, type_seg: str, version: str,
+               durability: str) -> dict:
+    """A TopicMeta row, including the durability the 1.8 revision added.
+
+    This used to carry a note saying TopicMeta had no durability member and
+    that a bus type therefore could not say what N.7's manifest requires --
+    finding 17, the first concrete blocker for the bridged shape. Spec
+    `9c3e1f2` closed it, and the member is here. The value comes from the
+    authoring input rather than from this tool, so the recording still carries
+    nothing the input does not state.
+    """
     return {"name": name, "type": type_seg, "version": version,
-            "qos_profile": "", "target_rate_hz": 0.0, "max_chunk_bytes": 0}
+            "qos_profile": "", "durability": durability,
+            "target_rate_hz": 0.0, "max_chunk_bytes": 0}
 
 
 def content_announce(c: dict, anchor: dict, fr: dict, stamp: dict,
@@ -250,6 +269,10 @@ def main() -> int:
     dec = xcdr2.Decoder(model)
 
     anchors = {x["anchor_id"]: x for x in doc["anchors"]}
+    # The durability of every topic in this recording, from the input. The
+    # 1.8 revision (9c3e1f2) gave TopicMeta the member; the value is a fact
+    # about the recording, not a default this tool may choose.
+    dur = doc.get("service", {}).get("topic_durability", "")
     anchor_topic = f"spatialdds/{domain}/frames/geo_anchor/v1"
     content_topic = f"spatialdds/{domain}/content/content_announce/v1"
     rows: list[tuple[str, str, dict]] = []
@@ -261,12 +284,13 @@ def main() -> int:
         rows.append((f"spatialdds/{domain}/discovery/announce/v1",
                      "spatial::disco::Announce",
                      announce(doc["service"], fr, stamp, doc["authority"],
-                              [topic_meta(anchor_topic, "geo_anchor", "v1"),
+                              [topic_meta(anchor_topic, "geo_anchor", "v1",
+                                          dur),
                                topic_meta(content_topic, "content_announce",
-                                          "v1")])))
+                                          "v1", dur)])))
     for x in doc["anchors"]:
         rows.append((anchor_topic, "spatial::core::GeoAnchor",
-                     geo_anchor(x, fr, stamp)))
+                     geo_anchor(x, fr, stamp, doc["authority"])))
     for c in doc["content"]:
         at = anchors[c["at_anchor"]]
         rows.append((content_topic, "spatial::disco::ContentAnnounce",

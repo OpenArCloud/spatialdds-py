@@ -9,11 +9,21 @@ is published records showing up as siblings of recorded ones.
 Every command below runs verbatim against the endpoint the serve line starts,
 and `gates/quickstart.py` runs them in this order on every gate run.
 
-**One honesty note, which is the exhibit rather than a footnote.** The duck is
-placed by its own announce's position and coverage. No anchor references it,
-because no SpatialDDS 1.8 anchor type can carry a content reference — that is
-1.9 candidates entry 2, and this walkthrough is what the entry is about. The
-linkage is not faked.
+**One note, which the 1.8 revision turned from an apology into an exhibit.**
+Until `297c433` no SpatialDDS 1.8 anchor type could carry a content reference,
+so this walkthrough's duck was placed by its own announce's position and
+coverage and nothing pointed at it — the live demonstration of why 1.9
+candidates entry 2 existed. The revision landed it: `GeoAnchor` now has
+`manifest_uri`, and the fountain recording uses it, with the plaque anchor
+naming the label's content manifest and the other four anchors naming nothing.
+
+The duck published here is still placed by its own coverage, because this
+endpoint publishes exactly two record kinds — `announce` and
+`content_announce` — and anchors remain read-only on it. Publishing an anchor
+that names the duck is the obvious next gesture and it needs the write surface
+to accept a third kind, which is a separate batch. What the revision changed is
+that the reference is now expressible and exercised; what it did not change is
+which records this endpoint accepts.
 
 The service manifest is derived from the specification's own
 `manifests/v1.8/vps_manifest.json`. Deriving it surfaced two defects in that
@@ -326,12 +336,19 @@ JSON per N.1: `int64` members as decimal strings, enums by name, `has_*`
 guards present. A published instance is indistinguishable from a replayed one,
 and this is the form that holds for both.
 
-Two things are worth noticing in it. Its `topics` entries carry
-`qos_profile: ""` and no `durability`, while the same topics *in a search
-result* carry `durability` and a `url` — because `TopicMeta` has neither field,
-so the service manifest adds them and the raw record cannot (findings 17 and
-the N.7 `url` addition). And `manifest_uri` points at the document printed
-first on this page: the announce names its manifest, and the manifest resolves.
+Three things are worth noticing in it. Its `topics` entries now carry
+`durability`: the 1.8 revision (`9c3e1f2`) gave `TopicMeta` the member, closing
+finding 17 — before it, a bridged gateway had nowhere to read N.7's required
+manifest `durability` from and would have had to invent one. The `url` on a
+search result's topic entry is still something the manifest adds and the raw
+record cannot, because `TopicMeta` has no URL field. And `manifest_uri` points
+at the document printed first in this step: the announce names its manifest,
+and the manifest resolves.
+
+That `durability` now has two sources — this record and the manifest the
+gateway derives — so `gates/anchor_serve.py` compares them per topic. Two
+places that can disagree about one fact is a defect class this repository has
+met before.
 
 <!-- gate: publish sh -->
 ```sh
@@ -445,6 +462,7 @@ curl -s "$BASE/ut-austin-south-mall/discovery/announce/v1/austin-vps" \
     },
     "topics": [
         {
+            "durability": "TRANSIENT_LOCAL",
             "max_chunk_bytes": 0,
             "name": "spatialdds/ut-austin-south-mall/frames/geo_anchor/v1",
             "qos_profile": "",
@@ -453,6 +471,7 @@ curl -s "$BASE/ut-austin-south-mall/discovery/announce/v1/austin-vps" \
             "version": "v1"
         },
         {
+            "durability": "TRANSIENT_LOCAL",
             "max_chunk_bytes": 0,
             "name": "spatialdds/ut-austin-south-mall/content/content_announce/v1",
             "qos_profile": "",
