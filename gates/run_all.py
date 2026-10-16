@@ -21,6 +21,10 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+# The distribution in the checkout, which carries the gateway and the
+# vendored artifacts. Subprocesses get it on PYTHONPATH so that an
+# example or a serve line runs against this tree and never an install.
+LIB = str(ROOT / "lib" / "spatialdds")
 MCAP = ROOT / "samples" / "queuing-retail-sample.mcap"
 FOUNTAIN = ROOT / "samples" / "fountain-anchors.mcap"
 
@@ -68,6 +72,12 @@ def gates() -> list[dict]:
     no_duck = None if duck_input.is_file() and duck_asset.is_file() else (
         f"needs {duck_input.relative_to(ROOT)} and the committed asset it "
         f"declares")
+    # `gates/serve_demo.py` starts the endpoint as a subprocess and confirms
+    # the listening process is the one it started, which needs lsof. A probe
+    # that fetched a URL until it answered would pass against a gateway left
+    # running from an earlier session.
+    no_lsof = None if shutil.which("lsof") else (
+        "needs lsof to confirm which process is listening on the port")
     no_node = None if shutil.which("node") else (
         "needs node to execute the browser console snippets in "
         "examples/browser.md; the gate fails rather than passes on an "
@@ -138,12 +148,34 @@ def gates() -> list[dict]:
         {"name": "library", "what": "the spatialdds client package reads, publishes and refuses as documented",
          "cmd": ["gates/library.py"],
          "skip": no_fountain or no_web or no_duck or no_input or no_requests},
+        # 0.2.0: the gateway moved into the distribution, a registry can start
+        # with no recording at all, and `pip install` is the whole setup.
+        # These three hold that shape.
+        {"name": "import_graph", "what": "one gateway, two halves, and no import between them",
+         "cmd": ["gates/import_graph.py"], "skip": no_web},
+        {"name": "fresh_start", "what": "a registry that starts empty: types from the pin, state through a restart",
+         "cmd": ["gates/fresh_start.py"],
+         "skip": no_fountain or no_web or no_js or no_input or no_duck},
+        {"name": "serve_demo", "what": "the packaged demo serves, and the examples do not know the difference",
+         "cmd": ["gates/serve_demo.py"],
+         "skip": no_fountain or no_web or no_lsof},
+        {"name": "builders", "what": "the record builders produce what the hand-authored records say",
+         "cmd": ["gates/builders.py"],
+         "skip": no_web or no_js or no_input or no_duck or no_requests},
+        # The deployment, replicated rather than built: the image's own
+        # instructions, carried out in an empty tree. 0.2.0 rewrote the image
+        # around `pip install`, which is the change a hand-check cannot
+        # survive.
+        {"name": "deploy_image", "what": "the image's own instructions serve the endpoint from the new layout",
+         "cmd": ["gates/deploy_image.py"],
+         "skip": no_web or no_lsof or no_fountain},
     ]
 
 
 def main() -> int:
     argparse.ArgumentParser().parse_args()
-    env = dict(os.environ, PYTHONPATH=str(ROOT))
+    env = dict(os.environ,
+               PYTHONPATH=os.pathsep.join([str(ROOT), LIB]))
     rows = []
     for g in gates():
         if g.get("skip"):

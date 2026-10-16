@@ -1,0 +1,66 @@
+{
+  "asset": {
+    "version": "2.0",
+    "generator": "spatialdds-web, authored for the publish walkthrough",
+    "copyright": "Original work, OpenArCloud. No third-party model data."
+  },
+  "scene": 0,
+  "scenes": [
+    {
+      "name": "duck",
+      "nodes": [
+        0
+      ]
+    }
+  ],
+  "nodes": [
+    {
+      "name": "duck",
+      "mesh": 0
+    }
+  ],
+  "meshes": [
+    {
+      "name": "duck",
+      "primitives": [
+        {
+          "attributes": {
+            "POSITION": 0
+          },
+          "mode": 0
+        }
+      ]
+    }
+  ],
+  "accessors": [
+    {
+      "bufferView": 0,
+      "componentType": 5126,
+      "count": 24,
+      "type": "VEC3",
+      "min": [
+        -0.18,
+        0.04999999999999999,
+        -0.11
+      ],
+      "max": [
+        0.18,
+        0.48500000000000004,
+        0.25
+      ]
+    }
+  ],
+  "bufferViews": [
+    {
+      "buffer": 0,
+      "byteOffset": 0,
+      "byteLength": 288
+    }
+  ],
+  "buffers": [
+    {
+      "byteLength": 288,
+      "uri": "data:application/octet-stream;base64,7FE4vs3MTD2uR+G97FE4vs3MTD2uR+E97FE4vlK4nj6uR+G97FE4vlK4nj6uR+E97FE4Ps3MTD2uR+G97FE4Ps3MTD2uR+E97FE4PlK4nj6uR+G97FE4PlK4nj6uR+E9exSuva5HoT4K16O7exSuva5HoT7D9Sg+exSuvexR+D4K16O7exSuvexR+D7D9Sg+exSuPa5HoT4K16O7exSuPa5HoT7D9Sg+exSuPexR+D4K16O7exSuPexR+D7D9Sg+KVwPvY/CtT6amRk+KVwPvY/CtT4AAIA+KVwPvSlczz6amRk+KVwPvSlczz4AAIA+KVwPPY/CtT6amRk+KVwPPY/CtT4AAIA+KVwPPSlczz6amRk+KVwPPSlczz4AAIA+"
+    }
+  ]
+}

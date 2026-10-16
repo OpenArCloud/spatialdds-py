@@ -27,7 +27,7 @@ from mcap.reader import make_reader                            # noqa: E402
 from publish_common import (aiohttp, authored, authority_base, delete,   # noqa: E402
                             get, put, seeded)
 from harness import Gateway, report                            # noqa: E402
-from spatialdds_web import gateway                             # noqa: E402
+from spatialdds.server import gateway                             # noqa: E402
 
 
 async def served(gw, paths: list[str]) -> dict[str, bytes]:

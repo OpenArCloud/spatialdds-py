@@ -4,13 +4,13 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "spatialdds"
-version = "0.1.0"
-description = "SpatialDDS over plain HTTPS and a WebSocket: a client for the web binding (Appendix N)."
+version = "0.2.0"
+description = "SpatialDDS over plain HTTPS and a WebSocket: a client for the web binding (Appendix N), and the reference registry behind one command."
 readme = "README.md"
 requires-python = ">=3.9"
 license = { text = "Apache-2.0" }
 authors = [{ name = "Open AR Cloud" }]
-keywords = ["spatialdds", "spatial", "geopose", "anchors", "openarcloud"]
+keywords = ["spatialdds", "spatial", "geopose", "anchors", "registry", "openarcloud"]
 classifiers = [
   "Development Status :: 3 - Alpha",
   "Intended Audience :: Developers",
@@ -19,18 +19,50 @@ classifiers = [
   "Programming Language :: Python :: 3 :: Only",
   "Topic :: Scientific/Engineering :: GIS",
 ]
-# Two, and no more. The wire is HTTP and a WebSocket; anything else would be
-# this library's opinion rather than the binding's requirement.
+# Two, and no more, for reading and publishing. The wire is HTTP and a
+# WebSocket; anything else would be this library's opinion rather than the
+# binding's requirement.
 dependencies = ["requests>=2.25", "websockets>=12"]
+
+[project.optional-dependencies]
+# Being an endpoint is the part you opt into. aiohttp serves it, mcap is the
+# format a registry's state lives in, and jsonschema validates every published
+# body against the vendored schemas before it reaches the wire. That last one
+# is not optional in any useful sense: without it the write surface refuses
+# every publish with a 500 rather than accept something unvalidated, so
+# leaving it out of this group would ship a registry nobody can publish into.
+server = ["aiohttp>=3.8", "mcap>=1.1", "jsonschema>=4.0"]
+
+[project.scripts]
+spatialdds-serve = "spatialdds.serve:main"
 
 [project.urls]
 Homepage = "https://github.com/OpenArCloud/spatialdds-web"
 Specification = "https://github.com/OpenArCloud/SpatialDDS-spec"
 
 [tool.setuptools]
-packages = ["spatialdds"]
+packages = ["spatialdds", "spatialdds.server"]
 
 [tool.setuptools.package-data]
-# The generated serializer tables travel with the package: they are what the
-# lift reads, and a client has no recording to learn the types from.
-spatialdds = ["serializer_tables.json"]
+# Everything vendored travels with the package, because the point of 0.2.0 is
+# that `pip install` is enough:
+#
+# * `artifacts/serializer_tables.json` -- what the lift reads, in both
+#   directions. A client has no recording to learn the types from.
+# * `artifacts/schemas/*.json` -- the 112 generated JSON Schemas. The endpoint
+#   publishes them and validates against them, and §8.4's third-party reader
+#   has nothing else to go on.
+# * `artifacts/idl/*.idl` -- the pinned IDL. A registry that starts empty
+#   boots its types from this; the tables cannot stand in because they carry
+#   no `@key`, so a keyed resource would have no instance names.
+# * `demo/**` -- the fountain set `--demo` serves. Byte-identical to the
+#   repository's `samples/` copy, which `tools/pack_demo.py` maintains and
+#   `gates/serve_demo.py` checks.
+spatialdds = [
+  "artifacts/serializer_tables.json",
+  "artifacts/schemas/*.json",
+  "artifacts/idl/*.idl",
+  "demo/*.mcap",
+  "demo/manifests/*.json",
+  "demo/assets/*",
+]

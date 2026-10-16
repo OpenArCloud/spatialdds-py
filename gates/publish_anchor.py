@@ -36,7 +36,7 @@ import jsonschema                                              # noqa: E402
 from publish_common import (ROOT, aiohttp, authority_base, delete, get,  # noqa: E402
                             put, resolve_path, seeded)
 from harness import Gateway, report                            # noqa: E402
-from spatialdds_web import gateway, webjson                    # noqa: E402
+from spatialdds.server import gateway, webjson                    # noqa: E402
 
 DUCK = ROOT / "samples" / "duck.input.json"
 

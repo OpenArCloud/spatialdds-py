@@ -21,12 +21,16 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "gates"))
+# The gateway lives in the distribution under lib/spatialdds; a gate runs
+# from a checkout, so the checkout's copy goes on the path rather than an
+# installed one.
+sys.path.insert(0, str(ROOT / "lib" / "spatialdds"))
 
 import aiohttp                                                 # noqa: E402
 import jsonschema                                              # noqa: E402
 
-from harness import Gateway, TOKEN, report, state              # noqa: E402
-from spatialdds_web import webjson                             # noqa: E402
+from harness import ARTIFACTS, Gateway, TOKEN, report, state              # noqa: E402
+from spatialdds.server import webjson                             # noqa: E402
 
 WK = "/.well-known/spatialdds"
 
@@ -42,7 +46,7 @@ def provenance() -> dict[str, str]:
 
 def local_schemas() -> dict[str, dict]:
     out = {}
-    for p in sorted((ROOT / "webjson" / "schemas").glob("*.json")):
+    for p in sorted((ARTIFACTS / "schemas").glob("*.json")):
         d = json.loads(p.read_text())
         out[d.get("title") or p.stem] = d
     return out
@@ -88,13 +92,13 @@ async def run() -> int:
                        not bad, "; ".join(bad[:3])))
 
         agg = hashlib.sha256()
-        for p in sorted((ROOT / "webjson" / "schemas").glob("*.json")):
+        for p in sorted((ARTIFACTS / "schemas").glob("*.json")):
             agg.update(p.name.encode())
             agg.update(hashlib.sha256(p.read_bytes()).digest())
         checks.append((f"the vendored set matches its recorded digest "
                        f"({prov.get('schemas.count')} files)",
                        agg.hexdigest() == prov.get("schemas.set_sha256"), ""))
-        tb = ROOT / "webjson" / "serializer_tables.json"
+        tb = ARTIFACTS / "serializer_tables.json"
         checks.append(("the vendored serializer tables match their digest",
                        hashlib.sha256(tb.read_bytes()).hexdigest()
                        == prov.get("serializer_tables.sha256"), ""))

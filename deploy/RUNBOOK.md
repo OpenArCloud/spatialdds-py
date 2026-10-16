@@ -15,18 +15,30 @@ that wrote this. What a build would have caught was checked another way; see
 ```sh
 docker build -f deploy/Dockerfile -t spatialdds-web .
 docker run --rm -p 8787:8787 --read-only \
-    -e SPATIALDDS_PUBLIC_URL=https://demo.spatialdds.org \
+    -e SPATIALDDS_AUTHORITY=demo.spatialdds.org \
     spatialdds-web
 ```
+
+The image changed shape in 0.2.0 and got smaller: it installs the
+distribution from the build context -- `pip install "./lib/spatialdds[server]"`
+-- and serves `python -m spatialdds.serve --demo --no-publish`. The recording,
+the manifests, the assets and the 112 schemas all travel inside the package,
+so there is nothing else to copy in. `--no-publish` keeps the write surface
+off, which is what lets the container run with a read-only root filesystem and
+no journal.
 
 | Knob | Default | What it is |
 | --- | --- | --- |
 | `SPATIALDDS_PORT` | `8787` | The port inside the container. |
-| `SPATIALDDS_PUBLIC_URL` | `https://demo.spatialdds.org` | The URL clients reach the endpoint at. |
-| `SPATIALDDS_MCAP` | the fountain recording | The recording to serve. |
-| `SPATIALDDS_MANIFESTS` | `/srv/samples/manifests` | Content manifests this endpoint is the authority for. |
+| `SPATIALDDS_AUTHORITY` | `demo.spatialdds.org` | The DNS name clients reach the endpoint at. |
 
-**`SPATIALDDS_PUBLIC_URL` is the one setting that will bite,** for two
+Two knobs where there were four: the recording and the manifests are no longer
+paths to set, because `--demo` serves the set packaged inside the distribution.
+`SPATIALDDS_AUTHORITY` replaces `SPATIALDDS_PUBLIC_URL` and takes a name
+rather than a URL -- `python -m spatialdds.serve --public-url` still exists for
+a deployment behind an unusual scheme or path prefix.
+
+**`SPATIALDDS_AUTHORITY` is the one setting that will bite,** for two
 reasons. A service manifest hands clients absolute URLs, and the gateway builds
 them from this value: leave it unset behind a TLS terminator and the endpoint
 answers every request correctly while advertising `http://0.0.0.0:8787/...` as
@@ -120,7 +132,7 @@ curl -sD - -o /dev/null --get "$RESOLVE" \
 A `200` with `Cache-Control: public, max-age=86400` — the manifest's own
 `ttl_sec`, not the endpoint's 300-second default — and an `ETag` that is the
 canonical digest. A `404 not-an-authority` here means
-`SPATIALDDS_PUBLIC_URL` is wrong; see above. Mechanism and rationale in
+`SPATIALDDS_AUTHORITY` is wrong; see above. Mechanism and rationale in
 [docs/RESOLUTION.md](../docs/RESOLUTION.md).
 
 ## Expected footprint
@@ -157,7 +169,7 @@ pypi.org and the only reason the workflow is inert as committed.
 
 Five lines, from a commit whose gates are green:
 
-1. `python3 gates/run_all.py` — 21 gates, 0 failed. A release is cut from a
+1. `python3 gates/run_all.py` — 26 gates, 0 failed. A release is cut from a
    verified commit, which is why the workflow does not re-run them itself.
 2. Bump `__version__` in `lib/spatialdds/spatialdds/__init__.py`, and
    `version` in `lib/spatialdds/pyproject.toml`, to the same number.
@@ -191,7 +203,10 @@ Checked here, without a network:
   process exited — invisible under `docker logs`, which is the only place it
   would have been read. It is flushed before the event loop starts.
 - The documented install line works from empty. `pip install requests
-  websockets aiohttp mcap` into a fresh venv, then the examples run.
+  websockets aiohttp mcap` into a fresh venv, then the examples run. As of
+  0.2.0 `gates/quickstart.py` goes further and performs the install every
+  walked page names -- from the checkout, with `--no-index` -- so the pages'
+  own install lines are executed rather than read (finding 38).
 - `--public-url` rewrites every advertised URL, confirmed by reading the
   manifest back.
 

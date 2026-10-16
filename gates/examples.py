@@ -32,6 +32,7 @@ Usage:  gates/examples.py
 """
 from __future__ import annotations
 
+import argparse
 import asyncio
 import os
 import re
@@ -42,11 +43,15 @@ import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+# The distribution in the checkout, which carries the gateway and the
+# vendored artifacts. Subprocesses get it on PYTHONPATH so that an
+# example or a serve line runs against this tree and never an install.
+LIB = str(ROOT / "lib" / "spatialdds")
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "gates"))
 
-from harness import Gateway, TOKEN, report, state              # noqa: E402
+from harness import Gateway, TOKEN, blank, report, state       # noqa: E402
 
 # The front page is gated too. Its three tiers are the most-read claims in the
 # repository and the ones a reader tries first, so they get the same treatment
@@ -69,12 +74,17 @@ RECORDINGS = {
     # rather than be carried by a flag every other example is unaware of.
     "publish": (ROOT / "samples" / "fountain-anchors.mcap",
                 "https://demo.spatialdds.org"),
+    # 0.2.0's headline: no recording at all. The front page stands a registry
+    # up empty and publishes into it, so the gate serves what that page
+    # serves -- `None` here means `gateway.build_state(None)`, which takes its
+    # types from the IDL pinned in the package.
+    "registry": (None, "https://registry.mytown.example"),
 }
-PUBLISHING = {"publish"}
+PUBLISHING = {"publish", "registry"}
 # The README's publish section serves with `--token tok` and its curl sends
 # `Bearer tok`, so the gate serves that configuration with that token. The
 # document is the product; the gate matches it rather than the reverse.
-TOKEN_FOR = {"publish": "tok"}
+TOKEN_FOR = {"publish": "tok", "registry": "tok"}
 # Anchored, because `examples/README.md` documents this grammar by quoting it
 # inline, and a parser that reads its own documentation as input is the
 # self-observing check this repository has named five times. A marker counts
@@ -104,6 +114,10 @@ class Block:
         self.mode, self.target = mode, target
         self.program: list[str] = []      # js only
         self.expected: list[str] = []
+        # Where the console fence's body sits in the file, for --refill, and
+        # what the block actually printed when it last ran.
+        self.span: tuple[int, int] | None = None
+        self.printed: list[str] | None = None
 
     @property
     def label(self) -> str:
@@ -118,15 +132,22 @@ class Block:
 
 def fence(lines: list[str], i: int, tag: str) -> tuple[list[str], int]:
     """The body of the next ```<tag> fence at or after line i."""
+    body, start, i = _fence(lines, i, tag)
+    return body, i
+
+
+def _fence(lines: list[str], i: int,
+           tag: str) -> tuple[list[str], int, int]:
+    """The body, and the bounds of the body, so --refill can replace it."""
     while i < len(lines) and lines[i].strip() != "```" + tag:
         i += 1
     if i >= len(lines):
         raise AssertionError(f"no ```{tag} fence found")
-    body, i = [], i + 1
+    body, start, i = [], i + 1, i + 1
     while i < len(lines) and lines[i].strip() != "```":
         body.append(lines[i])
         i += 1
-    return body, i
+    return body, start, i
 
 
 def parse(path: Path) -> list[Block]:
@@ -146,7 +167,7 @@ def parse(path: Path) -> list[Block]:
         assert mode in ("py", "py-fails", "sh", "js", "js-ok"), \
             f"{where} mode {mode}"
         b = Block(path.relative_to(ROOT).as_posix(), i + 1, rec, mode, target)
-        if mode == "js-ok":
+        if mode == "js-ok":  # noqa: SIM114  (kept parallel to the rest)
             # Run it and require it to work, without pinning its output: the
             # front page shows this snippet without its output, because a
             # devtools table is not a thing a README can print. A snippet that
@@ -154,16 +175,19 @@ def parse(path: Path) -> list[Block]:
             b.program, _ = fence(lines, i, "js")
         elif mode == "js":
             b.program, j = fence(lines, i, "js")
-            b.expected, _ = fence(lines, j, "console")
+            b.expected, s0, s1 = _fence(lines, j, "console")
+            b.span = (s0, s1)
         elif mode == "sh":
             # A command fence holding the command alone, then its output
             # fence. One fence carrying `$ ` prompts and output together is
             # what GitHub's copy button turns into an unrunnable paste, so the
             # grammar no longer admits it.
             b.program, j = fence(lines, i, "sh")
-            b.expected, _ = fence(lines, j, "console")
+            b.expected, s0, s1 = _fence(lines, j, "console")
+            b.span = (s0, s1)
         else:
-            b.expected, _ = fence(lines, i, "console")
+            b.expected, s0, s1 = _fence(lines, i, "console")
+            b.span = (s0, s1)
         out.append(b)
     return out
 
@@ -188,7 +212,8 @@ def commands(expected: list[str]) -> tuple[list[str], list[str]]:
 def run(block: Block, base: str,
         token: str = TOKEN) -> tuple[bool, str]:
     env = dict(os.environ, SPATIALDDS_ENDPOINT=base, BASE=base,
-               SPATIALDDS_TOKEN=token, PYTHONPATH=str(ROOT))
+               SPATIALDDS_TOKEN=token,
+               PYTHONPATH=os.pathsep.join([str(ROOT), LIB]))
     err = ""
     try:
         if block.mode == "js-ok":
@@ -287,6 +312,15 @@ def run(block: Block, base: str,
     want = [rebase(l.replace("$BASE", base), base).rstrip()
             for l in block.expected]
     have = [l.rstrip() for l in got.splitlines()]
+    # Kept for --refill, with the ephemeral base put back to whatever the
+    # fence already used for it. A page that wrote `$BASE` meant `$BASE`: the
+    # first version of this replaced it with a literal loopback URL, which
+    # reads as a port somebody has to match rather than the variable the
+    # block above it exports.
+    placeholder = "$BASE" if any("$BASE" in l for l in block.expected) \
+        else f"http://{LOCAL}"
+    block.printed = [l.replace(base, placeholder).rstrip()
+                     for l in got.splitlines()]
     if want == have:
         return True, ""
     for n, (w, h) in enumerate(zip(want, have)):
@@ -297,7 +331,46 @@ def run(block: Block, base: str,
                    f"{(want[len(have):] or have[len(want):])[0]!r}")
 
 
+def write_refills(blocks: list) -> list[str]:
+    """Replace each console fence with what its block printed.
+
+    Grouped per file and applied from the bottom up, so earlier spans stay
+    valid. A block that printed nothing is skipped and named: that is the
+    failure the last refill wrote over good output.
+    """
+    out, by_file = [], {}
+    for b in blocks:
+        # `js-ok` documents no output, and `py-fails` documents a refusal on
+        # stderr -- a refusal's wording is prose a reader is meant to read,
+        # and nothing here rewrites prose.
+        if b.span is None or b.mode in ("js-ok", "py-fails"):
+            continue
+        if not b.printed or not any(l.strip() for l in b.printed):
+            out.append(f"  SKIPPED {b.src}:{b.line} printed nothing, so its "
+                       f"fence is left alone")
+            continue
+        if [l.rstrip() for l in b.expected] == b.printed:
+            continue
+        by_file.setdefault(b.src, []).append(b)
+    for src, bs in sorted(by_file.items()):
+        path = ROOT / src
+        lines = path.read_text().splitlines()
+        for b in sorted(bs, key=lambda x: -x.span[0]):
+            lines[b.span[0]:b.span[1]] = b.printed
+            out.append(f"  refilled {src}:{b.line} with "
+                       f"{len(b.printed)} line(s)")
+        path.write_text("\n".join(lines) + "\n")
+    return out
+
+
 async def main() -> int:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--refill", action="store_true",
+                    help="rewrite each documented output fence with what the "
+                         "example printed. The gate's own runner captures it, "
+                         "so refill and check cannot disagree; a block that "
+                         "printed nothing is reported rather than written.")
+    args = ap.parse_args()
     blocks = [b for f in FILES for b in parse(ROOT / f)]
     checks: list[tuple[str, bool, str]] = []
     have_node = shutil.which("node") is not None
@@ -313,13 +386,15 @@ async def main() -> int:
         # examples do. Mutation means isolation: one endpoint per block.
         fresh = rec in PUBLISHING
         tok = TOKEN_FOR.get(rec, TOKEN)
-        gw = await Gateway(state(mcap), token=tok, advertise=advertise,
+        gw = await Gateway(blank() if mcap is None else state(mcap),
+                           token=tok, advertise=advertise,
                            publish=fresh).start()
         try:
             for b in mine:
                 if fresh:
                     await gw.stop()
-                    gw = await Gateway(state(mcap), token=tok,
+                    gw = await Gateway(blank() if mcap is None
+                                       else state(mcap), token=tok,
                                        advertise=advertise,
                                        publish=True).start()
                 if b.mode in ("js", "js-ok") and not have_node:
@@ -377,7 +452,8 @@ async def main() -> int:
                         capture_output=True, text=True,
                         env=dict(os.environ, SPATIALDDS_ENDPOINT=gw.base,
                                  SPATIALDDS_TOKEN=TOKEN,
-                                 PYTHONPATH=str(ROOT))))
+                                 PYTHONPATH=os.pathsep.join(
+                                     [str(ROOT), LIB]))))
             finally:
                 await gw.stop()
             if r.returncode == 0:
@@ -423,6 +499,10 @@ async def main() -> int:
     print(f"  note the grammar is documented by quoting it; "
           f"{len(INLINE)} inline mention(s) deliberately unread"
           + (f" ({', '.join(INLINE)})" if INLINE else ""))
+    if args.refill:
+        for line in write_refills(blocks):
+            print(line)
+        print()
     return report("examples", checks,
                   "every example runs and prints what it documents")
 

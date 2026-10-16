@@ -32,7 +32,7 @@ from pathlib import Path
 from publish_common import (ROOT, aiohttp, authored, authority_base, get,  # noqa: E402
                             put, resolve_path, seeded)
 from harness import Gateway, report                            # noqa: E402
-from spatialdds_web import gateway                             # noqa: E402
+from spatialdds.server import gateway                             # noqa: E402
 
 DUCK = ROOT / "samples" / "duck.input.json"
 
@@ -116,7 +116,7 @@ async def main() -> int:
                        (await get(s, gw.base, "/assets/..%2F..%2FREADME.md")
                         )[0] == 404, "it was served"))
         # And at the function, over names HTTP would not deliver.
-        from spatialdds_web.gw_http import asset_path
+        from spatialdds.server.gw_http import asset_path
         aroot = ROOT / "samples" / "assets"
         escapes = {n: asset_path(aroot, n) for n in
                    ("../README.md", "../../README.md", "..",

@@ -29,6 +29,7 @@ carries it as a design rule.
 """
 from __future__ import annotations
 
+import json
 import os
 import tempfile
 import time
@@ -38,7 +39,7 @@ from typing import Any
 from mcap.reader import make_reader
 from mcap.writer import Writer as McapWriter
 
-from spatialdds_web import gateway, webjson, xcdr2
+from . import gateway, webjson, xcdr2
 
 # Exactly two publishable record kinds, the SSD and SCD successors. The type
 # segment of the resource path decides the type, so this table is also what
@@ -59,6 +60,18 @@ PUBLISHABLE: dict[str, str] = {
 # metadata records under this name rather than as an invented typed message.
 # Labeled, and recorded as a gap in the candidates entry.
 DISPOSE_RECORD = "spatialdds-web:dispose"
+#: A published content manifest, journalled as a metadata record.
+#:
+#: N.7 manifests are JSON documents and not IDL types, so there is no schema
+#: to register and no channel to write them on; MCAP metadata is where a
+#: recording keeps things that are about the data rather than in it, which is
+#: also where disposes live. Found by restarting a registry that had been
+#: published into: the three announces came back and `resolve` answered 404,
+#: because the manifest had only ever been in memory. Before 0.2.0 manifests
+#: arrived from `--manifests` on disk and survived by being files; once an
+#: empty registry is the normal way to start, "everything still served after a
+#: restart" has to include them.
+MANIFEST_RECORD = "spatialdds-web:manifest"
 
 
 class Rejected(Exception):
@@ -254,15 +267,26 @@ class Journal:
                               {"kind": "sample", "topic": ch.topic,
                                "fqn": fqn, "raw": msg.data}))
             for md in r.iter_metadata():
-                if md.name != DISPOSE_RECORD:
-                    continue
-                items.append((int(md.metadata["seq"]),
-                              {"kind": "dispose",
-                               "topic": md.metadata["topic"],
-                               "key": md.metadata["key"],
-                               "reason": md.metadata.get("reason", "")}))
+                if md.name == DISPOSE_RECORD:
+                    items.append((int(md.metadata["seq"]),
+                                  {"kind": "dispose",
+                                   "topic": md.metadata["topic"],
+                                   "key": md.metadata["key"],
+                                   "reason": md.metadata.get("reason", "")}))
+                elif md.name == MANIFEST_RECORD:
+                    items.append((int(md.metadata["seq"]),
+                                  {"kind": "manifest",
+                                   "uri": md.metadata["uri"],
+                                   "doc": md.metadata["doc"]}))
         for seq, e in sorted(items, key=lambda x: x[0]):
             self.seq = max(self.seq, seq)
+            if e["kind"] == "manifest":
+                # Last one wins, which is what replaying in sequence means: a
+                # manifest republished under the same URI replaced the earlier
+                # one when it was accepted, and replay reaches the same state.
+                self.state.manifests[e["uri"]] = json.loads(e["doc"])
+                self.entries.append({**e, "seq": seq})
+                continue
             seg = gateway.split_topic(e["topic"])
             if seg is None:
                 continue
@@ -287,6 +311,17 @@ class Journal:
         self.entries.append({"kind": "sample", "seq": self._next(),
                              "topic": topic, "fqn": fqn, "key": key,
                              "raw": raw})
+        self._flush()
+
+    def record_manifest(self, uri: str, doc: dict) -> None:
+        """A published manifest, stored as the canonical JSON that was served.
+
+        `webjson.canon` and not `json.dumps`: the bytes written here are the
+        bytes the endpoint serves for that URI, so a journalled manifest and a
+        served one cannot differ by key order or spacing.
+        """
+        self.entries.append({"kind": "manifest", "seq": self._next(),
+                             "uri": uri, "doc": webjson.canon(doc)})
         self._flush()
 
     def record_dispose(self, topic: str, key: str, reason: str) -> None:
@@ -323,6 +358,10 @@ class Journal:
                         w.add_metadata(name=DISPOSE_RECORD, data={
                             "seq": str(e["seq"]), "topic": e["topic"],
                             "key": e["key"], "reason": e["reason"]})
+                    elif e["kind"] == "manifest":
+                        w.add_metadata(name=MANIFEST_RECORD, data={
+                            "seq": str(e["seq"]), "uri": e["uri"],
+                            "doc": e["doc"]})
                 w.finish()
             os.replace(tmp, self.path)
         except BaseException:

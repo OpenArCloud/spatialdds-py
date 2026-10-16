@@ -44,7 +44,7 @@ from __future__ import annotations
 import struct
 from typing import Any
 
-from spatialdds_web.idlmodel import PRIMITIVES, Aggregate, Member, Model
+from .idlmodel import PRIMITIVES, Aggregate, Member, Model
 
 # Representation identifiers we accept, from the XTypes encapsulation table.
 XCDR2_LE_DELIMITED = 0x0009

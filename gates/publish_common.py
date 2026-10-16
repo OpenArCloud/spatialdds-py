@@ -10,6 +10,10 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "gates"))
+# The gateway lives in the distribution under lib/spatialdds; a gate runs
+# from a checkout, so the checkout's copy goes on the path rather than an
+# installed one.
+sys.path.insert(0, str(ROOT / "lib" / "spatialdds"))
 
 import aiohttp                                                 # noqa: E402
 
@@ -56,5 +60,5 @@ async def get(s: aiohttp.ClientSession, base: str, path: str,
 
 
 def resolve_path(uri: str) -> str:
-    from spatialdds_web import gateway
+    from spatialdds.server import gateway
     return f"{gateway.RESOLVE_PATH}?uri={quote(uri, safe='')}"

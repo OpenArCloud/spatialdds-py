@@ -9,7 +9,7 @@ a gate goes red rather than a reader going in circles.
 | --- | --- |
 | [`curl.md`](curl.md) | Search by geohash, list anchors, fetch a zone, read the headers. No client at all. |
 | [`browser.md`](browser.md) | One `fetch` and a `console.table`; then a `WebSocket` read to `end_of_replay`. |
-| [`hello_spatial.py`](hello_spatial.py) | The ten-line proof: discover, subscribe, read typed samples. Fountain. |
+| [`hello_spatial.py`](hello_spatial.py) | The transparency exhibit: the library's flow done raw, in ten lines. Fountain. |
 | [`zones.py`](zones.py) | Six lines: what zones are here. Retail. |
 | [`anchors.py`](anchors.py) | Anchors with their method and their positional uncertainty. |
 | [`migration/ssd_search.py`](migration/ssd_search.py) | OSCP Spatial Service Discovery and the search path that replaces it. |

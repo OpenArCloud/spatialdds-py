@@ -53,9 +53,9 @@ sys.path.insert(0, str(LIB))
 
 from mcap.reader import make_reader                            # noqa: E402
 
-from harness import (FOUNTAIN, MANIFESTS, MCAP, TOKEN,         # noqa: E402
-                     Gateway, report, state)
-from spatialdds_web import gateway, webjson, xcdr2             # noqa: E402
+from harness import (ARTIFACTS, FOUNTAIN, MANIFESTS, MCAP,     # noqa: E402
+                     TOKEN, Gateway, report, state)
+from spatialdds.server import gateway, webjson, xcdr2             # noqa: E402
 
 import spatialdds as sd                                        # noqa: E402
 from spatialdds import canonical                               # noqa: E402
@@ -652,17 +652,25 @@ def fence(lines: list[str], i: int, tag: str) -> tuple[list[str], int, int]:
     return body, start, i
 
 
+#: Every page that carries a runnable bar. The front page carries one -- the
+#: six-line read -- for the same reason the library README carries three: a
+#: printed program whose output nobody checks is a promise, and this
+#: repository does not make those.
+BAR_DOCS = [README, ROOT / "README.md"]
+
+
 def bars() -> list[dict]:
-    lines = README.read_text().splitlines()
     out = []
-    for i, line in enumerate(lines):
-        m = MARKER.match(line.strip())
-        if not m:
-            continue
-        prog, _ps, j = fence(lines, i, "python")
-        want, ws, we = fence(lines, j, "console")
-        out.append({"name": m.group(1), "line": i + 1, "prog": prog,
-                    "want": want, "from": ws, "to": we})
+    for doc in BAR_DOCS:
+        lines = doc.read_text().splitlines()
+        for i, line in enumerate(lines):
+            m = MARKER.match(line.strip())
+            if not m:
+                continue
+            prog, _ps, j = fence(lines, i, "python")
+            want, ws, we = fence(lines, j, "console")
+            out.append({"doc": doc, "name": m.group(1), "line": i + 1,
+                        "prog": prog, "want": want, "from": ws, "to": we})
     return out
 
 
@@ -671,9 +679,15 @@ LOOPBACK = re.compile(r"http://127\.0\.0\.1:\d+")
 
 async def bars_section(checks: list, refill: bool) -> list[dict]:
     found = bars()
-    checks.append((f"{README.relative_to(ROOT)} carries all three bars with "
-                   "a python fence and a console fence each",
-                   len(found) == 3, f"found {len(found)}"))
+    per_doc: dict = {}
+    for b in found:
+        k = b["doc"].relative_to(ROOT).as_posix()
+        per_doc[k] = per_doc.get(k, 0) + 1
+    checks.append(("every documented bar is present with a python fence and "
+                   "a console fence: "
+                   + ", ".join(f"{k} x{v}" for k, v in sorted(per_doc.items())),
+                   len(found) == 4 and per_doc.get("README.md") == 1,
+                   f"found {len(found)}: {per_doc}"))
     env = dict(os.environ, PYTHONPATH=f"{LIB}:{ROOT}")
     for b in found:
         gw = await Gateway(state(FOUNTAIN, MANIFESTS), advertise=DEMO,
@@ -694,9 +708,10 @@ async def bars_section(checks: list, refill: bool) -> list[dict]:
             got = [l.rstrip() for l in text.splitlines()]
             b["got"] = got
             want = [l.rstrip() for l in b["want"]]
-            checks.append((f"bar {b['name']!r} (README:{b['line']}, "
-                           f"{len(b['prog'])} lines) runs clean and prints "
-                           "what the README shows",
+            checks.append((f"bar {b['name']!r} "
+                           f"({b['doc'].relative_to(ROOT).as_posix()}:"
+                           f"{b['line']}, {len(b['prog'])} lines) runs clean "
+                           f"and prints what the page shows",
                            proc.returncode == 0 and (got == want or refill),
                            f"exit {proc.returncode}\n"
                            + "\n".join(f"       got  {l}" for l in got[:8])
@@ -710,12 +725,22 @@ async def bars_section(checks: list, refill: bool) -> list[dict]:
         finally:
             await gw.stop()
     if refill:
-        lines = README.read_text().splitlines()
-        for b in sorted(found, key=lambda x: -x["from"]):
-            lines[b["from"]:b["to"]] = b.get("got", [])
-        README.write_text("\n".join(lines) + "\n")
-        print(f"  refilled {len(found)} console fence(s) in "
-              f"{README.relative_to(ROOT)}\n")
+        for doc in BAR_DOCS:
+            mine = [b for b in found if b["doc"] == doc]
+            if not mine:
+                continue
+            lines = doc.read_text().splitlines()
+            for b in sorted(mine, key=lambda x: -x["from"]):
+                got = b.get("got", [])
+                if not any(l.strip() for l in got):
+                    print(f"  SKIPPED {doc.relative_to(ROOT)}:{b['line']} "
+                          f"printed nothing, so its fence is left alone")
+                    continue
+                lines[b["from"]:b["to"]] = got
+            doc.write_text("\n".join(lines) + "\n")
+            print(f"  refilled {len(mine)} console fence(s) in "
+                  f"{doc.relative_to(ROOT)}")
+        print()
     return found
 
 
@@ -737,16 +762,25 @@ def surface_section(checks: list) -> None:
     checks.append((f"the README names spec commit {sd.SPEC_COMMIT}, which is "
                    "the module's SPEC_COMMIT",
                    sd.SPEC_COMMIT in text, "the README names another commit"))
-    # The package carries its own copy of the generated tables because it has
-    # to be installable without this repository. Two copies of a generated
-    # file is two answers waiting to happen, so they are required to be the
-    # same bytes.
-    mine = (LIB / "spatialdds" / "serializer_tables.json").read_bytes()
-    theirs = (ROOT / "webjson" / "serializer_tables.json").read_bytes()
-    checks.append((f"the vendored serializer tables are byte-identical to "
-                   f"webjson's ({len(mine)} bytes)",
-                   mine == theirs,
-                   f"{len(mine)} vs {len(theirs)} bytes"))
+    # There used to be two copies of the generated tables -- one under
+    # webjson/ for the gateway, one inside the package -- kept honest by a
+    # byte-identity check. 0.2.0 removed the second: the server moved into the
+    # distribution, so both halves read `artifacts/`. What remains is the
+    # check that can still fail, which is a copy coming back.
+    def found(pattern):
+        return sorted(q.relative_to(ROOT).as_posix()
+                      for q in ROOT.rglob(pattern)
+                      if not {"__pycache__", "build", "dist"} & set(q.parts))
+    tbl = found("serializer_tables.json")
+    want = (ARTIFACTS / "serializer_tables.json").relative_to(ROOT).as_posix()
+    checks.append((f"exactly one copy of the serializer tables exists, under "
+                   f"artifacts/ ({len(tbl)} found)",
+                   tbl == [want], f"{tbl}"))
+    sch = found("spatial_core_GeoAnchor.json")
+    wsch = (ARTIFACTS / "schemas" /
+            "spatial_core_GeoAnchor.json").relative_to(ROOT).as_posix()
+    checks.append((f"and one copy of the generated JSON Schemas "
+                   f"({len(sch)} found)", sch == [wsch], f"{sch}"))
     checks.append(("pyproject declares requests and websockets and nothing "
                    "else",
                    'dependencies = ["requests>=2.25", "websockets>=12"]'
@@ -758,23 +792,27 @@ async def alone_section(checks: list) -> None:
 
     The point of a client library is that it works on a machine that has never
     seen this repository, and an import that quietly reaches for
-    `spatialdds_web` would be invisible from inside a checkout where that
+    `spatialdds.server` would be invisible from inside a checkout where that
     import always succeeds. So this runs in a subprocess whose PYTHONPATH is
     the package directory and nothing else, and requires both that every
-    public name is there and that `spatialdds_web` cannot be imported at all.
+    public name is there and that `spatialdds.server` cannot be imported at all.
     """
     probe = (
-        "import sys, importlib, json\n"
+        "import sys, json\n"
         "import spatialdds as sd\n"
+        "ep = sd.connect('http://127.0.0.1:1')\n"
         "try:\n"
-        "    importlib.import_module('spatialdds_web'); leak = True\n"
-        "except ImportError:\n"
-        "    leak = False\n"
-        "print(json.dumps({'v': sd.__version__, 'leak': leak,\n"
+        "    ep.search('9v6krc')\n"
+        "except sd.Unreachable:\n"
+        "    pass\n"
+        "third = sorted(m for m in ('aiohttp', 'mcap', 'jsonschema',\n"
+        "                           'spatialdds.server', 'spatialdds.serve')\n"
+        "               if m in sys.modules)\n"
+        "print(json.dumps({'v': sd.__version__,\n"
         "                  'spec': sd.SPEC_COMMIT,\n"
         "                  'missing': [n for n in sd.__all__\n"
         "                              if not hasattr(sd, n)],\n"
-        "                  'web': 'spatialdds_web' in sys.modules}))\n")
+        "                  'third': third}))\n")
     with tempfile.TemporaryDirectory() as tmp:
         proc = await asyncio.create_subprocess_exec(
             sys.executable, "-c", probe, cwd=tmp,
@@ -792,10 +830,15 @@ async def alone_section(checks: list) -> None:
                    d.get("v") == sd.__version__ and d.get("missing") == []
                    and d.get("spec") == sd.SPEC_COMMIT,
                    f"{raw.decode()[-300:]}"))
-    checks.append(("…and `spatialdds_web` is not importable there, so no "
-                   "import can be reaching for it",
-                   d.get("leak") is False and d.get("web") is False,
-                   f"{d}"))
+    # Which modules may import which is `gates/import_graph.py`'s subject
+    # now that the server ships in the same distribution: "spatialdds_web is
+    # not importable" was the old form of that claim and stopped being true
+    # the moment the gateway moved in. What belongs here is the client's own
+    # promise: the two dependencies it declares are the two it uses.
+    checks.append(("…and reading an endpoint there imports none of the "
+                   "server's dependencies and no server module",
+                   d.get("third") == [],
+                   f"the client pulled in {d.get('third')}"))
 
 
 async def main() -> int:

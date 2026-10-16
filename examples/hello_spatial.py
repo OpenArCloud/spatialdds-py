@@ -4,6 +4,13 @@ Ten lines, `requests` and `websockets`, no DDS and no code from this
 repository. Start an endpoint first -- the README's serve line is the one this
 is written against -- then run this.
 
+**This is the transparency exhibit.** `pip install spatialdds` does the same
+six lines with typed values and verified bytes, and a reader is entitled to
+ask what the library is doing on their behalf. It is this: one GET for the
+service manifest, one URL followed out of it, one WebSocket, and the samples
+read until the marker. If the library ever looks like it is doing something
+clever, this file is the whole of it.
+
 The shape is the point. Line 4 asks the discovery endpoint what is here and
 gets a service manifest; line 5 picks a topic out of it; the rest subscribes to
 that topic's own URL and reads typed anchors until the server says the latched

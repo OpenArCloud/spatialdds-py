@@ -1,0 +1,59 @@
+{
+  "id": "spatialdds://demo.spatialdds.org/south-mall/content/fountain-label",
+  "profile": "spatial.manifest/1.8",
+  "rtype": "content",
+  "content": {
+    "content_id": "content/fountain-label",
+    "title": "Littlefield Fountain label",
+    "summary": "A plain-text label for the fountain's north rim.",
+    "tags": [
+      "label",
+      "text",
+      "memorial"
+    ],
+    "class_id": "https://schema.org/LandmarksOrHistoricalBuildings"
+  },
+  "assets": [
+    {
+      "uri": "https://raw.githubusercontent.com/OpenArCloud/spatialdds-web/main/samples/assets/fountain-label.txt",
+      "media_type": "text/plain",
+      "hash": "sha256:1970b1b67efc916f9799db2a6159a713fa5a46bed0a0485df469bfcd857a669c",
+      "meta": [
+        {
+          "namespace": "spatialdds-web",
+          "json": "",
+          "entries": [
+            {
+              "key": "committed_path",
+              "value": "samples/assets/fountain-label.txt"
+            },
+            {
+              "key": "bytes",
+              "value": "444"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "coverage": {
+    "frame_ref": {
+      "uuid": "",
+      "fqn": "earth-fixed"
+    },
+    "has_bbox": false,
+    "global": false,
+    "has_circle": true,
+    "circle_center": [
+      -97.73935,
+      30.28498593,
+      158.0
+    ],
+    "circle_radius_m": 4.0
+  },
+  "stamp": {
+    "sec": "1791559800",
+    "nanosec": 0
+  },
+  "ttl_sec": 86400
+}

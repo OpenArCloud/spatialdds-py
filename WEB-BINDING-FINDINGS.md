@@ -1225,6 +1225,38 @@ publisher bookkeeping, say that and drop it from §7.5.2's list of integrity
 signals. Either resolves it; the present state lets it count as integrity
 while meaning whatever the publisher likes.
 
+### The gap, now demonstrated rather than described, 2026-10-16
+
+0.2.0 made this concrete without meaning to. The repository now contains **two
+checksum conventions, both correct, mutually incompatible**, on records a
+single endpoint serves side by side:
+
+* **Recorded anchors** carry `tools/author_anchors.py`'s digest of the anchor's
+  own *authoring entry* — the input dict the recording was written from.
+  Reproducible from committed data, and reproducible only from it: a reader who
+  has the served record and nothing else cannot recompute it, because the
+  authoring entry is not what was served.
+* **Published anchors** carry `spatialdds.records.geo_anchor`'s digest of the
+  *served canonical form with `checksum` emptied*. A reader recomputes it from
+  exactly what arrived, with the binding's own canonical JSON and nothing else.
+
+Both satisfy §7.5.2's "a checksum field in the body". Neither can verify the
+other's. The latched set at `/ut-austin-south-mall/frames/geo_anchor/v1` on a
+publishing endpoint holds five of the first kind and however many of the second
+have been published, and nothing in the record says which rule applies — so a
+reader who checks integrity at all must either know the provenance of each
+anchor or check nothing. That is the gap, in a form somebody can run.
+
+**The proposal, when this reaches the spec agent: the second convention.**
+`sha256` over the record's canonical form (N.1) with `checksum` set to the
+empty string. It is recomputable by any reader from what was served, needs no
+out-of-band artifact, is already gated here
+(`gates/builders.py`: *the anchor's checksum recomputes from the served record
+through webjson.digest*), and makes the field mean what §7.5.2 already counts
+it as meaning. The authoring tool's digest is then the one to change, not the
+specification's silence to work around — and this repository will change it,
+once the rule exists to change it to.
+
 ## 32. A probe whose target changed category under it, 2026-10-15
 
 `gates/publish_reject.py` carried a check labelled *a topic that is not
@@ -1290,3 +1322,142 @@ makes for the IDL, applied to the mapping.
 
 Not a spec finding: the specification's IDL is unambiguous and its schemas are
 correct. This was entirely ours.
+
+## Findings from 0.2.0: the registry, and the package that is one
+
+### 34. A published manifest lived only in memory, 2026-10-16
+
+Found by restarting a registry that had just been published into. The three
+announces came back from the journal; `resolve` answered 404. `put_manifest`
+stored into `State.manifests` and nothing else, so a content manifest existed
+only in the process that accepted it.
+
+**It was not a bug until this release, which is the interesting part.** Before
+0.2.0 manifests arrived from `--manifests` on disk and survived a restart by
+being files; publishing one was a session-scoped addition to a set whose real
+home was the filesystem. Making an empty registry the normal way to start
+changed what "everything is still served after a restart" has to include, and
+the code that was right under the old assumption was wrong under the new one
+without being touched.
+
+Fixed by journalling manifests as MCAP metadata records, beside the disposes
+that already live there: an N.7 manifest is a JSON document rather than an IDL
+type, so there is no schema to register and no channel to write it on, and
+metadata is where a recording keeps things that are *about* the data. The
+canonical bytes are what is stored, so a journalled manifest and a served one
+cannot differ by key order.
+
+The lesson is the one about changed assumptions rather than about manifests: a
+release that changes the default state of a system has to re-ask every
+question whose answer depended on the old default. "Where does this live when
+nobody configured anything" was answered by `--manifests` and is now answered
+by the journal.
+
+### 35. The two halves were separate in the source and joined at runtime, 2026-10-16
+
+0.2.0 moved the gateway into the distribution, which put a client and a server
+in one package with a rule between them: neither imports the other. The
+package's `__init__` was made a lazy facade so that `import spatialdds.server`
+would not drag in `requests` -- the parent module runs first, and an eager
+client import there would couple them.
+
+Reading the import statements said the rule held. `sys.modules` said otherwise:
+`from spatialdds import serve` loaded `requests`. The facade's `__getattr__`
+answered *any* unknown attribute by importing the client half, and
+`from X import Y` asks the package for the attribute before the import
+machinery tries the submodule -- so every submodule probe went through the
+client.
+
+Fixed by naming the submodules in the facade and resolving those without
+touching the client. The gate that matters is the one that caught it:
+`gates/import_graph.py` reads the imports *and* then runs three probes in
+subprocesses -- the client alone, the whole server with `requests` and
+`websockets` forbidden by a meta-path hook, and `spatialdds.serve` without the
+server extra installed. A static reading of a dynamic rule is a different
+claim from the rule.
+
+### 36. An empty expected value is a check that cannot fail, 2026-10-16
+
+`docs/MYTOWN.md` was written with six command blocks and six empty output
+fences, to be filled by the gate's refill pass. The gate walked all six and
+reported all six green. Its comparison was `have == exp`, and both sides were
+empty: the blocks had failed with a 401 and printed nothing, which is exactly
+what an empty fence documents.
+
+This is the instrument-blindness family again, in the cheapest possible
+costume: not an instrument measuring its own machinery, not one blind to a
+composition or a fragment, but one whose *expected value* made failure
+impossible. Zero equals zero.
+
+Fixed in both gates that compare documented output: a marked tier that prints
+nothing is a failure, with the tail of stderr quoted, and `--refill` never
+writes an empty fence over anything. That second guard is the older lesson
+(finding 24's ad-hoc refill wrote empty fences over good output) now enforced
+by the gate that validates the outputs rather than by a script somebody has to
+remember.
+
+**The general form: a check needs a non-trivial expectation before it needs a
+correct one.** Any assertion whose expected value is empty, zero, or absent
+should be read twice, because the degenerate case is where it stops measuring.
+
+### 37. A documented output that no two runs can agree on, 2026-10-16
+
+The mytown walkthrough's first step printed the ETag a publish returned.
+Pinning it was impossible: a record built by `sd.records` carries `stamp: now`,
+the ETag is the digest of the record's canonical form, and so the documented
+value was different every run. The gate reported a diff that was not a defect.
+
+The page now prints what it can promise and says in prose why the ETag is not
+on it. **A documented output has to be a function of committed inputs**, which
+is the same rule the gates follow for expected values, applied to prose.
+
+### 38. A documented install line that installs something else, 2026-10-16
+
+`pip install spatialdds` has been a true statement about a name and a false
+statement about an artifact for as long as 0.2.0 has been unreleased: the name
+resolves, and what arrives is the 0.0.1 placeholder. Every page that showed
+the line was telling a reader to install something nobody wrote.
+
+Closed in two places. Every page now prints the from-source line beside the
+release line -- `pip install "./lib/spatialdds[server]"` -- so a reader on a
+checkout has a line that works today. And `gates/quickstart.py` runs the
+from-source line rather than the release line, into a temporary environment,
+with `--no-index`: it fails any page that names a release without the
+from-source line beside it, and it never reaches PyPI, so what the gate
+verifies is this commit rather than whatever is published.
+
+The rule worth keeping: **a gate that installs from the network is testing a
+release, not a commit.** The checkout is the artifact under test.
+
+### 39. The conformance suite cannot certify an endpoint that holds nothing, 2026-10-16
+
+For the specification queue, not this repository's lane.
+
+0.2.0 makes an empty registry the normal way to start one: `python -m
+spatialdds.serve --authority registry.example --publish` serves a conformant
+surface with no data in it, and records arrive later. Run the suite against
+that shape and it reports **14 checks: 6 passed, 5 failed, 3 skipped**.
+
+The five failures are all absence of data rather than any property of the
+surface: *every resource validates against its published schema*, *canonical
+form on the wire*, *latched state is GET with ETag, Cache-Control and 304*,
+*§8.1 hello spatial in ten lines*, and *§8.4 third-party reader, published
+schemas only* -- the last reporting "no latched resource to read" in as many
+words. The three skips are already the suite's own UNEXERCISED form.
+
+**The suite already has the right vocabulary and these five do not use it.** A
+check with nothing to measure is unexercised, which the suite reports as a
+skip and which this repository has argued for repeatedly: an absence stated is
+worth more than a pass. Reported as a failure it says something false --
+that an endpoint is nonconformant for having published nothing yet -- and it
+makes the first ten minutes of every new registry look broken.
+
+Suggested shape of the fix, for whoever takes it: a check that finds no
+resource of the kind it needs reports UNEXERCISED with the reason, exactly as
+§8.2 did before the fountain recording gained an anchor with a `manifest_uri`.
+Nothing about the normative text changes; this is the runner's reporting.
+
+Both populated shapes are unaffected and unchanged: serving the fountain, with
+the publish surface off and on, is **14 checks, 14 passed, 0 failed, 0
+skipped** in each, through the new `python -m spatialdds.serve` path as well as
+through `tools/run_gateway.py`.

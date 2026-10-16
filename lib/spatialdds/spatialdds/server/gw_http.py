@@ -36,7 +36,7 @@ from typing import Any
 
 from aiohttp import WSMsgType, web
 
-from spatialdds_web import gateway, publish, webjson
+from . import gateway, publish, webjson
 
 WELL_KNOWN = "/.well-known/spatialdds"
 
@@ -444,7 +444,7 @@ async def asset(request: web.Request) -> web.Response:
 # Implementation-defined, off unless `--publish` is given, and operator-scoped
 # when it is on. A read-only client cannot tell a published instance from a
 # replayed one, which is the property that keeps the endpoint conformant with
-# this enabled. See `spatialdds_web/publish.py` and docs/PUBLISH.md.
+# this enabled. See `spatialdds.server/publish.py` and docs/PUBLISH.md.
 
 def _disabled(request: web.Request) -> web.Response:
     return _problem(
@@ -603,6 +603,9 @@ async def put_manifest(request: web.Request) -> web.Response:
         return _rejected(r, request)
     created = uri not in st.manifests
     st.manifests[uri] = doc
+    jr = request.app.get("journal")
+    if jr is not None:
+        jr.record_manifest(uri, doc)
     return _written(request, doc, created,
                     {"X-SpatialDDS-Access": gateway.OPERATOR})
 

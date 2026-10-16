@@ -18,7 +18,7 @@ import sys
 from publish_common import (ROOT, aiohttp, authored, authority_base,     # noqa: E402
                             delete, get, put, seeded)
 from harness import Gateway, report                            # noqa: E402
-from spatialdds_web import gateway                             # noqa: E402
+from spatialdds.server import gateway                             # noqa: E402
 
 PROBLEM = "application/problem+json"
 
@@ -104,7 +104,7 @@ async def main() -> int:
     # bound endpoint always has a host. It is still the case that must not
     # pass, so it is checked where it lives, and the startup refusal that
     # keeps a deployment out of it is checked too.
-    from spatialdds_web import publish as _pub
+    from spatialdds.server import publish as _pub
     try:
         _pub.check_authority("", spec["record"])
         got = "accepted"

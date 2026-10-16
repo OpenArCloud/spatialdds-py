@@ -16,7 +16,7 @@ is the input and the interface. Nothing here is specific to what produced it.
 python3 tools/run_gateway.py --mcap /path/to/your.mcap
 ```
 
-**A complete XCDR2 implementation, read and write.** `spatialdds_web/xcdr2.py`
+**A complete XCDR2 implementation, read and write.** `spatialdds/server/xcdr2.py`
 carries a `Reader` and a `Writer`, in one file so the wire rules are stated once
 and cannot drift into disagreeing about alignment or delimiters. Both are
 validated against the reference implementation rather than against each other:
@@ -45,7 +45,7 @@ position would mislabel every covariance in the file.
 
 One thing a recording does not carry is QoS. Nothing in an MCAP says a topic
 was TRANSIENT_LOCAL, and the binding's shape depends on that split, so
-durability is declared per type in `spatialdds_web/gateway.py` from the
+durability is declared per type in `spatialdds/server/gateway.py` from the
 specification's QoS table. That gap is a finding.
 
 A latched topic is a GET resource at the on-bus topic name with `spatialdds/`

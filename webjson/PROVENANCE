@@ -6,6 +6,13 @@
 # repository by web-binding/gen.py, which is a pure function of the IDL. They
 # are vendored so this repository runs and its gates check without a second
 # checkout. Upstream is authoritative; nothing here is hand-edited.
+#
+# As of 0.2.0 they live inside the distribution, under
+# lib/spatialdds/spatialdds/artifacts/, because `pip install
+# "spatialdds[server]"` has to stand up a conformant endpoint with no clone:
+# the schemas are served, the tables drive the mapping in both directions, and
+# the IDL is the type source a registry boots from when it starts empty. One
+# copy, read by both halves of the package and by every gate.
 
 repository = https://github.com/OpenArCloud/SpatialDDS-spec
 artifacts_commit = 9c3e1f27c17681b26e88dbc1e64f9e9c84273805
@@ -16,13 +23,32 @@ artifacts_commit = 9c3e1f27c17681b26e88dbc1e64f9e9c84273805
 # and 9c3e1f2 regenerated without changing the appendix.
 source_tree = web-binding/
 
+artifacts_dir = lib/spatialdds/spatialdds/artifacts/
+
 mapping.file = webjson/MAPPING.md
 mapping.sha256 = 52d350b8a0dab7ae141b63ec53f65ec7d7dd4003a0c0f06fd6ba406dcde164d6
-serializer_tables.file = webjson/serializer_tables.json
+serializer_tables.file = lib/spatialdds/spatialdds/artifacts/serializer_tables.json
 serializer_tables.sha256 = 7ea2a8a20fd278a413a1664ae08dce8d023bde1fbbe22ac3bb01845b437a4b4f
+schemas.dir = lib/spatialdds/spatialdds/artifacts/schemas/
 schemas.count = 112
 schemas.set_sha256 = a913c32667886033a45739f99052b7573c8f91de6b18b9b9f0f28e9be0818a2b
 golden.count = 8
+
+# The IDL itself, vendored at the same commit as the generated artifacts above
+# and for one reason: a registry that starts empty has no recording to read its
+# types out of, and the serializer tables cannot stand in because they carry no
+# @key annotations -- so the instances of a keyed resource could not be named.
+# These three files are the closure of the publishable kinds (Announce,
+# ContentAnnounce, GeoAnchor); `spatialdds.server.pin` flattens them the same
+# way a recording's embedded schema records are flattened, and
+# gates/fresh_start.py requires the model parsed from them to agree with the
+# tables beside them.
+
+idl.dir = lib/spatialdds/spatialdds/artifacts/idl/
+idl.source_tree = idl/v1.8/
+idl.count = 3
+idl.files = core.idl, discovery.idl, types.idl
+idl.set_sha256 = 9cd570b6fb414c7a0d6e4275a07117cbc14b3ddf61b7dcdb42a0256275ac809c
 
 # The recording. This is the data interface: a typed SpatialDDS 1.8 MCAP,
 # carrying its own IDL in its schema records, which is the only description

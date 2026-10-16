@@ -25,7 +25,7 @@ import sys
 from publish_common import (ROOT, aiohttp, authored, authority_base, get,  # noqa: E402
                             put, resolve_path, seeded)
 from harness import Gateway, report                            # noqa: E402
-from spatialdds_web import gateway, webjson                    # noqa: E402
+from spatialdds.server import gateway, webjson                    # noqa: E402
 
 import jsonschema                                              # noqa: E402
 

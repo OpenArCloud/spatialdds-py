@@ -39,8 +39,13 @@ python3 gates/run_all.py
   PASS     publish_duck        a published record followed from PUT to fetched bytes
   PASS     publish_anchor      a published anchor is an anchor, and the content it names resolves
   PASS     library             the spatialdds client package reads, publishes and refuses as documented
+  PASS     import_graph        one gateway, two halves, and no import between them
+  PASS     fresh_start         a registry that starts empty: types from the pin, state through a restart
+  PASS     serve_demo          the packaged demo serves, and the examples do not know the difference
+  PASS     builders            the record builders produce what the hand-authored records say
+  PASS     deploy_image        the image's own instructions serve the endpoint from the new layout
 
-21 gates: 21 passed, 0 failed, 0 skipped
+26 gates: 26 passed, 0 failed, 0 skipped
 ```
 
 The newest of them, `library`, is the only one with a second implementation to

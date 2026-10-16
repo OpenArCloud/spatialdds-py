@@ -48,11 +48,15 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "gates"))
+# The gateway lives in the distribution under lib/spatialdds; a gate runs
+# from a checkout, so the checkout's copy goes on the path rather than an
+# installed one.
+sys.path.insert(0, str(ROOT / "lib" / "spatialdds"))
 
 import aiohttp                                                 # noqa: E402
 
 from harness import Gateway, report, state                     # noqa: E402
-from spatialdds_web import gateway                             # noqa: E402
+from spatialdds.server import gateway                             # noqa: E402
 
 MCAP = ROOT / "samples" / "fountain-anchors.mcap"
 MANIFESTS = ROOT / "samples" / "manifests"

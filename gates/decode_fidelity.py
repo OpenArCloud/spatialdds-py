@@ -29,12 +29,12 @@ sys.path.insert(0, str(ROOT / "gates"))
 
 import jsonschema                                              # noqa: E402
 
-from harness import MCAP, report, state, summary                # noqa: E402
+from harness import ARTIFACTS, MCAP, report, state, summary                # noqa: E402
 
 
 def schemas() -> dict[str, dict]:
     out = {}
-    for p in sorted((ROOT / "webjson" / "schemas").glob("*.json")):
+    for p in sorted((ARTIFACTS / "schemas").glob("*.json")):
         doc = json.loads(p.read_text())
         out[doc.get("title") or p.stem] = doc
     return out

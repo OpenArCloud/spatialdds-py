@@ -15,10 +15,21 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
+# The gateway lives in the distribution under lib/spatialdds; a gate runs
+# from a checkout, so the checkout's copy goes on the path rather than an
+# installed one.
+sys.path.insert(0, str(ROOT / "lib" / "spatialdds"))
 
 from aiohttp import web                                        # noqa: E402
 
-from spatialdds_web import gateway, gw_http                    # noqa: E402
+from spatialdds.server import gateway, gw_http                    # noqa: E402
+
+#: The vendored generated artifacts -- serializer tables, JSON Schemas,
+#: pinned IDL -- which travel inside the distribution so that a pip
+#: install can stand up a conformant endpoint. One copy, named here so
+#: that a gate reading them never hardcodes a second opinion about where
+#: they are.
+ARTIFACTS = ROOT / "lib" / "spatialdds" / "spatialdds" / "artifacts"
 
 MCAP = ROOT / "samples" / "queuing-retail-sample.mcap"
 FOUNTAIN = ROOT / "samples" / "fountain-anchors.mcap"
@@ -43,6 +54,16 @@ def summary() -> dict:
 def state(path: Path = MCAP,
           manifests: Path | None = MANIFESTS) -> gateway.State:
     return gateway.build_state(path, manifests)
+
+
+def blank() -> gateway.State:
+    """An empty registry: no recording, types from the IDL pinned in the
+    package, nothing held and nothing to serve until something is published.
+
+    The state 0.2.0 made the default, and the one a gate has to be able to ask
+    for by name now that three of them start from it.
+    """
+    return gateway.build_state(None, None)
 
 
 class Gateway:
@@ -70,7 +91,7 @@ class Gateway:
 
     async def start(self) -> "Gateway":
         if self.journal_path is not None:
-            from spatialdds_web import publish as _pub
+            from spatialdds.server import publish as _pub
             self.journal = _pub.Journal(self.journal_path, self.state)
             self.journal.replay()
         app = gw_http.make_app(self.state, "http://127.0.0.1", self.token,

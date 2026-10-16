@@ -23,10 +23,14 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "gates"))
+# The gateway lives in the distribution under lib/spatialdds; a gate runs
+# from a checkout, so the checkout's copy goes on the path rather than an
+# installed one.
+sys.path.insert(0, str(ROOT / "lib" / "spatialdds"))
 
-from harness import Gateway, MCAP, TOKEN, report, state        # noqa: E402
+from harness import ARTIFACTS, Gateway, MCAP, TOKEN, report, state        # noqa: E402
 from replay_order import collect                               # noqa: E402
-from spatialdds_web import gateway, idlmodel, webjson, xcdr2    # noqa: E402
+from spatialdds.server import gateway, idlmodel, webjson, xcdr2    # noqa: E402
 
 from mcap.reader import make_reader                            # noqa: E402
 
@@ -35,7 +39,7 @@ def expected_retirements() -> dict[str, int]:
     """Terminal samples per topic, counted straight off the recording."""
     import json
     model = gateway.wire_model(MCAP)
-    tables = json.loads((ROOT / "webjson" / "serializer_tables.json").read_text())
+    tables = json.loads((ARTIFACTS / "serializer_tables.json").read_text())
     dec, proj = xcdr2.Decoder(model), webjson.Projector(model, tables)
     out: dict[str, int] = {}
     with open(MCAP, "rb") as f:

@@ -2,12 +2,17 @@
 #
 # Everything this endpoint serves is public-cacheable, which decides the whole
 # shape of the deployment: no credentials, no writable state, no outbound
-# calls. The recording is baked into the image, so the running container has
+# calls. The recording is baked into the image -- it travels inside the
+# `spatialdds` package as its demo data -- so the running container has
 # nothing to mount and nothing to lose.
+#
+# Note that `--demo` switches the write surface on when run from a terminal.
+# This CMD passes --no-publish to keep it off, because a public endpoint is
+# not somebody's first two minutes with the thing.
 #
 #   docker build -f deploy/Dockerfile -t spatialdds-web .
 #   docker run --rm -p 8787:8787 --read-only \
-#       -e SPATIALDDS_PUBLIC_URL=https://demo.spatialdds.org \
+#       -e SPATIALDDS_AUTHORITY=demo.spatialdds.org \
 #       spatialdds-web
 #
 # See deploy/RUNBOOK.md. Nothing here contacts any infrastructure; building
@@ -15,20 +20,20 @@
 
 FROM python:3.12-slim
 
-# aiohttp serves it, mcap reads the recording. The XCDR2 codec, the JSON
-# mapping and the geohash arithmetic are this repository's own pure Python, so
-# there is no build toolchain and no native dependency to pin.
-RUN pip install --no-cache-dir aiohttp==3.* mcap==1.*
-
+# One install line, because 0.2.0 moved the gateway into the distribution:
+# the package carries the server, the generated artifacts it serves, the
+# pinned IDL, and the fountain demo set. The `server` extra brings aiohttp,
+# mcap and jsonschema; the XCDR2 codec, the JSON mapping and the geohash
+# arithmetic are pure Python in the package itself, so there is no build
+# toolchain and no native dependency to pin.
+#
+# Installed from the build context rather than from PyPI on purpose. The image
+# then holds exactly the code in this commit, with no network dependency at
+# build time and no question about which release it picked up.
 WORKDIR /srv
-COPY spatialdds_web/        /srv/spatialdds_web/
-COPY tools/run_gateway.py   /srv/tools/run_gateway.py
-COPY webjson/schemas/       /srv/webjson/schemas/
-COPY webjson/serializer_tables.json webjson/PROVENANCE  /srv/webjson/
-COPY samples/fountain-anchors.mcap  /srv/samples/fountain-anchors.mcap
-# The content manifests this endpoint is the authority for. §7.5.2 resolution
-# answers only for what is held here, keyed by each manifest's own `id`.
-COPY samples/manifests/            /srv/samples/manifests/
+COPY lib/spatialdds/ /srv/lib/spatialdds/
+RUN pip install --no-cache-dir "/srv/lib/spatialdds[server]" && \
+    rm -rf /srv/lib
 
 # The build context carries whatever a developer's checkout happens to hold;
 # byte-compiled caches are not part of the artifact.
@@ -39,25 +44,29 @@ RUN find /srv -name __pycache__ -type d -prune -exec rm -rf {} +
 RUN useradd --no-create-home --shell /usr/sbin/nologin spatialdds
 USER spatialdds
 
-ENV SPATIALDDS_MCAP=/srv/samples/fountain-anchors.mcap \
-    SPATIALDDS_MANIFESTS=/srv/samples/manifests \
-    SPATIALDDS_PORT=8787 \
-    SPATIALDDS_PUBLIC_URL=https://demo.spatialdds.org
+ENV SPATIALDDS_PORT=8787 \
+    SPATIALDDS_AUTHORITY=demo.spatialdds.org
 EXPOSE 8787
 
-# --host 0.0.0.0 binds the container's interface; --public-url is the address
-# clients actually reach, which is what every URL in a served service manifest
-# is built from. Behind a TLS terminator the two always differ, and getting it
+# --demo serves the packaged fountain set, which is byte-identical to the
+# repository's `samples/` copy and is why this image needs no samples of its
+# own. --host 0.0.0.0 binds the container's interface; --authority is the DNS
+# name clients reach, which is what every URL in a served service manifest is
+# built from. Behind a TLS terminator the two always differ, and getting it
 # wrong fails quietly: the endpoint answers and the manifest it serves points
 # at an address no client can follow.
 #
-# It is now load-bearing for a second reason. §7.5.2 makes the authority in a
-# `spatialdds://` URI a DNS name, so the endpoint offers resolution only when
-# --public-url names the authority its manifests belong to. That is why this
+# --authority is load-bearing for a second reason. §7.5.2 makes the authority
+# in a `spatialdds://` URI a DNS name, so the endpoint offers resolution only
+# when it answers as the authority its manifests belong to. That is why this
 # image defaults it rather than leaving it empty: a deployment under any other
 # name holds the manifests and correctly refuses to resolve them, and the
 # startup banner says so in as many words.
-CMD ["sh", "-c", "exec python3 tools/run_gateway.py \
-  --mcap \"$SPATIALDDS_MCAP\" --manifests \"$SPATIALDDS_MANIFESTS\" \
+#
+# --no-publish, because --demo turns the write surface on for somebody's
+# first two minutes and a public deployment is not that. With it off the
+# container needs no writable filesystem and no journal, which is what lets it
+# run --read-only.
+CMD ["sh", "-c", "exec python3 -m spatialdds.serve --demo --no-publish \
   --host 0.0.0.0 --port \"$SPATIALDDS_PORT\" \
-  ${SPATIALDDS_PUBLIC_URL:+--public-url \"$SPATIALDDS_PUBLIC_URL\"}"]
+  ${SPATIALDDS_AUTHORITY:+--authority \"$SPATIALDDS_AUTHORITY\"}"]

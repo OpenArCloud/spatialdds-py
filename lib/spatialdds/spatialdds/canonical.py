@@ -15,16 +15,19 @@ subtly wrong:
 Everything else -- enumerator names, floats, bools, nesting -- is already in
 the form a program wants, which is why this module is short.
 
-**These are not this library's rules.** They are `spatialdds_web.webjson`'s,
-and `gates/library.py` proves the two agree by lifting every record in both
-committed recordings with each and comparing. The gateway's `Lifter` is driven
-by the IDL model a recording carries; a client has no recording, so this one is
-driven by the generated serializer tables, which carry the same facts per
-field. Same rules, same results, different source of the type information --
-and the equality is gated, not asserted.
+**These are not this library's rules.** They are
+`spatialdds.server.webjson`'s, and `gates/library.py` proves the two agree by
+lifting every record in both committed recordings with each and comparing. The
+server's `Lifter` is driven by an IDL model; a client reading a remote endpoint
+has no IDL, so this one is driven by the generated serializer tables, which
+carry the same facts per field. Same rules, same results, different source of
+the type information -- and the equality is gated, not asserted. It earned its
+keep on 2026-10-15, when the disagreement turned out to be in the server
+(finding 33).
 
-The tables are vendored beside this module and pinned by digest. They were
-generated at SpatialDDS-spec `9c3e1f2`, which is what `SPEC_COMMIT` reports.
+The two halves read **one** copy of the tables, under `artifacts/`, which is
+also what the server reads. Importing this module pulls in nothing but the
+standard library: `spatialdds.server` is not imported here and must not be.
 """
 from __future__ import annotations
 
@@ -42,7 +45,8 @@ def tables() -> Dict[str, Any]:
     global _TABLES
     if _TABLES is None:
         here = os.path.dirname(os.path.abspath(__file__))
-        with open(os.path.join(here, "serializer_tables.json")) as fh:
+        with open(os.path.join(here, "artifacts",
+                               "serializer_tables.json")) as fh:
             _TABLES = json.load(fh)
     return _TABLES
 

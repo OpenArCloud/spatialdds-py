@@ -35,7 +35,7 @@ from typing import Any, Iterable
 
 from mcap.reader import make_reader
 
-from spatialdds_web import idlmodel, webjson, xcdr2
+from . import idlmodel, pin, webjson, xcdr2
 
 PUBLIC = "public-cacheable"
 OPERATOR = "operator-scoped"
@@ -117,6 +117,12 @@ class State:
     source: str = ""
     source_sha256: str = ""
     model: idlmodel.Model | None = None
+    #: Where the types came from, in words, for the banner and for anyone
+    #: asking what a registry believes. A recording describes its own types;
+    #: an empty registry's come from the vendored pin. Either way it is
+    #: stated rather than inferred, because "what does this endpoint think a
+    #: GeoAnchor is" has exactly one answer and it should be printable.
+    type_source: str = ""
     # Content manifests this endpoint holds, keyed by their own full
     # `spatialdds://` URI. Keyed by the whole URI and never by a segment of
     # it: a construction rule nobody published is a dialect, which is what
@@ -155,28 +161,10 @@ def _wire_model(path: Path) -> tuple[idlmodel.Model, dict[str, tuple[str, bytes]
         for _sid, sch in sorted(make_reader(f).get_summary().schemas.items()):
             if sch.encoding == "omgidl":
                 records.append((sch.name, sch.data))
-    if not records:
-        raise SystemExit(f"{path} embeds no omgidl schemas, so its types "
-                         f"cannot be read from the file itself")
-    model = idlmodel.Model()
-    idl: dict[str, tuple[str, bytes]] = {}
-    parsed: dict[str, idlmodel.Model] = {}
-    for name, data in records:
-        d = hashlib.sha256(data).hexdigest()
-        if d not in parsed:
-            parsed[d] = idlmodel.parse(data.decode())
-        m = parsed[d]
-        model.aggregates.update(m.aggregates)
-        model.typedefs.update(m.typedefs)
-        # A closure defines several aggregates; the one the record is named
-        # for is the one a journal should register under that name.
-        for fqn in m.aggregates:
-            idl.setdefault(fqn, (name, data))
-        own = name.replace("::", ".")
-        if own in m.aggregates:
-            idl[own] = (name, data)
-    model._leaves = None
-    return model, idl
+    # The parse itself lives in `pin`, which also builds a model from the
+    # vendored IDL when there is no recording. One implementation, so a
+    # seeded gateway and a fresh one cannot disagree about what a type is.
+    return pin.model_from_records(records, whence=str(path))
 
 
 def split_topic(topic: str) -> tuple[str, str, str, str] | None:
@@ -254,16 +242,38 @@ def resolve_uri(st: State, base: str, uri: str) -> dict | None:
     return st.manifests.get(uri)
 
 
-def build_state(path: Path | None, manifests: Path | None = None) -> State:
+#: Sentinel for "the IDL pinned in this package", resolved when
+#: `build_state` is called rather than when it is defined. A default of
+#: `pin.IDL_DIR` would be bound at import time, which makes repointing
+#: `pin.IDL_DIR` -- the only honest way to ask what happens when the vendored
+#: artifacts are missing -- do nothing at all. `gates/fresh_start.py` probes
+#: exactly that, and spent one run serving forever because the probe could
+#: not take effect.
+PINNED = object()
+
+
+def build_state(path: Path | None, manifests: Path | None = None,
+                idl_dir: Path | None | object = PINNED) -> State:
     """The state a recording describes, or an empty registry if given none.
 
     A seed is optional because the publish surface makes the recording one
-    producer among others rather than the only one. With no seed there are no
-    types either, and a gateway with no types can serve an empty registry but
-    cannot accept a publish -- which it says rather than discovers.
+    producer among others rather than the only one.
+
+    With no seed the types come from the vendored IDL pin rather than from
+    nowhere: an empty registry is the normal way to start one, and it has to
+    know what a GeoAnchor is before anybody publishes one. `idl_dir=None`, or
+    a directory without the IDL in it, leaves the gateway typeless -- which is
+    still a legitimate read-only state, and the refusal that follows belongs
+    where publishing is switched on.
     """
     if path is None:
-        return State(source="", manifests=load_manifests(manifests)
+        where = pin.IDL_DIR if idl_dir is PINNED else idl_dir
+        model, idl = pin.wire_model(where) if where is not None \
+            else (None, {})
+        return State(source="", model=model, idl=idl,
+                     type_source=pin.describe(where) if where is not None
+                     else "none: no type source given",
+                     manifests=load_manifests(manifests)
                      if manifests else {})
     model, idl = _wire_model(path)
     tables = webjson.tables()
@@ -272,6 +282,7 @@ def build_state(path: Path | None, manifests: Path | None = None) -> State:
 
     st = State(source=str(path), model=model, idl=idl,
                source_sha256=hashlib.sha256(path.read_bytes()).hexdigest(),
+               type_source=f"the recording's own embedded IDL ({path.name})",
                manifests=load_manifests(manifests) if manifests else {})
     # Which latched instances were in force when the window opened. A
     # recording does not carry QoS, so "the latched set at t0" is not stated

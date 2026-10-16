@@ -324,10 +324,30 @@ or both.
 
 ### Evidence
 
-`spatialdds-web`: `spatialdds_web/publish.py`, routes in `gw_http.py`, and five
-gates — `golden_publish`, `publish_reject`, `journal_replay`, `publish_live`,
-`publish_offswitch`. The last is the one that matters for this entry: with the
-surface off, every read is byte-identical to an endpoint built without it.
+`spatialdds-web`: `spatialdds/server/publish.py`, routes in `gw_http.py`, and
+five gates — `golden_publish`, `publish_reject`, `journal_replay`,
+`publish_live`, `publish_offswitch`. The last is the one that matters for this
+entry: with the surface off, every read is byte-identical to an endpoint built
+without it.
+
+**Updated 2026-10-16, package 0.2.0.** The write surface is now the headline
+rather than an extension: a registry starts empty, takes its types from the
+specification pin, and is published into in one call per record kind
+(`gates/fresh_start.py`, `gates/builders.py`, `docs/MYTOWN.md`). Two things
+that entry 4 deferred moved from deferred-and-untested to
+deferred-and-exercised-around:
+
+* **Journalled manifests.** A published content manifest is now a journalled
+  record, because an empty registry has no `--manifests` directory to survive
+  a restart by (finding 34). The journal remains a plain recording.
+* **Identity, still untouched.** The builders fill no `provider_id` and no
+  `org`, by design, and say so in their own documentation. A registry that
+  vouched for either would be making a claim nobody authorised.
+
+**All four deferrals stand, and are stated where a reader meets them** --
+leases, per-provider scopes, server-set identity, upstream subscriptions are
+listed in `docs/MYTOWN.md`'s closing section and in the package's README, so
+nobody has to read this file to learn what a registry does not do.
 
 ## 5. The GeoPose Protocol successor, as a service profile
 

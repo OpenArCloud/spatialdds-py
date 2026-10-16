@@ -30,9 +30,13 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "gates"))
+# The gateway lives in the distribution under lib/spatialdds; a gate runs
+# from a checkout, so the checkout's copy goes on the path rather than an
+# installed one.
+sys.path.insert(0, str(ROOT / "lib" / "spatialdds"))
 
-from harness import FOUNTAIN, MCAP, report                     # noqa: E402
-from spatialdds_web import gateway, webjson                    # noqa: E402
+from harness import ARTIFACTS, FOUNTAIN, MCAP, report                     # noqa: E402
+from spatialdds.server import gateway, webjson                    # noqa: E402
 
 GOLDEN = ROOT / "webjson" / "golden"
 # The pairs MAPPING.md states for the digest form of a number.
@@ -57,7 +61,7 @@ def main() -> int:
             model.aggregates.update(m2.aggregates)
             model.typedefs.update(m2.typedefs)
     model._leaves = None
-    tables = json.loads((ROOT / "webjson"
+    tables = json.loads((ARTIFACTS
                          / "serializer_tables.json").read_text())
     proj = webjson.Projector(model, tables)
     checks: list[tuple[str, bool, str]] = []

@@ -3,9 +3,9 @@
 
 The decoder's whole claim is that it reads the wire correctly, and the wire is
 described by the IDL the recording embeds. That IDL is parsed here, and the
-parse is checked against `webjson/serializer_tables.json`, which was generated
-upstream from the same specification by a different program walking a different
-representation. Two independent readings of one IDL have to agree on every
+parse is checked against the vendored `artifacts/serializer_tables.json`,
+generated upstream from the same specification by a different program walking a
+different representation. Two independent readings of one IDL have to agree on every
 type's kind, on field order, on enum members and on union cases before anything
 is served.
 
@@ -26,11 +26,15 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "gates"))
+# The gateway lives in the distribution under lib/spatialdds; a gate runs
+# from a checkout, so the checkout's copy goes on the path rather than an
+# installed one.
+sys.path.insert(0, str(ROOT / "lib" / "spatialdds"))
 
-from harness import MCAP, report                               # noqa: E402
-from spatialdds_web import gateway, webjson                    # noqa: E402
+from harness import ARTIFACTS, MCAP, report                               # noqa: E402
+from spatialdds.server import gateway, webjson                    # noqa: E402
 
-TABLES = ROOT / "webjson" / "serializer_tables.json"
+TABLES = ARTIFACTS / "serializer_tables.json"
 
 
 def main() -> int:

@@ -27,76 +27,36 @@ together.
 from __future__ import annotations
 
 import base64
-import hashlib
 import json
-from decimal import Decimal
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-from spatialdds_web.idlmodel import PRIMITIVES, Member, Model
+from .idlmodel import PRIMITIVES, Member, Model
 
-ROOT = Path(__file__).resolve().parent.parent
-WEBJSON = ROOT / "webjson"
+#: The vendored generated artifacts, which travel inside the distribution:
+#: the serializer tables, the JSON Schemas, and the pinned IDL. There is one
+#: copy and both halves of the package read it -- the client's lift needs the
+#: tables, the server needs the tables, the schemas and the IDL -- because two
+#: copies of a generated file is two answers waiting to happen.
+ARTIFACTS = Path(__file__).resolve().parent.parent / "artifacts"
 
 _STR_INTS = {"int64", "uint64"}
 _TABLES: dict | None = None
 
 
-def ecma262(x: float) -> str:
-    """ECMA-262 Number::toString, which MAPPING.md pins as the digest form.
+# Appendix N.1's canonical form lives in `spatialdds.canonjson`, a leaf
+# shared with the client half: both sides have to produce byte-identical
+# canonical JSON -- this one for ETags and for canonicalizing a published
+# record, the other for a `checksum` a reader can recompute -- and two
+# implementations of a byte-exact format is two answers waiting to happen.
+# Re-exported here because every call site in this half says `webjson.canon`.
+from ..canonjson import canon, digest, ecma262
 
-    "Shortest round-trip" names a property, not a unique string, so the rule
-    has to be implemented rather than approximated by whatever `repr` gives: a
-    Python producer and a browser consumer have to agree byte for byte or an
-    ETag computed on one side will not match the other.
-    """
-    if x != x or x in (float("inf"), float("-inf")):
-        raise ValueError("non-finite double is not representable "
-                         "(NaN deprecated, §2.3)")
-    if x == 0:
-        return "0"                      # covers -0.0, which ECMA-262 shows "0"
-    sign = "-" if x < 0 else ""
-    _, digits, exp = Decimal(repr(abs(x))).as_tuple()
-    s = "".join(map(str, digits))
-    while len(s) > 1 and s.endswith("0"):
-        s = s[:-1]
-        exp += 1
-    k = len(s)
-    n = exp + k
-    if k <= n <= 21:
-        return sign + s + "0" * (n - k)
-    if 0 < n <= 21:
-        return sign + s[:n] + "." + s[n:]
-    if -6 < n <= 0:
-        return sign + "0." + "0" * (-n) + s
-    e = n - 1
-    mant = s[0] + ("." + s[1:] if k > 1 else "")
-    return sign + mant + "e" + ("+" if e >= 0 else "-") + str(abs(e))
-
-
-def canon(v: Any) -> str:
-    """Canonical JSON text: sorted keys, ECMA-262 numbers, no insignificant ws."""
-    if isinstance(v, bool):
-        return "true" if v else "false"
-    if isinstance(v, float):
-        return ecma262(v)
-    if isinstance(v, int):
-        return str(v)
-    if isinstance(v, str):
-        return json.dumps(v)
-    if isinstance(v, list):
-        return "[" + ",".join(canon(x) for x in v) + "]"
-    if isinstance(v, dict):
-        return "{" + ",".join(json.dumps(k) + ":" + canon(v[k])
-                              for k in sorted(v)) + "}"
-    if v is None:
-        return "null"
-    raise TypeError(f"uncanonicalizable: {type(v)}")
-
-
-def digest(v: Any) -> str:
-    return hashlib.sha256(canon(v).encode()).hexdigest()
+#: Re-exported from the shared leaf. Named here so that "this module still
+#: answers to `webjson.canon`" is a statement rather than an accident.
+__all__ = ["canon", "digest", "ecma262", "ARTIFACTS", "Lifter", "Projector",
+           "OCTET_RUN", "tables", "schemas", "schema_file_for"]
 
 
 @lru_cache(maxsize=1)
@@ -108,7 +68,7 @@ def tables() -> dict:
     """
     global _TABLES
     if _TABLES is None:
-        _TABLES = json.loads((WEBJSON / "serializer_tables.json").read_text())
+        _TABLES = json.loads((ARTIFACTS / "serializer_tables.json").read_text())
     return _TABLES
 
 
@@ -119,7 +79,7 @@ def schemas() -> dict[str, dict]:
     so "the schema for this type" means the same thing on both sides.
     """
     out: dict[str, dict] = {}
-    for p in sorted((WEBJSON / "schemas").glob("*.json")):
+    for p in sorted((ARTIFACTS / "schemas").glob("*.json")):
         doc = json.loads(p.read_text())
         out[doc.get("title") or p.stem] = doc
     return out

@@ -1,0 +1,9 @@
+Littlefield Fountain
+University of Texas at Austin, South Mall
+
+Pompeo Coppini, dedicated 1933. A memorial fountain at the foot of the South
+Mall, on the axis between the Main Building and the South Mall entrance.
+
+This file is a content asset for the fountain-anchors sample recording: a plain
+text label, referenced by a content manifest and fetched through §7.5
+resolution. Its only job is to be a real file at the end of a real reference.
