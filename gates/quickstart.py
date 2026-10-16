@@ -290,8 +290,8 @@ def walk(doc: Path, checks: list, env: dict,
     # is ```sh, a console tier is ```js. A marker on a ```console fence means
     # the page still carries the prompt-and-output shape, where the copy button
     # yields a prompt and expected output along with the command.
-    WANT = {"sh": "sh", "py": "sh", "py-fails": "sh", "js": "js",
-            "js-ok": "js"}
+    WANT = {"sh": "sh", "sh-ok": "sh", "py": "sh", "py-fails": "sh",
+            "js": "js", "js-ok": "js"}
     marked = [b for b in blocks if b[3]]
     misplaced = [f"{name}:{b[0]} is ```{b[1] or '(none)'}, "
                  f"mode {b[3].split()[1]} wants "
@@ -332,6 +332,18 @@ def walk(doc: Path, checks: list, env: dict,
     # nobody published in this walk, and every count after it would be wrong.
     # The page carries `rm -f` for a reader; the gate does the same, and says
     # so rather than doing it quietly.
+    # Every internal link on the page resolves. Cheap, and the failure it
+    # catches is the one a reader meets first: the front page lost four
+    # sections to docs/ on 2026-10-16, and a link that moved with them would
+    # have been a 404 on the repository's front door.
+    links = re.findall(r"\[[^\]]+\]\(([^)#]+)\)", doc.read_text())
+    internal = [l for l in links if not l.startswith(("http://", "https://",
+                                                      "mailto:"))]
+    broken = [l for l in internal
+              if not (doc.parent / l.rstrip("/")).exists()]
+    checks.append((f"{name}: all {len(internal)} internal link(s) resolve",
+                   not broken, f"{broken}"))
+
     journals = [Path(jm.group(1))
                 for sl, _c in phases
                 for jm in [re.search(r"--journal\s+(\S+)", sl)] if jm]
@@ -419,7 +431,14 @@ def await_phase(name: str, serve: str, cmd_blocks: list,
                        f"{owner[:80]!r} vs started pid {child.pid}"))
 
         for line, _tag, body, marker, want, span in cmd_blocks:
-            if want is None:
+            # A fence marked `sh-ok` documents no output: `gates/examples.py`
+            # has the same mode, for the same reason -- the front page's
+            # closing `curl` returns the whole search response, and a
+            # storefront does not paste that. Here the claim is the same one a
+            # reader makes when they paste it: it runs, and it prints
+            # something.
+            unpinned = marker.split()[1:2] == ["sh-ok"]
+            if want is None and not unpinned:
                 checks.append((f"{name}:{line}: its output fence follows it",
                                False, "no ```console fence after the command"))
                 continue
@@ -427,6 +446,15 @@ def await_phase(name: str, serve: str, cmd_blocks: list,
             r = subprocess.run([SHELL, "-c", script], cwd=ROOT, env=env,
                                capture_output=True, text=True, timeout=180)
             have = [l.rstrip() for l in r.stdout.splitlines()]
+            if unpinned:
+                err = (r.stderr.strip().splitlines() or [""])[-1][:110]
+                checks.append((f"{name}:{line} pasted verbatim, output "
+                               f"deliberately not pinned",
+                               r.returncode == 0
+                               and any(l.strip() for l in have),
+                               f"exit {r.returncode}, "
+                               f"{len(have)} line(s); {err}"))
+                continue
             exp = [l.rstrip() for l in want]
             ok = have == exp and any(l.strip() for l in have)
             if have == exp and not any(l.strip() for l in have):

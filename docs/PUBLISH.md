@@ -23,6 +23,57 @@ two properties keep the endpoint conformant with it enabled:
 
 It is **off by default**. `deploy/` does not enable it.
 
+
+## From the front page: one PUT, and the record is in the registry
+
+Moved here on 2026-10-16, intact, when the front page became pip-first. The
+`curl` below is still executed by `gates/examples.py` on every run, which is
+why this document is one of the files that gate reads.
+
+Services and content can be published over HTTP: `PUT` on the same instance URL
+a `GET` serves, `DELETE` to withdraw. **The surface is implementation-defined
+and off by default** -- 1.8 specifies no publish verb and forbids none, so this
+is an endpoint extension, not a reading of the specification. A read-only client
+cannot tell a published record from a replayed one, which is the property that
+keeps the endpoint conformant either way. The rest of
+this page is the detail.
+
+Serve it with the surface on, as its own authority, and it needs a token:
+
+```sh
+python3 tools/run_gateway.py --mcap samples/fountain-anchors.mcap --port 8787 \
+    --public-url https://demo.spatialdds.org --token tok --publish \
+    --journal /tmp/registry.mcap
+```
+
+Then one PUT, and the record is in the registry the read path serves:
+
+<!-- gate: publish sh -->
+```sh
+export BASE=http://127.0.0.1:8787
+python3 -c 'import json; print(json.dumps(json.load(open("samples/published-records.input.json"))["service"]["record"]))' \
+    | curl -s -X PUT "$BASE/ut-austin-south-mall/discovery/announce/v1/austin-vps" \
+        -H "Authorization: Bearer tok" -H "Content-Type: application/json" \
+        --data @- \
+    | python3 -c 'import json,sys; d=json.load(sys.stdin); print("published", d["service_id"], "|", d["name"])'
+```
+
+```console
+published austin-vps | Austin VPS, published over HTTP
+```
+
+[`publish_service.py`](../examples/publish_service.py),
+[`publish_content.py`](../examples/publish_content.py) and
+[`publish_duck.py`](../examples/publish_duck.py) each do a whole round trip in one
+file — publish, then read back through search, the resolver, and for the duck
+the asset's bytes.
+
+Two walked documents cover the same ground from both ends:
+[docs/MYTOWN.md](MYTOWN.md) stands a registry up and populates it with
+the library in eight steps, and [docs/WALKTHROUGH.md](WALKTHROUGH.md)
+does a VPS and a duck with `curl` and no library at all. Both are executed by
+`gates/quickstart.py` exactly as printed.
+
 ## The verbs
 
 | | |

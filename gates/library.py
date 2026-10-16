@@ -638,6 +638,10 @@ async def errors_section(checks: list) -> None:
 # ---------------------------------------------------------------- the bars --
 
 MARKER = re.compile(r"<!--\s*bar:\s*(\S+)\s*-->")
+#: The token a page's bars authenticate with, taken from the page's own serve
+#: line. A page that says `--token tok` and a gate that assumed something else
+#: would disagree about an endpoint neither of them is wrong about.
+TOKEN_RE = re.compile(r"--token\s+(\S+)")
 
 
 def fence(lines: list[str], i: int, tag: str) -> tuple[list[str], int, int]:
@@ -662,15 +666,21 @@ BAR_DOCS = [README, ROOT / "README.md"]
 def bars() -> list[dict]:
     out = []
     for doc in BAR_DOCS:
-        lines = doc.read_text().splitlines()
+        text = doc.read_text()
+        lines = text.splitlines()
+        tok = TOKEN_RE.search(text)
         for i, line in enumerate(lines):
             m = MARKER.match(line.strip())
             if not m:
                 continue
             prog, _ps, j = fence(lines, i, "python")
+            # The console fence has to be the next one. Every bar pins its
+            # output; a page that wants to show a line whose output is a blob
+            # uses `gates/examples.py`'s `sh-ok`, which exists and is used.
             want, ws, we = fence(lines, j, "console")
             out.append({"doc": doc, "name": m.group(1), "line": i + 1,
-                        "prog": prog, "want": want, "from": ws, "to": we})
+                        "prog": prog, "token": tok.group(1) if tok else TOKEN,
+                        "want": want, "from": ws, "to": we})
     return out
 
 
@@ -686,12 +696,13 @@ async def bars_section(checks: list, refill: bool) -> list[dict]:
     checks.append(("every documented bar is present with a python fence and "
                    "a console fence: "
                    + ", ".join(f"{k} x{v}" for k, v in sorted(per_doc.items())),
-                   len(found) == 4 and per_doc.get("README.md") == 1,
+                   len(found) == 6 and per_doc.get("README.md") == 3
+                   and per_doc.get("lib/spatialdds/README.md") == 3,
                    f"found {len(found)}: {per_doc}"))
     env = dict(os.environ, PYTHONPATH=f"{LIB}:{ROOT}")
     for b in found:
         gw = await Gateway(state(FOUNTAIN, MANIFESTS), advertise=DEMO,
-                           publish=True, token="not-a-secret").start()
+                           publish=True, token=b["token"]).start()
         try:
             prog = LOOPBACK.sub(gw.base, "\n".join(b["prog"]))
             proc = await asyncio.create_subprocess_exec(
@@ -708,10 +719,10 @@ async def bars_section(checks: list, refill: bool) -> list[dict]:
             got = [l.rstrip() for l in text.splitlines()]
             b["got"] = got
             want = [l.rstrip() for l in b["want"]]
-            checks.append((f"bar {b['name']!r} "
-                           f"({b['doc'].relative_to(ROOT).as_posix()}:"
-                           f"{b['line']}, {len(b['prog'])} lines) runs clean "
-                           f"and prints what the page shows",
+            where = (f"{b['doc'].relative_to(ROOT).as_posix()}:{b['line']}, "
+                     f"{len(b['prog'])} lines")
+            checks.append((f"bar {b['name']!r} ({where}) runs clean and "
+                           f"prints what the page shows",
                            proc.returncode == 0 and (got == want or refill),
                            f"exit {proc.returncode}\n"
                            + "\n".join(f"       got  {l}" for l in got[:8])

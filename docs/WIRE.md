@@ -2,10 +2,36 @@
 
 Moved out of the README so the front page could be for someone who has not
 decided to trust this yet. Nothing here is rewritten: these are the same
-sections, intact, in the order they were written.
+sections, intact. The paths table joined them on 2026-10-16, when the front
+page became pip-first, and sits first because it is the part a reader looks up
+rather than reads.
 
 See also [`EVIDENCE.md`](EVIDENCE.md) for the gates and the conformance runs,
 and [`LAYOUT.md`](LAYOUT.md) for the directory map.
+
+## The paths
+
+Moved here from the front page on 2026-10-16, intact. The front page now shows
+what a reader does; this is the surface they are doing it against.
+
+| | |
+| --- | --- |
+| `GET /.well-known/spatialdds/search?geohash={cell}` | service manifests covering a cell |
+| `GET /.well-known/spatialdds/schemas` | the schema index, one entry per type |
+| `GET /.well-known/spatialdds/schemas/{type}` | one JSON Schema |
+| `GET /.well-known/spatialdds/resolver` | resolver metadata, where the endpoint is an authority |
+| `GET /spatialdds/resolve?uri={urlencoded}` | one `spatialdds://` URI, resolved to its manifest |
+| `GET /{domain}/frames/geo_anchor/v1` | anchors |
+| `GET /{domain}/regions/spatial_zone/v1` | zones |
+| `GET /{domain}/content/content_announce/v1` | content |
+| `GET /{domain}/{stream}/{type}/{version}` | any topic's latched set |
+| `GET /{domain}/{stream}/{type}/{version}/{key}` | one instance, by its key |
+| `WS /{domain}/{stream}/{type}/{version}` | the same URL, upgraded: replay, then live |
+
+Every one of those is a plain resource: `GET` it with anything that speaks
+HTTP, and the WebSocket upgrade is the same URL. There is no index endpoint and
+no bootstrap: a client starts at the search path and follows what the service
+manifest hands it.
 
 ## What it serves
 
@@ -99,7 +125,7 @@ the source.
 
 The one thing the tables are authoritative for is a union's empty branch.
 `CovMatrix` declares `case COV_NONE: uint8 none;`, a real byte that is on the
-wire and must be consumed, while `MAPPING.md` says an empty branch is
+wire and must be consumed, while [`MAPPING.md`](../webjson/MAPPING.md) says an empty branch is
 `{"type":"COV_NONE"}` with no member. That the placeholder is padding rather
 than information is recorded only in the generated tables, as a `null` branch
 type, and no rule over the IDL recovers it. Finding 12.

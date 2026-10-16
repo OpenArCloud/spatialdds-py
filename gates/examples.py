@@ -58,7 +58,12 @@ from harness import Gateway, TOKEN, blank, report, state       # noqa: E402
 # as the examples they lead to. The markers are HTML comments and render as
 # nothing.
 FILES = ["README.md", "examples/README.md", "examples/curl.md",
-         "examples/browser.md"]
+         "examples/browser.md",
+         # The front page's publish section moved here on 2026-10-16
+         # when the page became pip-first. Its `curl` is still a fence
+         # with a documented output, so this gate reads the document it
+         # moved to rather than the fence losing its gate in transit.
+         "docs/PUBLISH.md"]
 # name -> (recording, the base the endpoint believes it is reached at).
 # `authority` is the fountain recording again, served as the DNS name its
 # manifests' URIs resolve against, which is the only configuration in which
@@ -124,6 +129,7 @@ class Block:
         if self.mode == "py-fails":
             return f"{self.src}:{self.line} [{self.rec}] {self.target} refuses"
         what = self.target or {"sh": "shell one-liners",
+                               "sh-ok": "shell one-liner runs clean",
                                "js": "console snippet",
                                "js-ok": "console snippet runs clean"}[
                                    self.mode]
@@ -164,10 +170,18 @@ def parse(path: Path) -> list[Block]:
         target = parts[2] if len(parts) > 2 else ""
         where = f"{path.relative_to(ROOT).as_posix()}:{i+1}"
         assert rec in RECORDINGS, f"{where} unknown recording {rec}"
-        assert mode in ("py", "py-fails", "sh", "js", "js-ok"), \
+        assert mode in ("py", "py-fails", "sh", "sh-ok", "js", "js-ok"), \
             f"{where} mode {mode}"
         b = Block(path.relative_to(ROOT).as_posix(), i + 1, rec, mode, target)
-        if mode == "js-ok":  # noqa: SIM114  (kept parallel to the rest)
+        if mode == "sh-ok":
+            # Run it and require it to work, without pinning its output. The
+            # front page's closing `curl` returns the whole search response,
+            # which is not something a storefront pastes; what is worth
+            # gating is that the command works against the endpoint. An empty
+            # run still fails, which is the floor finding 36 put under every
+            # one of these.
+            b.program, _ = fence(lines, i, "sh")
+        elif mode == "js-ok":
             # Run it and require it to work, without pinning its output: the
             # front page shows this snippet without its output, because a
             # devtools table is not a thing a README can print. A snippet that
@@ -216,6 +230,16 @@ def run(block: Block, base: str,
                PYTHONPATH=os.pathsep.join([str(ROOT), LIB]))
     err = ""
     try:
+        if block.mode == "sh-ok":
+            prog = rebase("\n".join(block.program), base)
+            r = subprocess.run(["sh", "-c", prog], cwd=ROOT, env=env,
+                               capture_output=True, text=True, timeout=120)
+            if r.returncode != 0:
+                last = (r.stderr.strip().splitlines() or ["exited non-zero"])
+                return False, last[-1].strip()[:160]
+            if not r.stdout.strip():
+                return False, "ran without error and printed nothing"
+            return True, ""
         if block.mode == "js-ok":
             host = base.split("//", 1)[1]
             prog = ("\n".join(block.program).replace(DEMO, base)
@@ -343,7 +367,7 @@ def write_refills(blocks: list) -> list[str]:
         # `js-ok` documents no output, and `py-fails` documents a refusal on
         # stderr -- a refusal's wording is prose a reader is meant to read,
         # and nothing here rewrites prose.
-        if b.span is None or b.mode in ("js-ok", "py-fails"):
+        if b.span is None or b.mode in ("js-ok", "sh-ok", "py-fails"):
             continue
         if not b.printed or not any(l.strip() for l in b.printed):
             out.append(f"  SKIPPED {b.src}:{b.line} printed nothing, so its "
