@@ -79,7 +79,13 @@ GAP (fidelity) until this lands and HOME after.
 
 ## 2. `manifest_uri` on `GeoAnchor`
 
-**Status:** candidate. Raised by the anchor-bearing sample directive, where
+**Status: LANDED in the 1.8 revision 2026-10-15** (SpatialDDS-spec CHANGELOG,
+"Version 1.8 Revision 2026-10-15: GeoAnchor content reference"). `GeoAnchor`
+gained an optional `SpatialUri manifest_uri`, APPENDABLE and wire-compatible;
+Appendix C carries the binding semantics and §8.2.1 the manifest field. Kept here
+as the record of the candidate; the revision supersedes it. Entry does not vanish.
+
+**Status (as raised):** candidate. Raised by the anchor-bearing sample directive, where
 "at least two anchors carry content refs" turned out to be inexpressible.
 
 **What exists today.** No anchor type in 1.8 can reference content.
@@ -305,3 +311,116 @@ or both.
 gates — `golden_publish`, `publish_reject`, `journal_replay`, `publish_live`,
 `publish_offswitch`. The last is the one that matters for this entry: with the
 surface off, every read is byte-identical to an endpoint built without it.
+
+## 5. The GeoPose Protocol successor, as a service profile
+
+**Status:** scoped, not drafted. A prerequisite census comes first, recorded
+below. This entry also sets the pattern for every later service profile, which
+is part of what it is for.
+
+**The shape of the answer, decided:** the OSCP GeoPose Protocol's successor is
+a **localization service profile over the web binding, not a mechanism in it.**
+A separate profile document that depends normatively on SpatialDDS 1.8 and
+Appendix N and **adds nothing to either**. If the profile needs a new verb, a
+new well-known path, or a new envelope field, that is a finding against the
+binding to be filed and resolved there — not something the profile may define
+for itself. A profile that extends its own substrate is a fork.
+
+### Two invocation modes
+
+**Single-shot localize.** A `POST` to an endpoint the service manifest
+advertises, answering with a typed `GeoPose` carrying covariance, in N.1
+canonical JSON. Advertised, not constructed: the same hypermedia rule the
+latched resources follow, where a client reads a URL out of a manifest rather
+than assembling one.
+
+**Continuous session.** One WebSocket: frames up, `geo.fix` down. This is the
+**first purposeful use of the upstream lane** that entry 4 deferred — until now
+the WebSocket has been read-only in this binding, and a publisher streaming
+upward had no stated semantics.
+
+The session's semantics are **ephemeral, and deliberately distinct from the
+registry write surface**: nothing is declared, nothing is journaled, there is
+no lease. A localization session leaves no trace in the registry and needs
+none, which is the cleanest available answer to entry 4's deferred leases
+question for this case — it does not need one. Writing that distinction down is
+half the value of the entry, because the two lanes will otherwise be conflated
+by anyone who sees "WebSocket" and "upstream" in the same sentence.
+
+### Conformance
+
+Claimed by a **versioned token in the manifest's profiles list**, and checked
+**only against claimants**. An endpoint that does not claim the profile reports
+**UNEXERCISED** rather than passing or failing — the vocabulary already adopted
+for exactly this, and the reason the conformance suite can grow profile checks
+without failing every endpoint that is not a localizer.
+
+**"Could not localize" is a result shape, not an HTTP fault.** A service that
+answers honestly that it does not recognise the place has succeeded at its job.
+Appendix L already treats refusal as conformance; this carries the same rule
+into the response body rather than the status line.
+
+### Prerequisite, before any design draft
+
+**A field-level census of the OSCP GeoPose Protocol's request and response
+against 1.8 types**, by the same method and in the same table shape as the
+SSR/SCR census in `directions/oscp-to-spatialdds-mapping.md`.
+
+(That census is local planning material and is not published: `directions/` is
+ignored except for this file. A reader of this repository cannot follow the
+reference, which is worth knowing before treating it as a citation. If the
+census is what this entry depends on, publishing it is the cheaper fix than
+summarising it here.)
+
+That file already has a *GeoPose Protocol* section, and it is four rows at the
+level of "Request / Response / Priors / Quality claim". That is the right
+summary and it is not a census: it does not say which 1.8 member carries each
+GeoPose Protocol field, which fields have no home, and which 1.8 members a
+localization request would leave empty. The SSD and SCD censuses were done at
+that depth and both produced findings; this one has not been, and a design
+draft written before it would be guessing.
+
+One reconciliation the census owes: the existing mapping row says the request
+goes "per the keyed request pattern over N.6", while this entry says "a `POST`
+to an endpoint the service manifest advertises". Those may be the same thing —
+an N.6 command endpoint named in a manifest — or they may not, and the
+difference decides whether the profile adds anything to Appendix N. The census
+is where that gets settled, not the design draft.
+
+### Evidence pointers
+
+* The **VPS manifest's `request` and `response` blocks**, derived from
+  `manifests/v1.8/vps_manifest.json` into
+  `samples/published-records.input.json`. They already name topics and roles
+  for a localization exchange — `features_topic`, `image_blob_role`,
+  `prior_topic`, and `rich`/`minimal` responses — which is the closest thing
+  the specification has to this profile's wire shape today.
+* The **`austin-vps` published record**, live over the write surface and shown
+  in full in `docs/WALKTHROUGH.md` step 8. A claimant's manifest is what the
+  conformance check would read, and that is what one looks like.
+
+### The terminology hazard, to settle at design time
+
+"A versioned token in the manifest's profiles list" is ambiguous today, because
+**four** different fields already hold a profile-ish string, and they do not
+agree on form:
+
+| where | form | example, from the live records |
+|---|---|---|
+| `Announce.caps.features` | free-form string | `web-binding/json` |
+| `Announce.caps.supported_profiles[]` | structured `{name, major, min_minor, max_minor}` | `spatial.core` 1.8–1.8 |
+| `Announce.caps.preferred_profiles[]` | same structure, **empty in every record here** | — |
+| the service manifest's top-level `profiles[]` | free-form label | `Core`, `SLAM Frontend`, `AR+Geo` |
+
+And a fifth string, the manifest envelope's `profile`
+(`spatial.manifest/1.8`), means something else again: the schema of the
+document rather than a capability of the service.
+
+So the profile's claim token must say which of these it is, and the honest
+candidate is `caps.supported_profiles` — it is the only one already carrying a
+version, which is what "versioned token" requires, and the free-form lists
+cannot express a minor range. That choice needs ratifying rather than
+assuming, and whichever is chosen, the unused `preferred_profiles` should be
+given a stated meaning or an explicit "not used by this binding", because a
+field that exists and is always empty is a field the next implementer will fill
+with something.
