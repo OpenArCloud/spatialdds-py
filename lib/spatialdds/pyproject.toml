@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "spatialdds"
+version = "0.1.0"
+description = "SpatialDDS over plain HTTPS and a WebSocket: a client for the web binding (Appendix N)."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "Apache-2.0" }
+authors = [{ name = "Open AR Cloud" }]
+keywords = ["spatialdds", "spatial", "geopose", "anchors", "openarcloud"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: Apache Software License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Topic :: Scientific/Engineering :: GIS",
+]
+# Two, and no more. The wire is HTTP and a WebSocket; anything else would be
+# this library's opinion rather than the binding's requirement.
+dependencies = ["requests>=2.25", "websockets>=12"]
+
+[project.urls]
+Homepage = "https://github.com/OpenArCloud/spatialdds-web"
+Specification = "https://github.com/OpenArCloud/SpatialDDS-spec"
+
+[tool.setuptools]
+packages = ["spatialdds"]
+
+[tool.setuptools.package-data]
+# The generated serializer tables travel with the package: they are what the
+# lift reads, and a client has no recording to learn the types from.
+spatialdds = ["serializer_tables.json"]

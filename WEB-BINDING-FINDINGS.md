@@ -917,6 +917,14 @@ The instrument was never tested against the thing it claims to measure. The fix
 is the same move in all three: make the measured thing go wrong — or take away
 what the instrument was quietly supplying — and confirm it says so.
 
+And one neighbour that is none of the three, recorded here because it belongs
+beside them: finding 32, a probe whose *subject* changed category while its
+label did not, so it passed for a different reason than it claimed. **The three
+classes are failures of sight; that one is a failure of aim** — the instrument
+still pointed where the thing used to be. One instance does not make a fourth
+class. If a second stale-target check turns up, this paragraph is already
+standing where the class would form.
+
 ## 24. The gate repaired its input, then reported no defect, 2026-10-11
 
 Reported by James walking the README with GitHub's copy button. Both shell
@@ -1216,3 +1224,69 @@ since any other choice is self-referential — or, if it is meant to be opaque
 publisher bookkeeping, say that and drop it from §7.5.2's list of integrity
 signals. Either resolves it; the present state lets it count as integrity
 while meaning whatever the publisher likes.
+
+## 32. A probe whose target changed category under it, 2026-10-15
+
+`gates/publish_reject.py` carried a check labelled *a topic that is not
+publishable*, expecting `405`. Its probe aimed at `geo_anchor` — which stopped
+being unpublishable in the very batch that added anchors to the write surface.
+It kept passing. It was returning `400` for a malformed body where the label
+promised `405` for a forbidden topic: **the right failure for the wrong reason,
+a different claim passing under the same label.** It now aims at a zone, which
+has no write surface and is not about to get one.
+
+Caught by re-reading the gate against the batch rather than trusting its green.
+Nothing in the suite could have caught it, because from the outside it looked
+exactly like a check that still worked.
+
+Kin to the three instrument classes above and not an instance of any: the
+instrument was not observing its own machinery, nor blind to a composition or a
+fragment. Its *subject* moved, and its label did not. **Green is not evidence
+that a check still measures what its label says.** When a batch changes what a
+category contains, every check naming that category has to be re-read, and what
+is checked is *why* it passes — not that it does.
+
+## 33. A mapping rule written for a spelling the specification does not use, 2026-10-15
+
+Appendix N.1 makes an octet run base64. `webjson.Projector` and `webjson.Lifter`
+both implemented it, and both tested the resolved IDL type against `"octet"`.
+The specification's IDL spells every such field `sequence<uint8, N>` and never
+once spells it `octet`, so the condition **never matched and the rule never
+ran**: a `sequence<uint8>` would have been projected as a JSON array of
+integers, contradicting N.1 and contradicting this repository's own published
+schema for the same field, which says `{"type": "string", "contentEncoding":
+"base64"}`.
+
+Three vendored types carry such a field — `BlobChunk.data`,
+`KeyframeFeatures.descriptors`, `Landmark.desc`. **Neither recording contains a
+message of any type with an octet run**, so no gate, no golden vector and no
+conformance check had a value to be wrong about. Twenty gates were green over a
+rule that was dead code.
+
+It surfaced from the other side. The client package drives the same three rules
+from the generated serializer tables, which say `"t": "base64"` for exactly
+those three fields; `gates/library.py` lifts every message in both recordings
+with each implementation and requires agreement, and the one authored record it
+adds for the rule the recordings do not exercise crashed the gateway's lifter
+on the first run — `int('c')`, the third character of a base64 string being
+read as a number.
+
+Fixed by naming both spellings in one place, `webjson.OCTET_RUN`, used by both
+directions of the mapping. The class is closed rather than the instance:
+`gates/wire_model.py` now compares the two readings on this rule specifically —
+every field the tables mark `base64` must be a field the model reads as an
+octet run, in both directions, over every vendored entry — and then requires
+the mapping to actually apply it, projecting two octets to `aGk=` rather than
+to `[104, 105]`. Both legs fail against the pre-fix rule.
+
+**Two lessons, and the second is the one that generalizes.** First: an
+unexercised rule is not a tested rule, and a corpus that cannot reach a branch
+is not coverage. Second: the defect was found by **a second implementation of
+the same specification**, not by a better test of the first. The agreement gate
+was written to defend the library against the gateway; it caught the gateway.
+Two independent readings of one document disagree in exactly the places where
+one of them guessed — which is the same argument `gates/wire_model.py` already
+makes for the IDL, applied to the mapping.
+
+Not a spec finding: the specification's IDL is unambiguous and its schemas are
+correct. This was entirely ours.

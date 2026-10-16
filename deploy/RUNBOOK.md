@@ -146,6 +146,36 @@ repeat reads without the endpoint seeing them.
 Rollback is `docker stop`. There is no state to migrate and nothing downstream
 of it.
 
+## Releasing the `spatialdds` package
+
+Separate from the endpoint, and separate from this repository's own version:
+`lib/spatialdds` is published to PyPI from a tag, by the trusted-publishing
+workflow in `.github/workflows/publish-spatialdds.yml`. The workflow holds no
+credential — PyPI must have a trusted publisher pointing at this repository,
+that filename and the `pypi` environment, which is a one-time setup on
+pypi.org and the only reason the workflow is inert as committed.
+
+Five lines, from a commit whose gates are green:
+
+1. `python3 gates/run_all.py` — 21 gates, 0 failed. A release is cut from a
+   verified commit, which is why the workflow does not re-run them itself.
+2. Bump `__version__` in `lib/spatialdds/spatialdds/__init__.py`, and
+   `version` in `lib/spatialdds/pyproject.toml`, to the same number.
+3. `python3 gates/library.py` — it checks that those two agree, that the
+   README names the spec commit the module claims, and that the package
+   imports with nothing from this repository on the path.
+4. Commit, then `git tag spatialdds-v<version> && git push origin
+   spatialdds-v<version>`. The workflow's build job fails if the tag and the
+   package disagree, so a mistyped tag does not reach PyPI.
+5. Approve the `pypi` environment if the repository is set to require it, then
+   confirm the upload: `pip download spatialdds==<version>` into an empty
+   directory and check the wheel's name and size.
+
+`SPEC_COMMIT` in the package is the commit of SpatialDDS-spec whose Appendix N
+the release implements, and it moves on its own schedule: a package release
+does not imply a specification release, and the version numbers are unrelated
+by design.
+
 ## What was and was not verified
 
 Checked here, without a network:

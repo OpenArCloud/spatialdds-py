@@ -13,3 +13,9 @@ directions/*
 # deferred lists, design rules, open questions -- record nothing if they are
 # not committed. Everything else under directions/ stays ignored.
 !directions/spatialdds-1.9-candidates.md
+
+# Build artifacts of the client package in lib/spatialdds. The wheel is built
+# in CI from the tag and on a laptop to check it; neither belongs in history.
+lib/spatialdds/dist/
+lib/spatialdds/build/
+lib/spatialdds/*.egg-info/

@@ -38,9 +38,20 @@ python3 gates/run_all.py
   PASS     publish_offswitch   with publishing off, reads are byte-identical and writes are 405
   PASS     publish_duck        a published record followed from PUT to fetched bytes
   PASS     publish_anchor      a published anchor is an anchor, and the content it names resolves
+  PASS     library             the spatialdds client package reads, publishes and refuses as documented
 
-20 gates: 20 passed, 0 failed, 0 skipped
+21 gates: 21 passed, 0 failed, 0 skipped
 ```
+
+The newest of them, `library`, is the only one with a second implementation to
+compare against rather than a recording. The `spatialdds` client package in
+`lib/spatialdds` cannot import this repository, so it drives Appendix N.1's
+three lift rules from the generated serializer tables while the gateway drives
+them from the IDL a recording embeds; the gate lifts **every one of the 15,684
+messages in both recordings** with each and requires them to agree, then adds
+one authored record for the rule neither recording exercises. That comparison
+found a defect on its first run, and in the gateway rather than in the library:
+finding 33.
 
 Expected values come from the recording, not from this gateway: per-topic
 counts and the total from its own `summary.json`, the file digest from

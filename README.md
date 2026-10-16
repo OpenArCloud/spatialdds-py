@@ -6,6 +6,10 @@ Running here are a reference gateway that serves a recorded SpatialDDS stream
 and a folder of [examples](examples/) to paste into a terminal, a browser
 console, or a ten-line Python file.
 
+Building an application rather than reading one? `pip install spatialdds` is
+the same binding with the typing done for you — see
+[`lib/spatialdds`](lib/spatialdds/README.md).
+
 ## Try it, smallest first
 
 The demo endpoint is coming online; the local one works today. Serving it

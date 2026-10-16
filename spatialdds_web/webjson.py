@@ -130,6 +130,16 @@ def schema_file_for(fqn: str) -> str:
     return fqn.replace(".", "_")
 
 
+# The IDL spellings of an octet run. N.1 makes such a run base64, and the
+# generated serializer tables say `"t": "base64"` for all three of them -- but
+# the specification's IDL spells them `sequence<uint8, N>` and never `octet`,
+# so a rule written against `octet` alone matched nothing. It went unnoticed
+# because neither recording carries a message with an octet run: finding 33.
+# gates/wire_model.py now checks the two readings against each other on this
+# rule specifically, so a fourth spelling cannot arrive unexercised.
+OCTET_RUN = ("octet", "uint8")
+
+
 class Lifter:
     """The inverse of `Projector`: binding JSON back to wire values.
 
@@ -181,7 +191,7 @@ class Lifter:
 
     def _member(self, mem: Member, v: Any) -> Any:
         base = self.m.resolve(mem.type)
-        if base == "octet" and (mem.sequence or mem.array):
+        if base in OCTET_RUN and (mem.sequence or mem.array):
             return list(base64.b64decode(v)) if isinstance(v, str) else list(v)
         if mem.sequence:
             return [self._scalar(mem.type, x) for x in v]
@@ -280,7 +290,7 @@ class Projector:
     def _member(self, mem: Member, v: Any) -> Any:
         base = self.m.resolve(mem.type)
         # An octet run is base64, which overrides the per-octet number rule.
-        if base == "octet" and (mem.sequence or mem.array):
+        if base in OCTET_RUN and (mem.sequence or mem.array):
             raw = bytes(bytearray(self._flatten_ints(v)))
             return base64.b64encode(raw).decode()
         if mem.sequence:

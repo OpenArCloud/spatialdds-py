@@ -37,6 +37,11 @@ def gates() -> list[dict]:
         have_js = True
     except ImportError:
         have_js = False
+    try:
+        import requests       # noqa: F401
+        have_requests = True
+    except ImportError:
+        have_requests = False
     no_fountain = None if FOUNTAIN.is_file() else (
         f"needs {FOUNTAIN.relative_to(ROOT)}; author it with "
         f"tools/author_anchors.py, which needs a specification checkout for "
@@ -46,6 +51,11 @@ def gates() -> list[dict]:
         f"repository; see webjson/PROVENANCE")
     no_web = None if web else "needs aiohttp and websockets: pip install aiohttp websockets"
     no_js = None if have_js else "needs jsonschema: pip install jsonschema"
+    # The client package's own dependency, not the gateway's. A checkout that
+    # has not installed it cannot run the library gate, and the manifest says
+    # so rather than passing a gate that did not execute.
+    no_requests = None if have_requests else (
+        "needs requests, which lib/spatialdds depends on: pip install requests")
     # The examples gate verifies the browser snippets by running them, and a
     # snippet it cannot run it reports as a failure rather than a pass. So a
     # missing interpreter becomes a stated skip here instead of red there.
@@ -120,6 +130,14 @@ def gates() -> list[dict]:
         {"name": "publish_anchor", "what": "a published anchor is an anchor, and the content it names resolves",
          "cmd": ["gates/publish_anchor.py"],
          "skip": no_fountain or no_web or no_duck or no_js},
+        # The client package in lib/spatialdds, which the gateway never
+        # imports. Its first section is the one that matters here: the
+        # library's own lift and the gateway's `webjson.Lifter` are two
+        # implementations of the same three rules, and they are required to
+        # agree on every message in both recordings.
+        {"name": "library", "what": "the spatialdds client package reads, publishes and refuses as documented",
+         "cmd": ["gates/library.py"],
+         "skip": no_fountain or no_web or no_duck or no_input or no_requests},
     ]
 
 

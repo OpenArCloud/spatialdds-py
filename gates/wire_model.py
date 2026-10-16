@@ -28,7 +28,7 @@ if str(ROOT) not in sys.path:
 sys.path.insert(0, str(ROOT / "gates"))
 
 from harness import MCAP, report                               # noqa: E402
-from spatialdds_web import gateway                             # noqa: E402
+from spatialdds_web import gateway, webjson                    # noqa: E402
 
 TABLES = ROOT / "webjson" / "serializer_tables.json"
 
@@ -128,6 +128,47 @@ def main() -> int:
     renamed += [f"{fqn}.{c[1]}"
                 for fqn, spec in tables.items() if spec.get("kind") == "union"
                 for c in spec["cases"] if c[1] and c[1].startswith("_")]
+    # The base64 rule, checked across the two readings rather than inside
+    # one of them. The serializer tables mark a field `"t": "base64"`; the
+    # model says whether it is a run of octets. Those two statements have to
+    # name the same fields, and for three releases they did not: the mapping's
+    # rule tested for the IDL spelling `octet`, the specification spells it
+    # `sequence<uint8, N>`, and no recording carries such a field, so the rule
+    # matched nothing and nothing failed (finding 33).
+    #
+    # Checked over every vendored entry, in both directions, so a fourth
+    # spelling cannot arrive the same way.
+    tbl_b64 = {(f, n) for f, spec in tables.items()
+               if spec.get("kind") == "struct"
+               for n, d in spec["fields"] if d.get("t") == "base64"}
+    mdl_b64 = {(f, m.name) for f, a in model.aggregates.items()
+               if a.kind == "struct" for m in a.members
+               if (m.sequence or m.array)
+               and model.resolve(m.type) in webjson.OCTET_RUN}
+    shared = {f for f, _ in tbl_b64} & set(model.aggregates)
+    mism = sorted((tbl_b64 ^ mdl_b64) & {(f, n) for f, n in tbl_b64 | mdl_b64
+                                         if f in shared})
+    checks.append((f"the tables' base64 fields and the model's octet runs are "
+                   f"the same fields ({len(tbl_b64)} in the tables, "
+                   f"{len(mdl_b64)} in this recording's model)",
+                   bool(tbl_b64) and not mism,
+                   f"disagree on {mism}" if mism else
+                   "no field is marked base64 anywhere, so the rule is "
+                   "unchecked"))
+    # And the rule is live rather than dead: the mapping must actually treat
+    # one of them as base64, which is what finding 33 was.
+    probe = sorted(mdl_b64)[0] if mdl_b64 else None
+    live = False
+    if probe:
+        agg = model.aggregates[probe[0]]
+        mem = next(m for m in agg.members if m.name == probe[1])
+        got = webjson.Projector(model, tables)._member(mem, [104, 105])
+        live = got == "aGk="
+    checks.append((f"and the mapping applies it: "
+                   f"{probe[0].split('.')[-1] + '.' + probe[1] if probe else '-'}"
+                   f" projects two octets to base64, not to a list of numbers",
+                   live, f"got {got!r}" if probe else "no octet run to probe"))
+
     checks.append((f"no table field carries a code generator's mangled name, "
                    f"across all {len(tables)} vendored entries "
                    f"(MAPPING.md requires verbatim IDL names)",
