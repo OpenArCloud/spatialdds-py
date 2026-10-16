@@ -39,6 +39,7 @@ import hashlib
 import json
 import os
 import re
+import subprocess
 import sys
 import tempfile
 from datetime import datetime, timezone
@@ -792,6 +793,18 @@ def surface_section(checks: list) -> None:
             "spatial_core_GeoAnchor.json").relative_to(ROOT).as_posix()
     checks.append((f"and one copy of the generated JSON Schemas "
                    f"({len(sch)} found)", sch == [wsch], f"{sch}"))
+    # The release-time comparator, exercised offline. A tool reached for once
+    # a release and never otherwise is a tool that fails the one time it
+    # matters, which is why its self-test runs here rather than in a habit.
+    r = subprocess.run([sys.executable,
+                        str(ROOT / "tools" / "compare_wheel.py"),
+                        "--self-test"], cwd=str(ROOT), capture_output=True,
+                       text=True)
+    passed = [l for l in r.stdout.splitlines() if l.strip().startswith("ok")]
+    checks.append((f"tools/compare_wheel.py knows a changed payload from a "
+                   f"changed build stamp ({len(passed)} self-checks, offline)",
+                   r.returncode == 0 and len(passed) >= 6,
+                   f"exit {r.returncode}: {r.stdout[-200:]}"))
     checks.append(("pyproject declares requests and websockets and nothing "
                    "else",
                    'dependencies = ["requests>=2.25", "websockets>=12"]'

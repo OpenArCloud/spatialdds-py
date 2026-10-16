@@ -180,8 +180,37 @@ Five lines, from a commit whose gates are green:
    spatialdds-v<version>`. The workflow's build job fails if the tag and the
    package disagree, so a mistyped tag does not reach PyPI.
 5. Approve the `pypi` environment if the repository is set to require it, then
-   confirm the upload: `pip download spatialdds==<version>` into an empty
-   directory and check the wheel's name and size.
+   confirm the upload: `pip download spatialdds==<version> --no-deps` into an
+   empty directory.
+6. **Check that what was published is what the pushed commit builds.** Name and
+   size are not enough, and whole-file hashes are worse than nothing here: a
+   wheel is not bit-reproducible across build-tool versions, so comparing
+   whole files reports a difference for every release built on a different
+   machine and trains you to ignore it.
+
+   ```sh
+   git archive <pushed commit> | (mkdir -p /tmp/t && cd /tmp/t && tar -xf -)
+   (cd /tmp/t/lib/spatialdds && python3 -m pip wheel . --no-deps \
+       --no-build-isolation -w /tmp/t/dist)
+   python3 tools/compare_wheel.py <downloaded>.whl /tmp/t/dist/*.whl
+   ```
+
+   It compares every payload file by SHA-256 and diffs `METADATA`, `WHEEL` and
+   `RECORD` line by line. **Any payload difference is a different artifact**,
+   and the answer to one is a new patch version cut from the pushed tree, not
+   an explanation. `dist-info` lines are expected to differ and are printed so
+   you can read them.
+
+   Run on the real pair on 2026-10-16: PyPI's `spatialdds 0.2.0` against a
+   wheel built from public commit `5282a02` gave *139 payload files, 0
+   differing*, with `METADATA` differing by one line of 294
+   (`Metadata-Version: 2.4` against `2.2`) and `WHEEL` by one
+   (`setuptools (84.0.0)` against `(75.8.0)`). That is what a traceable
+   release looks like.
+
+   `python3 tools/compare_wheel.py --self-test` checks the tool's own three
+   verdicts offline, and `gates/library.py` runs that on every gate run, so the
+   tool is not meeting its first real difference untested.
 
 `SPEC_COMMIT` in the package is the commit of SpatialDDS-spec whose Appendix N
 the release implements, and it moves on its own schedule: a package release
