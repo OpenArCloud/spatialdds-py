@@ -36,7 +36,7 @@ from typing import Any
 
 from aiohttp import WSMsgType, web
 
-from . import gateway, publish, webjson
+from . import commands, gateway, publish, webjson
 
 WELL_KNOWN = "/.well-known/spatialdds"
 
@@ -211,7 +211,8 @@ async def search(request: web.Request) -> web.Response:
         kinds = [k] if k else []
     try:
         doc = gateway.search(st, base, geohash=geohash, kinds=kinds,
-                             coverage=coverage)
+                             coverage=coverage,
+                             accepts_commands=request.app["commands"].accepts)
     except ValueError as e:
         raise web.HTTPBadRequest(
             body=_body({"type": PROBLEM_NS + "bad-query",
@@ -481,6 +482,98 @@ async def _broadcast(request: web.Request, topic: str, event: dict) -> None:
         q.put_nowait(event)
 
 
+async def post_command(request: web.Request) -> web.Response:
+    """N.6: a command is a POST to the resource it acts on.
+
+    The resource is the lane, not the instance, and the addressee rides in the
+    body. That is M.1's shape -- "a shared keyed command topic, keyed by the
+    addressee" -- and it is also the URL the manifest advertises, which is the
+    URL a client holding a manifest already has. Posting to an instance path
+    would make a client build a URL by string surgery on a key, which is the
+    thing N.7's `url` member exists to abolish.
+
+    Four outcomes, and the status carries which:
+
+    * **202** the backend accepted it. Acceptance, not completion: N.6
+      requires no completion tracking, so this gateway invents none.
+    * **409** the backend declined, with M.1's reason in the problem document.
+      Not a 200: a caller that checks only the status must not read a refusal
+      as an acceptance, which would turn M.1's first-class outcome back into
+      the absence it exists to replace.
+    * **405** no handler for this type, or this lane is not a command lane.
+      N.6 names 405 or 404 for an endpoint with nothing to accept a verb for,
+      and the body is still an N.8 problem document so the absence is stated
+      rather than left to a framework's default page.
+    * **400/401** the body is not valid for the type, or no bearer credential.
+      Commands are writes, so N.4's operator-scoped path applies.
+    """
+    st: gateway.State = request.app["state"]
+    reg: commands.Registry = request.app["commands"]
+    m = request.match_info
+    path = f"/{m['scene']}/{m['stream']}/{m['type']}/{m['version']}"
+    res = st.resources.get(path)
+
+    # Refuse before authenticating when there is nothing here to command: a
+    # 401 would tell an anonymous caller that a lane exists, and the lane's
+    # existence is public information that this endpoint simply does not have.
+    if res is None:
+        return _rejected(publish.Rejected(
+            405, "no-command-lane", "No command lane here",
+            f"This endpoint serves no resource at {path}, so there is no verb "
+            f"to accept. N.6: an endpoint with no command lane refuses "
+            f"cleanly and never accepts a command it cannot act on."), request)
+    if not reg.accepts(res.fqn):
+        return _rejected(publish.Rejected(
+            405, "no-command-lane", "No command lane here",
+            f"This endpoint serves {res.fqn} read-only: no backend has "
+            f"registered a handler for it, so there is nothing that could act "
+            f"on a verb. N.6 makes that a clean refusal rather than a silent "
+            f"acceptance.",
+            accepts=reg.types()), request)
+
+    if not _authorized(request, request.app["token"]):
+        return _unauthorized(str(request.rel_url))
+
+    try:
+        body = await request.json()
+    except Exception as e:
+        return _rejected(publish.Rejected(
+            400, "not-json", "Body is not JSON",
+            f"The body must be N.1 canonical JSON: {e}"), request)
+    try:
+        publish.validate_schema(res.fqn, body)
+        data, _raw = publish.canonicalize(st, res.fqn, body)
+    except publish.Rejected as r:
+        return _rejected(r, request)
+
+    handler = reg.handler(res.fqn)
+    assert handler is not None          # reg.accepts() was true above
+    try:
+        outcome = handler(data)
+    except Exception as e:
+        # A backend that raises is a backend that did not decide. Reporting
+        # 500 is honest; reporting a decline would put words in its mouth.
+        return _problem(500, "handler-failed", "The command handler failed",
+                        f"The backend registered for {res.fqn} raised "
+                        f"{type(e).__name__}: {e}",
+                        instance=str(request.rel_url))
+
+    if outcome.accepted:
+        doc: dict[str, Any] = {"outcome": "accepted", "type": res.fqn}
+        if outcome.reason:
+            doc["reason"] = outcome.reason
+        # Built directly rather than through `_json_response`, which is for
+        # resources: it answers 200 and honours If-None-Match, and a command
+        # outcome is neither cacheable nor re-fetchable. `no-store` because
+        # N.4 forbids any lifetime on an operator-scoped surface.
+        return web.Response(body=_body(doc), status=202,
+                            content_type="application/json",
+                            headers={"Cache-Control": "no-store"})
+    return _rejected(publish.Rejected(
+        409, "command-declined", "The command was declined",
+        outcome.reason, outcome="declined", type=res.fqn), request)
+
+
 async def put_instance(request: web.Request) -> web.Response:
     """PUT on the same instance URL a GET already serves."""
     if not request.app["publish"]:
@@ -705,7 +798,9 @@ async def root(request: web.Request) -> web.Response:
 def make_app(state: gateway.State, base: str, token: str | None,
              publish_enabled: bool = False,
              journal: "publish.Journal | None" = None,
-             assets: Path | None = None) -> web.Application:
+             assets: Path | None = None,
+             command_registry: "commands.Registry | None" = None
+             ) -> web.Application:
     app = web.Application()
     app["state"] = state
     app["base"] = base.rstrip("/")
@@ -715,6 +810,10 @@ def make_app(state: gateway.State, base: str, token: str | None,
     # default page, and so that the surface's absence is something the
     # endpoint states rather than something a caller infers from a 405.
     app["publish"] = publish_enabled
+    # The N.6 seam. Empty is the normal state: a gateway serving a recording
+    # has no verbs, and N.6 says a suite MUST NOT require a command surface
+    # to exist. An embedder registers handlers on this.
+    app["commands"] = command_registry or commands.Registry()
     app["journal"] = journal
     app["subs"] = {}
     app["assets"] = assets
@@ -732,6 +831,12 @@ def make_app(state: gateway.State, base: str, token: str | None,
         # `spatialdds/` removed, collection then instance.
         web.get("/{scene}/{stream}/{type}/{version}", collection),
         web.get("/{scene}/{stream}/{type}/{version}/{key}", instance),
+        # N.6: a command POST on the lane's own collection URL -- the one
+        # the manifest advertises, so a client follows a link rather than
+        # building a path. Registered unconditionally, like the write
+        # surface below and for the same reason: a refusal should be a stated
+        # N.8 problem document, not a framework's default 405 page.
+        web.post("/{scene}/{stream}/{type}/{version}", post_command),
         # The write surface, on the same URLs the GETs serve.
         web.put("/{scene}/{stream}/{type}/{version}/{key}", put_instance),
         web.delete("/{scene}/{stream}/{type}/{version}/{key}",

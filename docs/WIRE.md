@@ -27,11 +27,43 @@ what a reader does; this is the surface they are doing it against.
 | `GET /{domain}/{stream}/{type}/{version}` | any topic's latched set |
 | `GET /{domain}/{stream}/{type}/{version}/{key}` | one instance, by its key |
 | `WS /{domain}/{stream}/{type}/{version}` | the same URL, upgraded: replay, then live |
+| `POST /{domain}/{stream}/{type}/{version}` | N.6: a command on the lane that accepts one |
+| `PUT /{domain}/{stream}/{type}/{version}/{key}` | the write surface, where publishing is on |
+| `DELETE /{domain}/{stream}/{type}/{version}/{key}` | removal, likewise |
 
 Every one of those is a plain resource: `GET` it with anything that speaks
 HTTP, and the WebSocket upgrade is the same URL. There is no index endpoint and
 no bootstrap: a client starts at the search path and follows what the service
 manifest hands it.
+
+## Commands (N.6), and the three things N.6 leaves open
+
+N.6 is four sentences: a command is a `POST` to the resource it acts on, the
+response carries the outcome **including an explicit decline** per M.1, and an
+endpoint with no command lane refuses with `405` or `404` and never accepts a
+command it cannot act on. A conformance suite MUST NOT require a command
+surface to exist.
+
+The ruling this implements: **N.6 is a gateway surface whose semantics a
+backend supplies.** This package owns the route, the credential, the schema
+validation and the response shape; an embedder registers a handler per type
+(`spatialdds.server.commands.Registry`) and decides what a verb means. With no
+handlers registered the endpoint is northbound-only and every command POST is
+a clean `405`, which is exactly as conformant as it was before this surface
+existed.
+
+Three things N.6 does not settle, decided here and listed so a reader can tell
+a choice from a requirement:
+
+| | choice | why |
+| --- | --- | --- |
+| **the lane, not the instance** | `POST` on the topic's collection URL | M.1's shape is "a shared keyed command topic, keyed by the addressee", and the addressee rides in the body. It is also the URL the manifest advertises, so a client follows a link instead of building a path out of a key — which is what N.7's `url` member exists to abolish. |
+| **`202` accept, `409` decline** | acceptance is not completion; a decline is an error status carrying M.1's reason in an N.8 problem document | N.6 requires no completion tracking, so none is invented. The decline is not a `200`: a caller that checks only the status must not read a refusal as an acceptance, which would turn M.1's first-class outcome back into the absence it exists to replace. |
+| **`accepts_commands` on the topic entry** | an implementation-defined manifest member, `true` on lanes with a handler and absent otherwise | N.7's topic-entry table is six MUST-carry fields plus `qos_profile` and `liveliness`, and none of them can say "verbs welcome here" — while N.6 asks a client to POST to the lane that accepts one. Without a member, discovery is by trial: POST and read the refusal. **Filed as a specification gap, not settled**: N.7's list is a floor so an extra member is conformant, but a *client* should not depend on this name until the specification adopts one. |
+
+A `500` means the registered handler raised. That is reported as a handler
+failure rather than as a decline, because a backend that crashed did not
+decide anything and reporting a decline would put words in its mouth.
 
 ## What it serves
 

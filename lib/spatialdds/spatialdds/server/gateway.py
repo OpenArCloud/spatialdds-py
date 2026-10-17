@@ -31,11 +31,11 @@ import json
 import math
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Callable, Iterable
 
 from mcap.reader import make_reader
 
-from . import idlmodel, pin, webjson, xcdr2
+from . import commands, idlmodel, pin, webjson, xcdr2
 
 PUBLIC = "public-cacheable"
 OPERATOR = "operator-scoped"
@@ -553,7 +553,9 @@ def declared_service(st: State, scene: str) -> dict | None:
 
 
 def service_manifest(st: State, scene: str, base: str,
-                     declared: dict | None = None) -> dict:
+                     declared: dict | None = None,
+                     accepts_commands: Callable[[str], bool] | None = None
+                     ) -> dict:
     """The §8.2.3 service manifest for one scene.
 
     `service.connection` is deliberately absent: it carries DDS connection
@@ -587,6 +589,21 @@ def service_manifest(st: State, scene: str, base: str,
             "access": res.access,
             "url": base + path,
         })
+        # N.6 asks a client to POST a command to the lane that accepts one,
+        # and N.7's topic entry has no member that says which lane that is:
+        # its table is six MUST-carry fields plus `qos_profile` and
+        # `liveliness`, none of which can carry "verbs welcome here". Without
+        # something, a client discovers the command surface by POSTing and
+        # reading the refusal, which is discovery by trial.
+        #
+        # So this member is added, under this repository's own name, and
+        # filed as a specification gap rather than treated as settled -- see
+        # docs/WIRE.md and the 1.9 candidates entry. N.7's list is a floor
+        # and not a ceiling, so an extra member is conformant; it is omitted
+        # entirely rather than written `false`, so a manifest from an endpoint
+        # with no verbs is byte-identical to one from before this existed.
+        if accepts_commands and accepts_commands(res.fqn):
+            topics_block[-1][commands.ADVERTISEMENT] = True
     man: dict[str, Any] = {
         "id": f"spatialdds://spatialdds-web.local/{scene}/service/gateway",
         "profile": "spatial.manifest/1.8",
@@ -659,7 +676,8 @@ def service_manifest(st: State, scene: str, base: str,
 
 def search(st: State, base: str, geohash: str | None = None,
            kinds: list[str] | None = None,
-           coverage: list[dict] | None = None) -> dict:
+           coverage: list[dict] | None = None,
+           accepts_commands: Callable[[str], bool] | None = None) -> dict:
     """The §3.3.0 search response: `{"results": [...], "next_page_token": ""}`."""
     wanted: list[tuple[float, float, float, float]] = []
     if geohash:
@@ -679,10 +697,12 @@ def search(st: State, base: str, geohash: str | None = None,
     for scene in st.scenes:
         declared = declared_services(st, scene)
         if declared:
-            manifests.extend(service_manifest(st, scene, base, d)
+            manifests.extend(service_manifest(st, scene, base, d,
+                                              accepts_commands)
                              for d in declared)
         else:
-            manifests.append(service_manifest(st, scene, base))
+            manifests.append(service_manifest(st, scene, base,
+                                              accepts_commands=accepts_commands))
     for man in manifests:
         if kinds and man["service"]["kind"] not in kinds:
             continue

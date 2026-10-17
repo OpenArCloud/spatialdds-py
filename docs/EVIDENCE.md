@@ -45,7 +45,7 @@ python3 gates/run_all.py
   PASS     builders            the record builders produce what the hand-authored records say
   PASS     deploy_image        the image's own instructions serve the endpoint from the new layout
 
-26 gates: 26 passed, 0 failed, 0 skipped
+27 gates: 27 passed, 0 failed, 0 skipped
 ```
 
 The newest of them, `library`, is the only one with a second implementation to

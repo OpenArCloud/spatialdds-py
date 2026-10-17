@@ -169,6 +169,14 @@ def gates() -> list[dict]:
         {"name": "deploy_image", "what": "the image's own instructions serve the endpoint from the new layout",
          "cmd": ["gates/deploy_image.py"],
          "skip": no_web or no_lsof or no_fountain},
+        # N.6, and the clause the conformance suite has never taken: its
+        # command check POSTs to the first advertised topic by position, so a
+        # working command lane sitting third in a manifest leaves the check on
+        # its 405 branch. This gate asserts what the suite structurally
+        # cannot -- that the advertisement and the behaviour agree.
+        {"name": "commands_n6", "what": "the N.6 command surface accepts, declines with a reason, and advertises only what it serves",
+         "cmd": ["gates/commands_n6.py"],
+         "skip": no_web or no_fountain},
     ]
 
 

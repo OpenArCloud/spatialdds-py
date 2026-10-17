@@ -461,3 +461,46 @@ assuming, and whichever is chosen, the unused `preferred_profiles` should be
 given a stated meaning or an explicit "not used by this binding", because a
 field that exists and is always empty is a field the next implementer will fill
 with something.
+
+## 7. A manifest member that says a lane accepts commands
+
+**Status:** candidate. (Numbered 7: entry 6 is reserved for the relationship type drafted in
+`SpatialDDS-demo/docs/relationship-candidate-1.9.md`.) Raised by implementing N.6 in the reference gateway,
+2026-10-17, which is the first implementation to need it.
+
+**What exists today.** N.6 says a command is a POST to the resource it acts
+on, and scopes itself to "where an endpoint exposes a command surface". N.7
+says what each `service.topics` entry MUST carry: `name`, `type`, `version`,
+`durability`, `url`, `access`, plus optional `qos_profile` and `liveliness`.
+None of those can say which lane, if any, accepts a verb.
+
+**So a client cannot discover a command surface; it can only probe for one.**
+POST and read the refusal. That is the opposite of what N.7's `url` member was
+added for — the manifest exists so a client follows links instead of
+reconstructing the binding — and it is worse than a missing field, because the
+probe is a write-shaped request against an endpoint that may be
+operator-scoped. A client without a credential cannot even run the probe.
+
+**What the reference implementation did.** Added `accepts_commands: true` to
+the topic entry of any lane with a registered handler, omitted entirely
+otherwise, so a manifest from an endpoint with no verbs is byte-identical to
+one from before the surface existed. Documented in `docs/WIRE.md` as
+implementation-defined and gated in `gates/commands_n6.py` to appear on
+exactly the handled lanes. **It is not proposed as the name** — a single
+implementation should not mint manifest vocabulary — only as evidence that
+something is needed and as one shape that works.
+
+**The design question worth settling before a field list.** Whether command
+acceptance is a property of a *topic* (this member) or of the *service* (a
+`service.commands` block listing accepted types). The topic-entry version
+suits a client that already holds the entry it wants to POST to; the
+service-level version suits a client deciding whether this endpoint is worth
+talking to at all. The reference implementation chose per-topic because N.6
+locates the command at a resource, but the service-level shape composes better
+with §8.2.3's existing blocks.
+
+**Evidence.** `gates/commands_n6.py` passes ten checks over the surface,
+including that the advertisement and the behaviour agree. The demo repo's web
+bridge is the first external consumer and is blocked on this surface landing;
+its census records the whole measurement
+(`SpatialDDS-demo/docs/bridge-1.8-census.md`, finding 4).

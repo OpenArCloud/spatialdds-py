@@ -42,10 +42,10 @@ def _server():
     """The server half, or one sentence saying how to get it."""
     try:
         from aiohttp import web
-        from .server import gateway, gw_http, pin, publish
+        from .server import commands, gateway, gw_http, pin, publish
     except ImportError as e:                                  # pragma: no cover
         raise SystemExit(f"spatialdds.serve: {MISSING_SERVER}\n\n({e})")
-    return web, gateway, gw_http, pin, publish
+    return web, commands, gateway, gw_http, pin, publish
 
 
 def build_parser(ap: argparse.ArgumentParser) -> argparse.ArgumentParser:
@@ -102,8 +102,33 @@ def build_parser(ap: argparse.ArgumentParser) -> argparse.ArgumentParser:
     return ap
 
 
+def _demo_command(record: dict):
+    """The `--demo` command handler: both of M.1's outcomes, no side effects.
+
+    A reference handler that pretended to act would be worse than none: it
+    would make the surface look wired to something. So this decides, says
+    why, and changes nothing --- which is all a demo registry can honestly do,
+    having no backend behind it.
+
+    `method == "DECLINE_ME"` is declined on purpose. Without a reachable
+    decline, the only exercised path would be acceptance, and M.1's whole
+    point is that a refusal is a first-class observable outcome; a surface
+    that can only say yes has not implemented it.
+    """
+    from .server.commands import Outcome      # the server half is optional
+    if record.get("method") == "DECLINE_ME":
+        return Outcome.decline(
+            "the demo handler declines this method by arrangement, so a "
+            "caller can see M.1's decline path without a backend: a refusal "
+            "carries a reason and is not an absence")
+    return Outcome.accept(
+        "accepted by the --demo handler, which records nothing: this registry "
+        "has no backend, and a handler that claimed to act would make the "
+        "surface look wired to something it is not")
+
+
 def main(argv: list[str] | None = None) -> int:
-    web, gateway, gw_http, pin, publish = _server()
+    web, commands, gateway, gw_http, pin, publish = _server()
     ap = build_parser(argparse.ArgumentParser(
         prog="python -m spatialdds.serve",
         description="Stand up a SpatialDDS registry."))
@@ -129,6 +154,21 @@ def main(argv: list[str] | None = None) -> int:
         a.publish = not a.no_publish
     if a.mcap is not None and not a.mcap.is_file():
         raise SystemExit(f"no such recording: {a.mcap}")
+
+    # The N.6 demo handler. `--demo` exists so the surface is exercisable
+    # without a backend, and a command surface nobody can POST to is a route
+    # with no evidence behind it -- the conformance suite's first clause had
+    # never been exercised by any run in this program precisely because there
+    # was nothing to exercise it against.
+    #
+    # It accepts a `GeoAnchor` command and declines one verb, so both of M.1's
+    # outcomes are reachable from a bare `--demo`: acceptance, and a decline
+    # carrying a reason. It does nothing to the registry, because `--demo` has
+    # no backend to do anything with -- which is the honest shape for a
+    # reference handler and the reason its reason string says so.
+    cmd_registry = commands.Registry()
+    if a.demo:
+        cmd_registry.register("spatial.core.GeoAnchor", _demo_command)
 
     token = a.token or secrets.token_urlsafe(24)
     st = gateway.build_state(
@@ -284,7 +324,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         web.run_app(gw_http.make_app(st, base, token, a.publish, jr,
                                      a.assets if a.assets
-                                     and a.assets.is_dir() else None),
+                                     and a.assets.is_dir() else None,
+                                     command_registry=cmd_registry),
                     host=a.host, port=a.port, print=None)
     except OSError as e:
         # An already-bound port is the one failure where everything downstream

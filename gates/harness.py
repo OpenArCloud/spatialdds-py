@@ -79,13 +79,17 @@ class Gateway:
 
     def __init__(self, st: gateway.State, token: str = TOKEN,
                  advertise: str | None = None, publish: bool = False,
-                 journal: Path | None = None) -> None:
+                 journal: Path | None = None,
+                 commands: "object | None" = None) -> None:
         self.state = st
         self.token = token
         self.advertise = advertise
         self.publish = publish
         self.journal_path = journal
         self.journal = None
+        #: An N.6 command registry, or None for an endpoint with no verbs --
+        #: which is the normal state and the one every other gate wants.
+        self.commands = commands
         self._runner: web.AppRunner | None = None
         self.base = ""
 
@@ -95,7 +99,8 @@ class Gateway:
             self.journal = _pub.Journal(self.journal_path, self.state)
             self.journal.replay()
         app = gw_http.make_app(self.state, "http://127.0.0.1", self.token,
-                               self.publish, self.journal, ASSETS)
+                               self.publish, self.journal, ASSETS,
+                               command_registry=self.commands)
         self._runner = web.AppRunner(app)
         await self._runner.setup()
         site = web.TCPSite(self._runner, "127.0.0.1", 0)
