@@ -181,7 +181,7 @@ the latched set is complete.
 ```python
 import spatialdds as sd
 ep = sd.connect("http://127.0.0.1:8787")
-svc = ep.search(geohash="9v6krc")[0]
+svc = next(h for h in ep.search(geohash="9v6krc") if h.serves("geo_anchor"))
 for ev in svc.topic("geo_anchor").subscribe(timeout=10):
     if isinstance(ev, sd.EndOfReplay): print("latched set complete:", ev.replayed); break
     print(" ", ev.key, ev.data["method"], ev.data["geopose"]["stamp"]["sec"])
@@ -248,6 +248,7 @@ call goes away and the bar is one line.
 | `ep.publish_anchor(anchor_id, lat=, lon=, method=, content=None, ...)` | build and PUT an anchor, optionally naming content |
 | `ep.withdraw(topic=, key=)` | DELETE: leaves the latched set and disposes |
 | `hit.service_id`, `.kind`, `.coverage`, `.topics` | the typed service manifest |
+| `hit.serves(type_name)` | does this service offer a topic of that type? for picking one out of a search result |
 | `hit.topic(type_name)` | a `Topic`, URL taken from the manifest, never built |
 | `hit.reaches(lat, lon, radius_m)` | does the declared coverage reach a point |
 | `topic.type`, `.url`, `.name`, `.durability`, `.access`, `.fqn` | what the manifest said |

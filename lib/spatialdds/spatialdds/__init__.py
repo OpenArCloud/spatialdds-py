@@ -8,7 +8,8 @@ can act on.
     import spatialdds as sd
 
     ep = sd.connect("https://demo.spatialdds.org")
-    svc = ep.search(geohash="9v6krc")[0]
+    svc = next(h for h in ep.search(geohash="9v6krc")
+               if h.serves("geo_anchor"))
     for a in svc.topic("geo_anchor").latched():
         print(a["anchor_id"], a["geopose"]["stamp"]["sec"])   # an int, not "17…"
 

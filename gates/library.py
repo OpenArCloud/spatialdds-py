@@ -758,6 +758,51 @@ async def bars_section(checks: list, refill: bool) -> list[dict]:
 
 # --------------------------------------------------------------- the shape --
 
+async def replay_section(checks: list, found: list) -> None:
+    """The front page's blocks, in order, then again on the state they left.
+
+    One endpoint for all of them, which is the opposite of how `bars_section`
+    runs them: there, each bar gets a fresh registry so that a reader pasting
+    one block in isolation is what is checked. Here the question is whether a
+    block still works after the blocks above it have run, which is what a
+    reader doing the whole page actually does -- and then whether it still
+    works a second time, which is what re-pasting one does.
+    """
+    mine = [b for b in found
+            if b["doc"].relative_to(ROOT).as_posix() == "README.md"]
+    if not mine:
+        checks.append(("the front page's blocks are replayable", False,
+                       "no README.md bars were found to replay"))
+        return
+    env = dict(os.environ, PYTHONPATH=f"{LIB}:{ROOT}")
+    gw = await Gateway(state(FOUNTAIN, MANIFESTS), advertise=DEMO,
+                       publish=True, token=mine[0]["token"]).start()
+    try:
+        for pass_no in (1, 2):
+            for b in mine:
+                prog = LOOPBACK.sub(gw.base, "\n".join(b["prog"]))
+                proc = await asyncio.create_subprocess_exec(
+                    sys.executable, "-c", prog, cwd=str(ROOT), env=env,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE)
+                raw, err = await proc.communicate()
+                got = [l.rstrip() for l in raw.decode()
+                       .replace(gw.base, "http://127.0.0.1:8787").splitlines()]
+                want = [l.rstrip() for l in b["want"]]
+                checks.append((
+                    f"pass {pass_no}: bar {b['name']!r} prints what the front "
+                    f"page says against a registry the page itself has "
+                    f"already published into",
+                    proc.returncode == 0 and got == want,
+                    f"exit {proc.returncode}\n"
+                    + "\n".join(f"       got  {l}" for l in got[:6])
+                    + "\n" + "\n".join(f"       want {l}" for l in want[:6])
+                    + (f"\n       stderr {err.decode()[-240:]}"
+                       if proc.returncode else "")))
+    finally:
+        await gw.stop()
+
+
 def surface_section(checks: list) -> None:
     text = README.read_text()
     missing = [n for n in sd.__all__
@@ -881,8 +926,9 @@ async def main() -> int:
         await resolve_section(checks)
         await subscribe_section(checks)
         await errors_section(checks)
-    await bars_section(checks, a.refill)
+    found = await bars_section(checks, a.refill)
     if not a.bars_only:
+        await replay_section(checks, found)
         surface_section(checks)
         await alone_section(checks)
     return report("the spatialdds client library against the reference "

@@ -343,7 +343,7 @@ matrix cannot contradict each other.
 ```sh
 export BASE=http://127.0.0.1:8787
 curl -s "$BASE/.well-known/spatialdds/search?geohash=9v6krc" \
-    | python3 -c 'import json,sys; s=json.load(sys.stdin)["results"][0]["service"]; print(s["service_id"], s["kind"]); [print(" ", t["type"], t["url"]) for t in s["topics"]]'
+    | python3 -c 'import json,sys; s=next(r["service"] for r in json.load(sys.stdin)["results"] if r["service"]["service_id"] == "mytown-vps"); print(s["service_id"], s["kind"]); [print(" ", t["type"], t["url"]) for t in s["topics"]]'
 ```
 
 ```console
@@ -352,6 +352,10 @@ mytown-vps VPS
   announce https://registry.mytown.example/mytown/discovery/announce/v1
   geo_anchor https://registry.mytown.example/mytown/frames/geo_anchor/v1
 ```
+
+Named rather than indexed: this registry holds one service today, and
+`results[0]` would quietly become whichever service sorted first the moment it
+holds two.
 
 No token: discovery and the records themselves are public-cacheable. That is
 one `curl` against a registry that did not exist ten minutes ago.
@@ -393,7 +397,8 @@ export BASE=http://127.0.0.1:8787
 python3 - <<'PY'
 import os, spatialdds as sd
 ep = sd.connect(os.environ["BASE"])
-hit = ep.search(geohash="9v6krc")[0]
+hit = next(h for h in ep.search(geohash="9v6krc")
+           if h.service_id == "mytown-vps")
 print("after restart:", hit.service_id, hit.kind)
 for t in hit.topics:
     print(" ", t["type"], len(hit.topic(t["type"]).latched()), "instance(s)")

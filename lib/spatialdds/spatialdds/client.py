@@ -470,6 +470,18 @@ class Hit:
             f"{self.service_id or 'this service'} serves no {type_name!r} "
             f"topic; it offers: {have}")
 
+    def serves(self, type_name: str) -> bool:
+        """Does this service offer a topic of that type?
+
+        For picking a service out of a search result, which is what `search`
+        returns and what nobody should be indexing by position: the order is
+        the endpoint's, and it changes the moment somebody publishes another
+        service into the same cell. `search(...)[0]` on the front page read
+        the fountain's anchors until the page's own publish block ran, and
+        then read a VPS that serves none.
+        """
+        return any(t.get("type") == type_name for t in self.topics)
+
     def reaches(self, lat: float, lon: float, radius_m: float) -> bool:
         """Does the declared coverage come within `radius_m` of the point?"""
         return _coverage_reaches(self.coverage, lat, lon, radius_m)

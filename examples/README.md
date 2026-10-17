@@ -74,7 +74,7 @@ newcomer's first thirty seconds should not end in a traceback:
 
 <!-- gate: retail py-fails examples/hello_spatial.py -->
 ```console
-$BASE serves no geo_anchor topic; it offers: detection2d, detection2d, spatial_event, entity, crossing_line, spatial_zone, fused_track
+$BASE serves no geo_anchor topic; it offers: crossing_line, detection2d, entity, fused_track, spatial_event, spatial_zone
 ```
 
 ## zones.py

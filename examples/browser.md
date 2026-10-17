@@ -24,7 +24,8 @@ the URL returns every latched anchor. Three hops, no constructed paths.
 <!-- gate: fountain js -->
 ```js
 const BASE = "http://127.0.0.1:8787";
-const svc = (await (await fetch(`${BASE}/.well-known/spatialdds/search`)).json()).results[0].service;
+const svc = (await (await fetch(`${BASE}/.well-known/spatialdds/search`)).json()).results
+  .map(r => r.service).find(s => s.topics.some(t => t.type === "geo_anchor"));
 const url = svc.topics.find(t => t.type === "geo_anchor").url;
 const anchors = await (await fetch(url)).json();
 console.table(anchors.map(a => ({ id: a.anchor_id, lat: a.geopose.lat_deg, lon: a.geopose.lon_deg, method: a.method })));

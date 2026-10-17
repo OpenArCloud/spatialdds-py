@@ -29,7 +29,7 @@ fresh shell without having run the others.
 ```python
 import spatialdds as sd
 ep = sd.connect("http://127.0.0.1:8787")
-svc = ep.search(geohash="9v6krc")[0]
+svc = next(h for h in ep.search(geohash="9v6krc") if h.serves("geo_anchor"))
 for a in svc.topic("geo_anchor").latched():
     print(a["anchor_id"], a["method"], a["geopose"]["lat_deg"], a["geopose"]["lon_deg"])
 ```
@@ -41,6 +41,10 @@ anchor/fountain-east-rim VisualFix 30.28495 -97.73931359
 anchor/fountain-west-rim VisualFix 30.28495 -97.73938641
 anchor/fountain-plaque GNSS 30.28496797 -97.73932919
 ```
+
+Picked by what it serves, not by position: a search result is ordered by the
+endpoint, and publishing another service into the same cell changes which one
+comes first.
 
 Those are native values, not canonical JSON. Appendix N.1 puts every 64-bit
 integer on the wire as a decimal string, and undoing that is most of what the
