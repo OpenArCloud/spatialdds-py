@@ -332,13 +332,37 @@ Latched reads revalidate with the ETag the endpoint gave; `fetch_asset` checks
 the bytes. Opting out exists and is loud: `verify_integrity=False`, at the call
 site, nowhere else.
 
-## Not in 0.3.1
+## New in 0.4.0: a command surface on the server half
+
+`spatialdds[server]` now implements Appendix N.6. A command is a POST to the
+lane that accepts one, and an embedder registers what a verb means:
+
+| Part | What it is |
+| --- | --- |
+| the seam | `spatialdds.server.commands.Registry().register(fqn, handler)` |
+| a handler gets | the validated, lifted record — the same JSON a GET would serve |
+| a handler returns | `Outcome.accept()` or `Outcome.decline("why")` |
+| the wire | `202` accepted, `409` declined with the reason, `405` where no handler is registered |
+
+`python -m spatialdds.serve --demo` registers one so the surface is reachable
+without writing a backend. An endpoint with no handlers is northbound-only and
+every command POST is a clean `405`, which is what N.6 requires and what every
+earlier version did.
+
+**The client half has no command method.** This release adds the surface, not
+a helper for calling it — `requests.post(topic_url, json=record)` with the
+operator token is the whole of it, and `docs/WIRE.md` documents the response
+shapes. Said plainly because "commands are supported" invites a reader to look
+for `hit.command(...)`, and there isn't one.
+
+## Not in 0.4.0
 
 Stated so nobody waits for them: no async API, no caching beyond ETag
 revalidation, no retry policy, no MCAP tooling beyond the journal the server
-writes, and no DDS dependency of any kind. The wire is HTTP and a WebSocket.
+writes, no client-side command helper, and no DDS dependency of any kind. The
+wire is HTTP and a WebSocket.
 
-0.3.1 is this page: two code blocks on it had no gate behind them and both
+0.3.1 was this page: two code blocks on it had no gate behind them and both
 were broken, and a long description is baked into the artifact, so the page on
 PyPI only heals with a release. Every block here is executed by a gate now,
 and the gate also refuses a relative link, an empty table header and a serve
