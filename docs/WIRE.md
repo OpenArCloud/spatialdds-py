@@ -65,6 +65,29 @@ A `500` means the registered handler raised. That is reported as a handler
 failure rather than as a decline, because a backend that crashed did not
 decide anything and reporting a decline would put words in its mouth.
 
+### Feeding it from a live source (0.5.0)
+
+An embedder with its own data source --- a DDS bus, say --- owns the state and
+the notifications, and the two are separate calls:
+
+```python
+publish.apply_sample(st, topic, res, key, data)   # what a new subscriber replays
+gw_http.notify(app, topic, {"event": "sample",    # who hears it now
+                            "topic": topic, "key": key, "data": data})
+```
+
+Calling only the first leaves every open subscriber silent while the
+collection GET and every new subscription look correct, which is how the gap
+was found. `gates/live_backend.py` asserts both halves and the gap between
+them.
+
+Socket lifetime is its own switch. `make_app(..., live_subscriptions=True)`
+keeps an N.5 subscription open past the end of a recorded stream, and
+`publish_enabled` now means only the write surface. They were one flag until
+0.5.0, which forced a live backend to expose writes it did not want;
+`live_subscriptions` defaults to following `publish_enabled`, so nothing that
+worked before changed.
+
 ## What it serves
 
 Any typed SpatialDDS 1.8 MCAP whose schema records carry omgidl. The recording

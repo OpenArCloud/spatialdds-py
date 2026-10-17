@@ -177,6 +177,13 @@ def gates() -> list[dict]:
         {"name": "commands_n6", "what": "the N.6 command surface accepts, declines with a reason, and advertises only what it serves",
          "cmd": ["gates/commands_n6.py"],
          "skip": no_web or no_fountain},
+        # The live-backend contract, promoted from the probe that found only
+        # half of it was public. The negative is the point: apply_sample
+        # alone must reach a new subscriber and never an open socket, or
+        # `notify` is not the second half of anything.
+        {"name": "live_backend", "what": "apply_sample and notify are two halves, and the write surface is a separate switch",
+         "cmd": ["gates/live_backend.py"],
+         "skip": no_web or no_fountain},
     ]
 
 

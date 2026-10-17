@@ -80,7 +80,8 @@ class Gateway:
     def __init__(self, st: gateway.State, token: str = TOKEN,
                  advertise: str | None = None, publish: bool = False,
                  journal: Path | None = None,
-                 commands: "object | None" = None) -> None:
+                 commands: "object | None" = None,
+                 live: bool | None = None) -> None:
         self.state = st
         self.token = token
         self.advertise = advertise
@@ -90,8 +91,15 @@ class Gateway:
         #: An N.6 command registry, or None for an endpoint with no verbs --
         #: which is the normal state and the one every other gate wants.
         self.commands = commands
+        #: N.5 socket lifetime, independent of the write surface since 0.5.0.
+        #: None follows `publish`, which is what every gate but the live one
+        #: wants.
+        self.live = live
         self._runner: web.AppRunner | None = None
         self.base = ""
+        #: The app itself, for a gate that acts as an embedder: `notify`
+        #: takes the app, because that is what a live backend has.
+        self.app: web.Application | None = None
 
     async def start(self) -> "Gateway":
         if self.journal_path is not None:
@@ -100,7 +108,8 @@ class Gateway:
             self.journal.replay()
         app = gw_http.make_app(self.state, "http://127.0.0.1", self.token,
                                self.publish, self.journal, ASSETS,
-                               command_registry=self.commands)
+                               command_registry=self.commands,
+                               live_subscriptions=self.live)
         self._runner = web.AppRunner(app)
         await self._runner.setup()
         site = web.TCPSite(self._runner, "127.0.0.1", 0)
@@ -109,6 +118,7 @@ class Gateway:
         self.base = f"http://127.0.0.1:{port}"
         app["base"] = self.advertise.rstrip("/") if self.advertise \
             else self.base
+        self.app = app
         return self
 
     def connect(self, advertised_url: str) -> str:

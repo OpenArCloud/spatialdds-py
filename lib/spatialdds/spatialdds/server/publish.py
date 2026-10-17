@@ -207,7 +207,15 @@ def resource_for_put(st: gateway.State, scene: str, stream: str,
 
 def apply_sample(st: gateway.State, topic: str, res: gateway.Resource,
                  key: str, data: dict) -> bool:
-    """Put an instance into the latched set. True if it is new."""
+    """Put an instance into the latched set. True if it is new.
+
+    This is half of what a live backend needs, and the half that is easy to
+    mistake for all of it: it decides what a *new* subscriber replays and what
+    the collection GET returns, and it reaches nobody already on a socket.
+    `gw_http.notify(app, topic, event)` is the other half. An embedder that
+    calls only this one has a registry that is correct for every client except
+    the ones currently watching.
+    """
     created = key not in st.latched.get(topic, {})
     st.latched.setdefault(topic, {})[key] = gateway.Instance(
         key, data, webjson.digest(data))

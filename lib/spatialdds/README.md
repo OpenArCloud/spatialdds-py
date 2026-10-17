@@ -355,12 +355,46 @@ operator token is the whole of it, and `docs/WIRE.md` documents the response
 shapes. Said plainly because "commands are supported" invites a reader to look
 for `hit.command(...)`, and there isn't one.
 
-## Not in 0.4.0
+## New in 0.5.0: embedding the gateway against your own live source
+
+0.4.0 let a backend own the verbs. 0.5.0 lets it own the data, which took two
+changes found by doing it:
+
+| Call | What it does |
+| --- | --- |
+| `publish.apply_sample(st, topic, res, key, data)` | what a **new** subscriber replays, and what the collection GET returns |
+| `gw_http.notify(app, topic, event)` | wakes the subscribers **already** connected |
+
+They are halves of one contract. Until 0.5.0 only the first was public, so an
+embedder could update the latched set and reach every client except the ones
+currently watching — measured as three seconds of silence on an open socket,
+with the same event arriving instantly once it was handed to the queue by
+hand.
+
+And `make_app` has a second switch, because it used to have one doing two
+jobs:
+
+| Argument | What it controls |
+| --- | --- |
+| `publish_enabled` | the PUT/DELETE write surface, and nothing else |
+| `live_subscriptions` | whether an N.5 subscription stays open past the end of a recorded stream |
+
+`live_subscriptions` defaults to following `publish_enabled`, so nothing that
+already worked changed. An embedder with its own source passes
+`publish_enabled=False, live_subscriptions=True` and gets the live lane with
+no write surface at all — which was unreachable before, when keeping
+subscribers connected meant exposing writes.
+
+## Not in 0.5.0
 
 Stated so nobody waits for them: no async API, no caching beyond ETag
 revalidation, no retry policy, no MCAP tooling beyond the journal the server
 writes, no client-side command helper, and no DDS dependency of any kind. The
 wire is HTTP and a WebSocket.
+
+0.4.0 added the N.6 command surface described above; 0.5.0 made it usable
+from an embedder with a live source, which is two releases for one capability
+and the honest shape of finding the second half by using the first.
 
 0.3.1 was this page: two code blocks on it had no gate behind them and both
 were broken, and a long description is baked into the artifact, so the page on

@@ -37,7 +37,7 @@ __all__ = [
     "content_manifest", "geo_anchor", "service_uri", "content_uri",
 ]
 
-__version__ = "0.4.0"
+__version__ = "0.5.0"
 #: The SpatialDDS-spec commit whose Appendix N and generated artifacts this
 #: package implements. Package versions and specification versions move
 #: independently; this is the one that says what the wire looks like.

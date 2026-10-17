@@ -476,10 +476,47 @@ def _written(request: web.Request, doc: Any, created: bool,
                      **_cache_headers(gateway.OPERATOR), **extra})
 
 
-async def _broadcast(request: web.Request, topic: str, event: dict) -> None:
-    """Hand an event to every subscriber currently on that topic."""
-    for q in list(request.app["subs"].get(topic, ())):
+def notify(app: web.Application, topic: str, event: dict) -> None:
+    """Hand an event to every subscriber currently on that topic.
+
+    **The second half of `publish.apply_sample`, and the reason this is
+    public.** `apply_sample` says what a *new* subscriber will replay;
+    this wakes the ones already connected. Until 0.5.0 only the first half
+    was public, so an embedder with a live backend could update the latched
+    set --- new subscribers and the collection GET saw it --- and had no way
+    to reach an open socket except to reimplement the two lines below against
+    `app["subs"]`, which is the one `make_app` key that is not a parameter.
+
+    Measured on 2026-10-17 while embedding this gateway against a live DDS
+    bus: `apply_sample` alone, with a subscriber connected and drained quiet,
+    delivered nothing for three seconds; the same event written into
+    `app["subs"]` by hand arrived immediately. One missing function, and the
+    workaround was vendoring a private one.
+
+    So the pair is the contract for a live backend:
+
+        publish.apply_sample(st, topic, res, key, data)   # what replays
+        gw_http.notify(app, topic, {"event": "sample",    # who hears it now
+                                    "topic": topic,
+                                    "key": key, "data": data})
+
+    Synchronous on purpose: it only puts onto unbounded queues, so there is
+    nothing to await, and a backend reading a DDS bus from a thread can call
+    it without arranging a loop.
+
+    Subscriptions only stay open to be woken when `live_subscriptions` is on
+    --- see `make_app`. Calling this against an endpoint serving a finished
+    recording is harmless and reaches nobody.
+    """
+    for q in list(app["subs"].get(topic, ())):
         q.put_nowait(event)
+
+
+async def _broadcast(request: web.Request, topic: str, event: dict) -> None:
+    """`notify` for a request handler. Kept so its two call sites read as
+    they did; the seam is `notify`, which takes the app rather than a
+    request because a live backend has one and not the other."""
+    notify(request.app, topic, event)
 
 
 async def post_command(request: web.Request) -> web.Response:
@@ -733,13 +770,17 @@ async def subscribe(request: web.Request) -> web.StreamResponse:
             break
         await ws.send_str(json.dumps(ev, sort_keys=True))
 
-    # With the publish surface on, the recording is one producer among
-    # others and the stream is not finished: the socket stays open and
-    # carries published samples and disposes as they are accepted. This is
-    # the only read-side behaviour the flag changes, and it changes it in the
-    # one direction a subscriber can already handle -- more events, same
-    # envelope. With the flag off, everything below runs exactly as before.
-    if request.app["publish"] and not ws.closed:
+    # The stream is not finished: the socket stays open and carries whatever
+    # arrives next -- samples and disposes a publisher sends, or anything an
+    # embedded live backend hands to `notify`. It changes the lane in the one
+    # direction a subscriber can already handle: more events, same envelope.
+    # With it off, everything below runs exactly as before.
+    #
+    # This was `app["publish"]` until 0.5.0, which meant a live backend had
+    # to expose a write surface to keep its subscribers connected. The two
+    # switches are separate now and `publish_enabled` still implies this one,
+    # so a caller that only ever passed the old flag is unaffected.
+    if request.app["live"] and not ws.closed:
         q: asyncio.Queue = asyncio.Queue()
         request.app["subs"].setdefault(topic, set()).add(q)
         try:
@@ -799,8 +840,28 @@ def make_app(state: gateway.State, base: str, token: str | None,
              publish_enabled: bool = False,
              journal: "publish.Journal | None" = None,
              assets: Path | None = None,
-             command_registry: "commands.Registry | None" = None
-             ) -> web.Application:
+             command_registry: "commands.Registry | None" = None,
+             live_subscriptions: bool | None = None) -> web.Application:
+    """The app, with two switches that used to be one.
+
+    `publish_enabled` means what its name says and nothing else: the
+    PUT/DELETE write surface. `live_subscriptions` controls socket lifetime
+    --- whether an N.5 subscription stays open after the recorded stream ends,
+    waiting for `notify`, instead of sending liveliness-false per key and
+    closing.
+
+    They were one flag until 0.5.0, which was a defect found by embedding:
+    a backend with its own live source had to switch publishing *on* to keep
+    its subscribers connected, which exposed a write surface it did not want.
+    Two behaviours under one flag named for the second.
+
+    `live_subscriptions` defaults to `None`, meaning "follow
+    `publish_enabled`", so every existing caller behaves exactly as it did ---
+    with publishing on, the recording is one producer among others and the
+    socket stays open, which is the sentence that was already true. An
+    embedder passes `publish_enabled=False, live_subscriptions=True` and gets
+    the live lane with no write surface at all.
+    """
     app = web.Application()
     app["state"] = state
     app["base"] = base.rstrip("/")
@@ -810,6 +871,8 @@ def make_app(state: gateway.State, base: str, token: str | None,
     # default page, and so that the surface's absence is something the
     # endpoint states rather than something a caller infers from a 405.
     app["publish"] = publish_enabled
+    app["live"] = publish_enabled if live_subscriptions is None \
+        else live_subscriptions
     # The N.6 seam. Empty is the normal state: a gateway serving a recording
     # has no verbs, and N.6 says a suite MUST NOT require a command surface
     # to exist. An embedder registers handlers on this.
