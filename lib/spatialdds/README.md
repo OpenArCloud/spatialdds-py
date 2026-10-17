@@ -385,7 +385,17 @@ already worked changed. An embedder with its own source passes
 no write surface at all — which was unreachable before, when keeping
 subscribers connected meant exposing writes.
 
-## Not in 0.5.0
+0.5.1 fixes a defect in 0.4.0's seam that only its first real consumer could
+find: `make_app(command_registry=...)` silently replaced a registry that was
+empty at the time, because `Registry` was falsy when empty and the assignment
+used `or`. Since an embedder must have the app before it can build the backend
+that supplies the handlers, passing an empty registry and filling it a few
+lines later is the normal shape — and every one of those registrations went to
+an object the app had already discarded. If you called `register()` before
+`make_app()`, 0.4.0 and 0.5.0 worked; if you called it after, the command lane
+advertised nothing and refused every POST.
+
+## Not in 0.5.1
 
 Stated so nobody waits for them: no async API, no caching beyond ETag
 revalidation, no retry policy, no MCAP tooling beyond the journal the server

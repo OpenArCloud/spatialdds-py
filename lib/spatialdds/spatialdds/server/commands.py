@@ -127,5 +127,11 @@ class Registry:
     def types(self) -> list[str]:
         return sorted(self._handlers)
 
-    def __bool__(self) -> bool:
-        return bool(self._handlers)
+    # No `__bool__`. It returned `bool(self._handlers)`, which reads as a
+    # convenience and was a trap: `make_app` had `command_registry or
+    # Registry()`, so an empty registry -- the normal thing to pass, since an
+    # embedder needs the app before it can build the handlers -- was silently
+    # replaced by a fresh one, and every later `register()` was lost. Nothing
+    # else ever used the truthiness. A class whose emptiness is a legitimate
+    # state should not make `or` mean something surprising, so the method is
+    # gone rather than documented around.

@@ -876,7 +876,16 @@ def make_app(state: gateway.State, base: str, token: str | None,
     # The N.6 seam. Empty is the normal state: a gateway serving a recording
     # has no verbs, and N.6 says a suite MUST NOT require a command surface
     # to exist. An embedder registers handlers on this.
-    app["commands"] = command_registry or commands.Registry()
+    # `is not None`, not `or`. An empty registry is the normal thing to pass:
+    # an embedder needs the app before it can build the backend that supplies
+    # the handlers, so it passes a registry and populates it a few lines
+    # later. With `or` that registry was silently replaced -- `Registry` used
+    # to be falsy when empty -- and every later `register()` went to an object
+    # the app had already thrown away. Found by the web bridge, whose command
+    # lane advertised nothing and refused every POST while its own registry
+    # held the handler.
+    app["commands"] = (command_registry if command_registry is not None
+                       else commands.Registry())
     app["journal"] = journal
     app["subs"] = {}
     app["assets"] = assets

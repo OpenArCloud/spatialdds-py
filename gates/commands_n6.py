@@ -189,7 +189,35 @@ async def _run() -> list[tuple[str, bool, str]]:
                 and len(seen) == before,
                 f"{code} {ctype}, handler calls {before} -> {len(seen)}"))
 
-    # 6. the injection: an empty registry must advertise nothing and refuse
+    # 6. The registry an embedder passes is the registry the app uses, even
+    # when it is empty at the time. This is the shape every embedder has:
+    # the app has to exist before the backend that supplies the handlers can
+    # be built, so the registry is passed empty and populated a few lines
+    # later. `make_app` had `command_registry or Registry()` and `Registry`
+    # was falsy when empty, so that registry was silently replaced and every
+    # later `register()` went to a discarded object -- the web bridge's
+    # command lane advertised nothing and refused every POST while holding
+    # the handler. Asserted on identity *and* on behaviour: identity alone
+    # would pass if someone copied the handlers across, and behaviour alone
+    # would not say which object won.
+    late = commands.Registry()
+    async with harness.Gateway(harness.state(harness.FOUNTAIN),
+                               commands=late) as gw:
+        same = gw.app["commands"] is late
+        late.register(ANCHOR_FQN, lambda record: commands.Outcome.accept())
+        async with aiohttp.ClientSession() as s:
+            auth = {"Authorization": f"Bearer {gw.token}"}
+            async with s.get(f"{gw.base}/.well-known/spatialdds/search",
+                             headers=auth) as r:
+                doc = await r.json()
+            adv = [t for m in doc["results"] for t in m["service"]["topics"]
+                   if t.get(commands.ADVERTISEMENT)]
+        checks.append((
+            "a registry passed empty and filled later is the one the app uses",
+            same and len(adv) == 1,
+            f"identity kept={same}, advertised after late register={len(adv)}"))
+
+    # 7. the injection: an empty registry must advertise nothing and refuse
     # everything, so "advertises a lane" and "serves one" cannot drift.
     async with harness.Gateway(harness.state(harness.FOUNTAIN)) as gw:
         async with aiohttp.ClientSession() as s:
