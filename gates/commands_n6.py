@@ -45,6 +45,20 @@ implementation moves the suite not at all, and an endpoint that advertised a
 lane and then refused it would pass identically. This gate asserts what the
 suite structurally cannot: that the advertisement and the behaviour agree.
 
+**And the gap this gate had in its own first version, which is the lesson
+worth more than the check.** It built its registry and registered handlers
+*before* calling `make_app` — and that is the one order an embedder cannot
+use, because the app must exist before the backend that supplies the handlers
+can be built. So the gate exercised the seam in an order no audience could
+hold it in, and `make_app` silently discarding an empty registry passed green
+through every run. The check-environment-versus-ship-environment lesson, in
+miniature, inside an API: the gate was not blind to a case, it was holding the
+object the convenient way round.
+
+The register-after check below closes exactly that gap, and the rule it
+generalises to is worth stating: when a seam has an order, exercise the order
+the caller is forced into, not the order that is easy to write in a test.
+
 Usage:  gates/commands_n6.py
 """
 from __future__ import annotations
