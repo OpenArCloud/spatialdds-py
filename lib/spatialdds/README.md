@@ -19,6 +19,10 @@ not have to assemble member by member.
 specification versions move independently; `spatialdds.SPEC_COMMIT` is the one
 that says what the wire looks like.
 
+The source, the reference gateway, the recordings and every gate behind the
+claims on this page are at [https://github.com/OpenArCloud/spatialdds-web](https://github.com/OpenArCloud/spatialdds-web). Every code block below is executed
+by one of those gates on every run, against an endpoint started for it.
+
 ## Your own registry, in one command
 
 ```sh
@@ -48,17 +52,26 @@ Appendix N's schemas make every member of a record required, so an `Announce`
 is eighteen members, a `ContentAnnounce` sixteen, a `GeoAnchor` nine. The
 builders take the arguments you actually have:
 
+<!-- bar: verbs -->
 ```python
 import spatialdds as sd
+ep = sd.connect("http://127.0.0.1:8787", token="not-a-secret", scene="mytown")
+a = ep.publish_service(service_id="mytown-vps", kind="VPS",
+                       coverage=sd.circle(30.2849, -97.7393, 500))
+b = ep.publish_content(
+    content_id="duck", title="A duck", position=(30.2849, -97.7393),
+    asset=sd.asset_ref("https://cdn.example/duck.gltf",
+                       media_type="model/gltf+json"))
+c = ep.publish_anchor("anchor/duck-perch", lat=30.2849, lon=-97.7393,
+                      method="VisualFix", sigma_enu_m=(0.25, 0.25, 0.5),
+                      content="duck")
+print("service", a.created, "| content", b.created, "| anchor", c.created)
+print("manifest", b.manifest.doc["id"])
+```
 
-ep = sd.connect("http://127.0.0.1:8787", token="tok", scene="mytown")
-ep.publish_service(service_id="mytown-vps", kind="VPS",
-                   coverage=sd.circle(30.2849, -97.7393, 500))
-ep.publish_content(content_id="duck", title="Duck", position=(30.2849, -97.7393),
-                   asset="https://cdn.example/duck.gltf", sha256=digest)
-ep.publish_anchor("anchor/duck-perch", lat=30.2849, lon=-97.7393,
-                  method="VisualFix", sigma_enu_m=(0.25, 0.25, 0.5),
-                  content="duck")
+```console
+service True | content True | anchor True
+manifest spatialdds://demo.spatialdds.org/mytown/content/duck
 ```
 
 `publish_service` and `publish_content` are two PUTs each -- the manifest
@@ -67,9 +80,12 @@ with the manifest's own result on `.manifest`.
 
 A full service contract is the same one call, with the claims stated:
 
+<!-- bar: contract -->
 ```python
+import spatialdds as sd
+ep = sd.connect("http://127.0.0.1:8787", token="not-a-secret", scene="mytown")
 area = sd.circle(30.2849, -97.7393, 500)
-ep.publish_service(
+w = ep.publish_service(
     service_id="mytown-vps", kind="VPS", coverage=area,
     caps=sd.capabilities(
         supported=[sd.profile("spatial.core", minor=8)],
@@ -77,19 +93,28 @@ ep.publish_service(
     manifest=sd.service_manifest(
         "mytown-vps", "VPS", authority=ep.authority, scene="mytown",
         profiles=["Core", "AR+Geo"],
-        request={{"features_topic": "feat.keyframe"}},
-        response={{"minimal": "geo.fix"}},
-        limits={{"max_fps": 10}},
-        auth={{"scheme": "bearer", "issuer": "https://registry.mytown.example"}},
+        request={"features_topic": "feat.keyframe"},
+        response={"minimal": "geo.fix"},
+        limits={"max_fps": 10},
+        auth={"scheme": "bearer",
+              "issuer": "https://registry.mytown.example"},
         coverage=area, cells=sd.cells(area)))
+print("profiles", w.manifest.doc["profiles"])
+print("limits  ", w.manifest.doc["limits"])
+```
+
+```console
+profiles ['Core', 'AR+Geo']
+limits   {'max_fps': 10}
 ```
 
 Every one of those is something a service operator knows and a library cannot
-guess. [docs/MYTOWN.md](../../docs/MYTOWN.md) publishes that and prints the
-whole served document; `gates/builders.py` rebuilds this repository's
-hand-authored `austin-vps` and duck records through these calls and compares
-them member by member, which is what makes "every member is reachable from an
-argument" a check rather than a claim.
+guess. [The mytown walkthrough](https://github.com/OpenArCloud/spatialdds-web/blob/main/docs/MYTOWN.md) publishes that
+and prints the whole served document;
+[`gates/builders.py`](https://github.com/OpenArCloud/spatialdds-web/blob/main/gates/builders.py) rebuilds that
+repository's hand-authored `austin-vps` and duck records through these calls
+and compares them member by member, which is what makes "every member is
+reachable from an argument" a check rather than a claim.
 
 **Two forms for an asset, because there are two situations.**
 `sd.asset(path_or_bytes, media_type=...)` reads the data and computes the hash
@@ -98,7 +123,8 @@ and the byte count itself: a hash nobody typed is a hash a reader can trust.
 else hosts, and the hash comes from whoever has the bytes. Pass no hash and
 the reference carries no integrity claim, which costs a reader one thing:
 `fetch_asset()` raises rather than reporting a check it could not perform
-(finding 31). `publish_content` takes either, or a path, or bytes, or a URL.
+([finding 31](https://github.com/OpenArCloud/spatialdds-web/blob/main/WEB-BINDING-FINDINGS.md)).
+`publish_content` takes either, or a path, or bytes, or a URL.
 
 The builders are also usable on their own: `sd.service_announce`,
 `sd.service_manifest`, `sd.content_announce`, `sd.content_manifest`,
@@ -234,7 +260,7 @@ call goes away and the bar is one line.
 
 ## The surface
 
-| | |
+| call | what it does |
 | --- | --- |
 | `sd.connect(base, token=None, verify_integrity=True, timeout=15.0, lifted=True, scene="default", authority=None)` | an `Endpoint`; nothing is fetched until you ask |
 | `ep.search(geohash=None, kinds=None)` | §3.3.0 search → a list of `Hit` |
@@ -285,7 +311,7 @@ One family, built from the endpoint's own N.8 problem documents — `status`,
 `type`, `detail` carried, not re-invented. Everything below derives from
 `SpatialDDSError`, so one `except` catches the lot.
 
-| | |
+| exception | raised when |
 | --- | --- |
 | `Unreachable` | the endpoint did not answer; names the URL and the serve line |
 | `Unauthorized` | 401; says to pass `token=` and where the token is printed |
@@ -306,13 +332,19 @@ Latched reads revalidate with the ETag the endpoint gave; `fetch_asset` checks
 the bytes. Opting out exists and is loud: `verify_integrity=False`, at the call
 site, nowhere else.
 
-## Not in 0.3.0
+## Not in 0.3.1
 
 Stated so nobody waits for them: no async API, no caching beyond ETag
 revalidation, no retry policy, no MCAP tooling beyond the journal the server
 writes, and no DDS dependency of any kind. The wire is HTTP and a WebSocket.
 
-`sd.asset` changed meaning in 0.3.0, which is why the version moved: it now
+0.3.1 is this page: two code blocks on it had no gate behind them and both
+were broken, and a long description is baked into the artifact, so the page on
+PyPI only heals with a release. Every block here is executed by a gate now,
+and the gate also refuses a relative link, an empty table header and a serve
+line naming a flag that does not exist.
+
+`sd.asset` changed meaning in 0.3.0, which is why that version moved: it now
 reads bytes and computes a hash, where in 0.2.0 it took a URL and a hash you
 supplied. That second form is `sd.asset_ref`. A published release has to stay
 reproducible from a public commit, so the API could not change under the same

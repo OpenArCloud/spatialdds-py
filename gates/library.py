@@ -697,8 +697,8 @@ async def bars_section(checks: list, refill: bool) -> list[dict]:
     checks.append(("every documented bar is present with a python fence and "
                    "a console fence: "
                    + ", ".join(f"{k} x{v}" for k, v in sorted(per_doc.items())),
-                   len(found) == 6 and per_doc.get("README.md") == 3
-                   and per_doc.get("lib/spatialdds/README.md") == 3,
+                   len(found) == 8 and per_doc.get("README.md") == 3
+                   and per_doc.get("lib/spatialdds/README.md") == 5,
                    f"found {len(found)}: {per_doc}"))
     env = dict(os.environ, PYTHONPATH=f"{LIB}:{ROOT}")
     for b in found:
@@ -801,6 +801,99 @@ async def replay_section(checks: list, found: list) -> None:
                        if proc.returncode else "")))
     finally:
         await gw.stop()
+
+
+def shipped_page(checks: list) -> None:
+    """The library README is the wheel's long description, so it is an artifact.
+
+    It renders on PyPI, with no repository around it and no sidebar, under a
+    markdown renderer nobody here controls. Three properties follow, and all
+    three were broken when this was written:
+
+    * **No code fence without an instrument.** Two Python blocks on this page
+      had no bar marker, so nothing ever executed them, and both were broken:
+      one carried `{{...}}` from a template-escaping slip in the script that
+      generated it -- which is a set containing a dict, a TypeError as written
+      -- and the other passed an undefined name. They shipped in 0.3.0.
+    * **No relative links.** `../../docs/MYTOWN.md` resolves in a checkout and
+      nowhere on an index page.
+    * **No headerless tables.** GitHub hides an empty header row; PyPI renders
+      it as a blank line across the table.
+
+    A shell fence gets an instrument too: an install fence has to name the
+    from-source line beside the release line, and a serve line has to name
+    flags `spatialdds.serve` actually accepts.
+    """
+    import re
+    import subprocess as sp
+    text = README.read_text()
+    lines = text.splitlines()
+
+    fences = [(i + 1, l.strip()[3:].strip())
+              for i, l in enumerate(lines)
+              if l.startswith("```") and l.strip() != "```"]
+    unmarked = []
+    for n, tag in fences:
+        if tag != "python":
+            continue
+        before = [x.strip() for x in lines[max(0, n - 4):n - 1]]
+        if not any(x.startswith("<!-- bar:") for x in before):
+            unmarked.append(n)
+    checks.append((f"every python fence on the shipped page has a bar behind "
+                   f"it ({len([f for f in fences if f[1] == 'python'])} fences)",
+                   not unmarked, f"ungated at line(s) {unmarked}"))
+
+    rel = [m for m in re.findall(r"\[[^\]]+\]\(([^)]+)\)", text)
+           if not m.startswith(("http://", "https://", "mailto:", "#"))]
+    checks.append((f"every link on it is absolute, because it renders where "
+                   f"this repository is not "
+                   f"({len(re.findall(r'[(]https?://', text))} absolute)",
+                   not rel, f"relative: {rel}"))
+
+    headerless = [i + 1 for i, l in enumerate(lines) if l.startswith("| |")]
+    checks.append(("no table on it has an empty header row, which GitHub "
+                   "hides and PyPI shows",
+                   not headerless, f"at line(s) {headerless}"))
+
+    checks.append((f"it names the repository by URL, since a reader on an "
+                   f"index has no sidebar",
+                   "github.com/OpenArCloud/spatialdds-web" in text,
+                   "no repository URL on the page"))
+
+    # The shell fences: an install line and the serve lines.
+    helptext = sp.run([sys.executable, "-m", "spatialdds.serve", "--help"],
+                      capture_output=True, text=True,
+                      env={"PATH": os.environ.get("PATH", ""),
+                           "PYTHONPATH": str(LIB)}).stdout
+    bad_flags, pip_fences, lonely = [], 0, []
+    body, tag = [], ""
+    for i, l in enumerate(lines, 1):
+        if l.startswith("```") and l.strip() != "```":
+            tag, body = l.strip()[3:].strip(), []
+            continue
+        if l.strip() == "```" and tag == "sh":
+            pips = [x for x in body if x.strip().startswith("pip install")]
+            if pips:
+                pip_fences += 1
+                local = [x for x in pips
+                         if any(a.strip('"').startswith((".", "/"))
+                                for a in x.split()[2:])]
+                remote = [x for x in pips if "spatialdds" in x and x not in local]
+                if remote and not local:
+                    lonely.append(i)
+            for x in body:
+                if "spatialdds.serve" in x or "run_gateway.py" in x:
+                    bad_flags += [f for f in re.findall(r"--[a-z-]+", x)
+                                  if f not in helptext]
+            tag = ""
+        elif tag:
+            body.append(l)
+    checks.append((f"its install fence names the from-source line beside the "
+                   f"release line ({pip_fences} install fence(s))",
+                   not lonely, f"lonely release line at {lonely}"))
+    checks.append((f"and every flag its serve lines name exists in "
+                   f"`spatialdds.serve --help`",
+                   not bad_flags, f"unknown: {sorted(set(bad_flags))}"))
 
 
 def surface_section(checks: list) -> None:
@@ -929,6 +1022,7 @@ async def main() -> int:
     found = await bars_section(checks, a.refill)
     if not a.bars_only:
         await replay_section(checks, found)
+        shipped_page(checks)
         surface_section(checks)
         await alone_section(checks)
     return report("the spatialdds client library against the reference "
