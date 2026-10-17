@@ -64,6 +64,45 @@ PUT     austin-vps | VPS | spatialdds://demo.spatialdds.org/south-mall/service/a
 GET     search -> austin-vps, fountain-anchors
 ```
 
+### The same record, from the builders
+
+Everything above went over the wire from a committed JSON file, 18 members written out by hand. This is the same record from `sd.records`, compared against what the endpoint just served: what a publisher writes is the arguments, and `caps` is a claim so it is one of them. So is the frame: this service works in a surveyed site frame rather than in WGS84, and `sd.frame` is how a publisher says that.
+
+<!-- gate: publish sh -->
+```sh
+export BASE=http://127.0.0.1:8787
+python3 - <<'PY'
+import os, spatialdds as sd
+ep = sd.connect(os.environ["BASE"], scene="ut-austin-south-mall")
+site = sd.frame("ut-austin/south-mall/map",
+                uuid="b1f0c2a4-5d6e-4f80-9a1b-2c3d4e5f6071",
+                convention="ENU", meters_per_unit=1.0)
+area = sd.circle(30.28495359, -97.73934584, 25.0, alt_m=158.0,
+                 frame_ref=site, frame_declared=False)
+built = sd.service_announce(
+    "austin-vps", "VPS", coverage=area, coverage_frame_ref=site,
+    name="Austin VPS, published over HTTP", org="openarcloud.example",
+    version="2026-q4",
+    manifest_uri="spatialdds://demo.spatialdds.org/south-mall/service/austin-vps",
+    caps=sd.capabilities(
+        supported=[sd.profile("spatial.core", minor=8),
+                   sd.profile("spatial.disco", minor=8)],
+        features=["web-binding/json"]),
+    topics=[sd.topic("geo_anchor", scene="ut-austin-south-mall",
+                     stream="frames"),
+            sd.topic("content_announce", scene="ut-austin-south-mall",
+                     stream="content")],
+    ttl_sec=86400)
+served = ep.get_json("/ut-austin-south-mall/discovery/announce/v1/austin-vps")
+diff = sorted(k for k in set(served) | set(built) if served[k] != built.get(k))
+print("announce, conventions excepted:", diff or "same document")
+PY
+```
+
+```console
+announce, conventions excepted: ['stamp']
+```
+
 ## 2. The VPS manifest, and the URI that now resolves
 
 The announce names a `manifest_uri`; this is the manifest it names, published
@@ -87,6 +126,37 @@ PUT     service spatialdds://demo.spatialdds.org/south-mall/service/austin-vps t
 GET     resolve -> service ttl 1800
 ```
 
+### The same record, from the builders
+
+And the contract, which is where a service says what it actually does. Every member of it is a claim, so every member of it is an argument.
+
+<!-- gate: publish sh -->
+```sh
+export BASE=http://127.0.0.1:8787
+python3 - <<'PY'
+import os, spatialdds as sd
+ep = sd.connect(os.environ["BASE"], scene="ut-austin-south-mall")
+area = sd.circle(30.28495359, -97.73934584, 25.0, alt_m=158.0)
+built = sd.service_manifest(
+    "austin-vps", "VPS", authority="demo.spatialdds.org", scene="south-mall",
+    name="Austin VPS, published over HTTP", org="openarcloud.example",
+    version="2026-q4", profiles=["Core", "SLAM Frontend", "AR+Geo"],
+    request={"features_topic": "feat.keyframe",
+             "image_blob_role": "image/jpeg", "prior_topic": "geo.fix"},
+    response={"rich": "pg.nodegeo", "minimal": "geo.fix"},
+    limits={"max_fps": 10, "max_image_px": 1920},
+    auth={"scheme": "bearer", "issuer": "https://demo.spatialdds.org"},
+    coverage=area, cells=sd.cells(area), ttl_sec=1800)
+served = ep.resolve(built["id"]).doc
+diff = sorted(k for k in set(served) | set(built) if served[k] != built.get(k))
+print("manifest, conventions excepted:", diff or "same document")
+PY
+```
+
+```console
+manifest, conventions excepted: ['stamp']
+```
+
 ## 3. The duck's manifest
 
 <!-- gate: publish sh -->
@@ -107,6 +177,38 @@ PUT     spatialdds://demo.spatialdds.org/south-mall/content/duck -> model/gltf+j
 GET     resolve -> https://demo.spatialdds.org/assets/duck.gltf
 ```
 
+### The same record, from the builders
+
+The duck's manifest, with the asset hashed from the bytes in this checkout rather than from a digest anybody typed.
+
+<!-- gate: publish sh -->
+```sh
+export BASE=http://127.0.0.1:8787
+python3 - <<'PY'
+import os, spatialdds as sd
+ep = sd.connect(os.environ["BASE"], scene="ut-austin-south-mall")
+built = sd.content_manifest(
+    "content/duck", authority="demo.spatialdds.org", scene="south-mall",
+    title="A duck at the Littlefield Fountain",
+    summary="An original glTF duck, placed by its own pose beside the fountain.",
+    tags=["duck", "glTF", "walkthrough"],
+    class_id="https://schema.org/CreativeWork",
+    assets=[sd.asset("samples/assets/duck.gltf",
+                     media_type="model/gltf+json",
+                     uri="https://demo.spatialdds.org/assets/duck.gltf",
+                     committed_path="samples/assets/duck.gltf")],
+    coverage=sd.circle(30.2849859, -97.73935, 2.0, alt_m=158.0),
+    ttl_sec=3600)
+served = ep.resolve(built["id"]).doc
+diff = sorted(k for k in set(served) | set(built) if served[k] != built.get(k))
+print("manifest, conventions excepted:", diff or "same document")
+PY
+```
+
+```console
+manifest, conventions excepted: ['stamp']
+```
+
 ## 4. The duck's announce, and the siblings it joins
 
 <!-- gate: publish sh -->
@@ -124,6 +226,42 @@ curl -s "$BASE/ut-austin-south-mall/content/content_announce/v1" \
 ```console
 PUT     content/duck at 30.2849859 -97.73935 r 2.0
 GET     list -> content/duck, content/fountain-label, content/fountain-marker
+```
+
+### The same record, from the builders
+
+And the announce that places it. `provider_id` is here because the committed record states one: the builders never fill identity, so if a publisher wants to be named they name themselves.
+
+<!-- gate: publish sh -->
+```sh
+export BASE=http://127.0.0.1:8787
+python3 - <<'PY'
+import os, spatialdds as sd
+ep = sd.connect(os.environ["BASE"], scene="ut-austin-south-mall")
+site = sd.frame("ut-austin/south-mall/map",
+                uuid="b1f0c2a4-5d6e-4f80-9a1b-2c3d4e5f6071",
+                convention="ENU", meters_per_unit=1.0)
+built = sd.content_announce(
+    "content/duck", coverage=sd.circle(30.2849859, -97.73935, 2.0,
+                                       alt_m=158.0, frame_ref=site,
+                                       frame_declared=False),
+    coverage_frame_ref=site,
+    title="A duck at the Littlefield Fountain",
+    summary="An original glTF duck, placed by its own pose beside the fountain.",
+    tags=["duck", "glTF", "walkthrough"],
+    class_id="https://schema.org/CreativeWork",
+    provider_id="openarcloud.example/austin",
+    manifest_uri="spatialdds://demo.spatialdds.org/south-mall/content/duck",
+    available_from="2026-10-09T15:30:00Z", ttl_sec=86400)
+served = ep.get_json(
+    "/ut-austin-south-mall/content/content_announce/v1/content%2Fduck")
+diff = sorted(k for k in set(served) | set(built) if served[k] != built.get(k))
+print("announce, conventions excepted:", diff or "same document")
+PY
+```
+
+```console
+announce, conventions excepted: ['stamp']
 ```
 
 ## 4b. Anchor the duck, and see what it inherits

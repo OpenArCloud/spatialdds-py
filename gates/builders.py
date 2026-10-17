@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import hashlib
 import json
 import sys
 import tempfile
@@ -80,6 +81,7 @@ def census() -> dict:
         # An argument reaches a member when it is named for it, or when it is
         # one of the stated shorthands below.
         shorthand = {
+            "caps": "caps",
             "lat": "geopose", "lon": "geopose", "alt_m": "geopose",
             "q": "geopose", "when": "stamp", "sigma_enu_m": "cov",
             "rho_en": "cov", "authority": "manifest_uri",
@@ -99,7 +101,7 @@ def census() -> dict:
         conventions = {
             "spatial.disco.Announce": {
                 "hints": "[] unless hints= is given",
-                "caps": "zeroed: profile negotiation is not this binding's",
+
                 "coverage_eval_time": "zeroed, with has_ false",
                 "has_coverage_eval_time": "false",
                 "transforms": "[]: no frame transforms asserted",
@@ -288,6 +290,171 @@ def against_handwritten(checks: list) -> None:
                    f"{rebuilt['cov']} vs {anc['cov']}"))
 
 
+def reconstruct(checks: list) -> None:
+    """Both committed record pairs, rebuilt through `sd.records` and nothing else.
+
+    The census claims every member of every publishable record is reachable
+    from an argument. This is that claim made golden: the austin-vps pair
+    (announce with its capabilities, service manifest with its profiles,
+    request, response, limits, auth and coverage) and the duck pair (content
+    manifest with title, summary, tags, class_id and a hashed asset carrying
+    its own metadata; announce with position and coverage) are rebuilt from
+    the values the committed inputs state, with **no raw dicts and no field
+    patched afterwards**, and compared to the committed records.
+
+    Only the named conventions may differ, and each one is asserted rather
+    than skipped: `stamp` where the input states a time the builder would
+    otherwise fill with now, and `checksum` where the two conventions
+    genuinely disagree (finding 31).
+    """
+    pub = json.loads(PUB.read_text())
+    duck = json.loads(DUCK.read_text())
+    auth = pub["authority"]
+
+    # ---- austin-vps: the announce ----
+    want = pub["service"]["record"]
+    cov = want["coverage"][0]
+    circle = R.circle(cov["circle_center"][1], cov["circle_center"][0],
+                      cov["circle_radius_m"], alt_m=cov["circle_center"][2],
+                      frame_ref=cov["frame_ref"], frame_declared=False)
+    caps = want["caps"]
+    built = R.service_announce(
+        want["service_id"], want["kind"], coverage=circle,
+        name=want["name"], org=want["org"], version=want["version"],
+        manifest_uri=want["manifest_uri"], auth_hint=want["auth_hint"],
+        ttl_sec=want["ttl_sec"],
+        coverage_frame_ref=want["coverage_frame_ref"],
+        caps=R.capabilities(
+            supported=[R.profile(sp["name"], major=sp["major"],
+                                 min_minor=sp["min_minor"],
+                                 max_minor=sp["max_minor"])
+                       for sp in caps["supported_profiles"]],
+            preferred=caps["preferred_profiles"],
+            features=caps["features"]),
+        topics=[R.topic(tm["type"], scene=pub["scene"],
+                        stream=tm["name"].split("/")[2],
+                        version=tm["version"], durability=tm["durability"],
+                        qos_profile=tm["qos_profile"],
+                        rate_hz=tm["target_rate_hz"],
+                        max_chunk_bytes=tm["max_chunk_bytes"])
+                for tm in want["topics"]],
+        when=want["stamp"]["sec"])
+    diff = sorted(k for k in set(want) | set(built)
+                  if want.get(k) != built.get(k))
+    checks.append((f"the committed austin-vps announce rebuilds through the "
+                   f"builders, all {len(want)} members, with nothing patched "
+                   f"afterwards", diff == [],
+                   f"differs at {diff}: "
+                   + "; ".join(f"{k}: {want.get(k)!r} vs {built.get(k)!r}"
+                               for k in diff[:2])))
+    checks.append((f"…including `caps`, which no argument reached until this "
+                   f"batch ({len(caps['supported_profiles'])} profile(s), "
+                   f"{len(caps['features'])} feature(s))",
+                   built.get("caps") == caps, f"{built.get('caps')}"))
+
+    # ---- austin-vps: the service manifest ----
+    want = pub["service_manifest"]
+    svc = want["service"]
+    mcov = want["coverage"]
+    built = R.service_manifest(
+        svc["service_id"], svc["kind"], authority=auth,
+        scene=want["id"].split("/")[3], name=svc["name"], org=svc["org"],
+        version=svc["version"], profiles=want["profiles"],
+        request=want["request"], response=want["response"],
+        limits=want["limits"], auth=want["auth"],
+        coverage=R.circle(mcov["circle_center"][1], mcov["circle_center"][0],
+                          mcov["circle_radius_m"],
+                          alt_m=mcov["circle_center"][2],
+                          frame_ref=mcov["frame_ref"], frame_declared=False),
+        cells=mcov["geohash"], ttl_sec=want["ttl_sec"],
+        when=want["stamp"]["sec"])
+    diff = sorted(k for k in set(want) | set(built)
+                  if want.get(k) != built.get(k))
+    checks.append((f"the committed austin-vps service manifest rebuilds "
+                   f"through the builders, all {len(want)} members "
+                   f"(profiles, request, response, limits, auth, coverage)",
+                   diff == [], f"differs at {diff}"))
+    checks.append((f"…and its coverage declares the {len(mcov['geohash'])} "
+                   f"geohash cell(s) the committed manifest declares, which "
+                   f"`sd.cells` computes from the same circle",
+                   built.get("coverage", {}).get("geohash") == mcov["geohash"]
+                   == R.cells(R.circle(mcov["circle_center"][1],
+                                       mcov["circle_center"][0],
+                                       mcov["circle_radius_m"])),
+                   f"{built.get('coverage', {}).get('geohash')} vs "
+                   f"{mcov['geohash']}"))
+
+    # ---- the duck: the content manifest ----
+    want = duck["manifest"]
+    a = want["assets"][0]
+    entries = {e["key"]: e["value"] for e in a["meta"][0]["entries"]}
+    dcov = want["coverage"]
+    built = R.content_manifest(
+        want["content"]["content_id"], authority=auth,
+        scene=want["id"].split("/")[3],
+        title=want["content"]["title"], summary=want["content"]["summary"],
+        tags=want["content"]["tags"], class_id=want["content"]["class_id"],
+        assets=[R.asset(ROOT / entries["committed_path"],
+                        media_type=a["media_type"], uri=a["uri"],
+                        committed_path=entries["committed_path"])],
+        coverage=R.circle(dcov["circle_center"][1], dcov["circle_center"][0],
+                          dcov["circle_radius_m"],
+                          alt_m=dcov["circle_center"][2],
+                          frame_ref=dcov["frame_ref"], frame_declared=False),
+        ttl_sec=want["ttl_sec"], when=want["stamp"]["sec"])
+    diff = sorted(k for k in set(want) | set(built)
+                  if want.get(k) != built.get(k))
+    checks.append((f"the committed duck manifest rebuilds through the "
+                   f"builders, all {len(want)} members, title and tags and "
+                   f"class_id included", diff == [], f"differs at {diff}"))
+    checks.append((f"…and its asset's hash was computed from the committed "
+                   f"bytes rather than passed in "
+                   f"({entries['bytes']} bytes, {a['hash'][:18]}…)",
+                   built["assets"][0] == a
+                   and built["assets"][0]["hash"] == "sha256:" + hashlib.sha256(
+                       (ROOT / entries["committed_path"]).read_bytes()
+                   ).hexdigest(), f"{built['assets'][0]}"))
+
+    # ---- the duck: the announce ----
+    want = duck["announce"]["record"]
+    acov = want["coverage"][0]
+    built = R.content_announce(
+        want["content_id"], coverage=R.circle(
+            acov["circle_center"][1], acov["circle_center"][0],
+            acov["circle_radius_m"], alt_m=acov["circle_center"][2],
+            frame_ref=acov["frame_ref"], frame_declared=False),
+        available_from=want["available_from"]["sec"],
+        title=want["title"], summary=want["summary"], tags=want["tags"],
+        class_id=want["class_id"], provider_id=want["provider_id"],
+        manifest_uri=want["manifest_uri"], ttl_sec=want["ttl_sec"],
+        coverage_frame_ref=want["coverage_frame_ref"],
+        when=want["stamp"]["sec"])
+    diff = sorted(k for k in set(want) | set(built)
+                  if want.get(k) != built.get(k))
+    checks.append((f"the committed duck announce rebuilds through the "
+                   f"builders, all {len(want)} members",
+                   diff == [], f"differs at {diff}: "
+                   + "; ".join(f"{k}: {want.get(k)!r} vs {built.get(k)!r}"
+                               for k in diff[:2])))
+
+    # ---- and the anchor, whose one allowed difference is named ----
+    want = duck["anchor"]["record"]
+    entry = duck["anchor"]["authoring_entry"]
+    built = R.geo_anchor(
+        want["anchor_id"], lat=want["geopose"]["lat_deg"],
+        lon=want["geopose"]["lon_deg"], alt_m=want["geopose"]["alt_m"],
+        method=want["method"], map_id=want["map_id"],
+        sigma_enu_m=entry["sigma_enu_m"], rho_en=entry.get("rho_en", 0.0),
+        frame_ref=want["frame_ref"], manifest_uri=want["manifest_uri"],
+        confidence=want["confidence"], when=want["geopose"]["stamp"]["sec"])
+    diff = sorted(k for k in set(want) | set(built)
+                  if want.get(k) != built.get(k))
+    checks.append((f"the committed duck anchor rebuilds through the builders, "
+                   f"differing only at `checksum` -- the one field where the "
+                   f"two conventions disagree (finding 31)",
+                   diff == ["checksum"], f"differs at {diff}"))
+
+
 async def the_four_lines(checks: list) -> None:
     """The directive's own lines, verbatim, against an empty registry."""
     AUTH = "registry.mytown.example"
@@ -446,6 +613,7 @@ async def main() -> int:
     checks: list[tuple[str, bool, str]] = []
     schema_and_shape(checks)
     against_handwritten(checks)
+    reconstruct(checks)
     await the_four_lines(checks)
     await two_checksum_conventions(checks)
     c = census()

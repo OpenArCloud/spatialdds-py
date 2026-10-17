@@ -65,17 +65,62 @@ ep.publish_anchor("anchor/duck-perch", lat=30.2849, lon=-97.7393,
 first, then the record that points at it -- and return what `publish` returns,
 with the manifest's own result on `.manifest`.
 
+A full service contract is the same one call, with the claims stated:
+
+```python
+area = sd.circle(30.2849, -97.7393, 500)
+ep.publish_service(
+    service_id="mytown-vps", kind="VPS", coverage=area,
+    caps=sd.capabilities(
+        supported=[sd.profile("spatial.core", minor=8)],
+        features=["web-binding/json"]),
+    manifest=sd.service_manifest(
+        "mytown-vps", "VPS", authority=ep.authority, scene="mytown",
+        profiles=["Core", "AR+Geo"],
+        request={{"features_topic": "feat.keyframe"}},
+        response={{"minimal": "geo.fix"}},
+        limits={{"max_fps": 10}},
+        auth={{"scheme": "bearer", "issuer": "https://registry.mytown.example"}},
+        coverage=area, cells=sd.cells(area)))
+```
+
+Every one of those is something a service operator knows and a library cannot
+guess. [docs/MYTOWN.md](../../docs/MYTOWN.md) publishes that and prints the
+whole served document; `gates/builders.py` rebuilds this repository's
+hand-authored `austin-vps` and duck records through these calls and compares
+them member by member, which is what makes "every member is reachable from an
+argument" a check rather than a claim.
+
+**Two forms for an asset, because there are two situations.**
+`sd.asset(path_or_bytes, media_type=...)` reads the data and computes the hash
+and the byte count itself: a hash nobody typed is a hash a reader can trust.
+`sd.asset_ref(url, hash=..., media_type=...)` points at something somebody
+else hosts, and the hash comes from whoever has the bytes. Pass no hash and
+the reference carries no integrity claim, which costs a reader one thing:
+`fetch_asset()` raises rather than reporting a check it could not perform
+(finding 31). `publish_content` takes either, or a path, or bytes, or a URL.
+
 The builders are also usable on their own: `sd.service_announce`,
-`sd.content_announce`, `sd.content_manifest`, `sd.geo_anchor`, with
-`sd.circle`, `sd.bbox`, `sd.geopose`, `sd.cov_pos3`, `sd.cov_none`,
+`sd.service_manifest`, `sd.content_announce`, `sd.content_manifest`,
+`sd.geo_anchor`, with `sd.circle`, `sd.bbox`, `sd.geopose`, `sd.cov_pos3`,
+`sd.cov_none`, `sd.profile`, `sd.capabilities`, `sd.asset_ref`,
 `sd.frame`,
 `sd.earth_fixed`, `sd.stamp`, `sd.topic`, `sd.asset`, `sd.cells`,
 `sd.service_uri` and `sd.content_uri`. Each returns a plain dict in canonical
 form, publishable as it stands and dumpable as the authoring JSON this
 repository's tools read. `spatialdds.records` is the module they live in.
 
-**What they fill in, and what they refuse to.** Three conventions, each
-documented where it is applied: a stamp of now unless you pass `when=`, an
+**Conventions fill plumbing. They never fill claims.** A stamp of now, an
+earth-fixed frame, a checksum computed from the record itself: plumbing, with
+one sensible value each, and filling them saves you writing out what you had
+no choice about. A profile list, a rate limit, a request topic, an auth
+scheme, a title: claims, and no default for any of them is honest. State
+nothing and you publish a minimal record, which is *correct*; state a
+contract and you publish it in one call. There is nothing in between for a
+library to invent.
+
+**What they fill in, and what they refuse to.** The conventions above are
+documented where they are applied: a stamp of now unless you pass `when=`, an
 earth-fixed frame unless you pass one, and URIs assembled under a stated
 authority -- never a guessed one. `ep.publish_*` gets the authority from the
 endpoint itself (`ep.authority`, which asks the resolver metadata, then the
@@ -212,6 +257,9 @@ call goes away and the bar is one line.
 | `resolved.doc`, `.uri`, `.etag`, `.assets` | the resolved manifest |
 | `resolved.asset_url(i)`, `.fetch_asset(i)` | the URL it would fetch, and the verified bytes |
 | `written.doc`, `.etag`, `.created`, `.manifest` | what a publish returned |
+| `sd.service_manifest(service_id, kind, authority=, scene=, profiles=, request=, response=, limits=, auth=, coverage=, cells=)` | the contract behind an announce; every member a claim, so every member an argument |
+| `sd.capabilities(supported=, preferred=, features=)`, `sd.profile(name, minor=)` | what a service supports, for `service_announce(caps=)` |
+| `sd.asset(path_or_bytes, media_type=)` / `sd.asset_ref(url, hash=, media_type=)` | an asset hashed from its bytes, or a reference to one hosted elsewhere |
 | `sd.records` | the builders, listed above |
 | `sd.lift(fqn, doc)` | the lift on its own, for JSON you already have |
 | `sd.SPEC_COMMIT`, `sd.APPENDIX_N`, `sd.__version__` | what this speaks |
@@ -257,11 +305,17 @@ Latched reads revalidate with the ETag the endpoint gave; `fetch_asset` checks
 the bytes. Opting out exists and is loud: `verify_integrity=False`, at the call
 site, nowhere else.
 
-## Not in 0.2.0
+## Not in 0.3.0
 
 Stated so nobody waits for them: no async API, no caching beyond ETag
 revalidation, no retry policy, no MCAP tooling beyond the journal the server
 writes, and no DDS dependency of any kind. The wire is HTTP and a WebSocket.
+
+`sd.asset` changed meaning in 0.3.0, which is why the version moved: it now
+reads bytes and computes a hash, where in 0.2.0 it took a URL and a hash you
+supplied. That second form is `sd.asset_ref`. A published release has to stay
+reproducible from a public commit, so the API could not change under the same
+number.
 
 On the registry, four things are deferred rather than missing, and the same
 four are on the 1.9 candidates list: **leases** (nothing expires; `ttl_sec` is

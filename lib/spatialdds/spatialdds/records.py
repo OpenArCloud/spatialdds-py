@@ -19,6 +19,15 @@ overlays what it means. A member added by a future revision therefore shows up
 zeroed rather than missing, which is the difference between a record that
 validates and a 400.
 
+**Conventions fill plumbing. They never fill claims.** A stamp of now, an
+earth-fixed frame, a checksum computed from the record itself: those are
+plumbing, and filling them saves a caller from writing out what has only one
+sensible value. A profile list, a rate limit, a request topic, an auth scheme,
+a title: those are claims about what a service can do or what content is, and
+no default is honest for any of them. A caller who states nothing publishes a
+minimal record, and that record is *correct*; a caller who states a contract
+publishes it in one call. Nothing in between is invented.
+
 **What the builders never fill: identity.** `provider_id` and `org` come from
 the caller or stay empty. Who published a record, and whether a registry may
 say so on their behalf, is the identity design that is deferred -- see the 1.9
@@ -42,6 +51,7 @@ from __future__ import annotations
 
 import datetime as _dt
 import hashlib
+from pathlib import Path
 import time as _time
 from typing import Any, Dict, Iterable, List, Optional, Sequence
 
@@ -49,7 +59,8 @@ from . import canonical, canonjson
 
 __all__ = [
     "circle", "bbox", "earth_fixed", "frame", "stamp", "cov_pos3", "cov_none",
-    "geopose", "topic", "asset", "service_announce", "content_manifest",
+    "geopose", "topic", "asset", "asset_ref", "profile", "capabilities",
+    "service_announce", "service_manifest", "content_manifest",
     "content_announce", "geo_anchor", "cells", "service_uri", "content_uri",
     "MANIFEST_PROFILE",
 ]
@@ -259,7 +270,8 @@ def frame(fqn: str, *, uuid: str = "", convention: Optional[str] = None,
 
 def circle(lat: float, lon: float, radius_m: float, *, alt_m: float = 0.0,
            crs: str = "EPSG:4326",
-           frame_ref: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+           frame_ref: Optional[Dict[str, Any]] = None,
+           frame_declared: bool = True) -> Dict[str, Any]:
     """A coverage element: this much ground around a point.
 
     `circle_center` is `[lon, lat, alt]` -- x, y, z, the order the IDL's
@@ -267,6 +279,12 @@ def circle(lat: float, lon: float, radius_m: float, *, alt_m: float = 0.0,
     order here is `lat, lon` because that is the order people say, and
     getting the two confused is the kind of mistake that puts a service in
     the ocean.
+
+    `frame_declared=False` carries a `frame_ref` body while leaving
+    `has_frame_ref` false: the element names the frame it was expressed in
+    without asserting it as the coverage's own, which is what every committed
+    record in this repository does. Absence of the flag is the claim; the
+    body beside it is information.
     """
     c = _blank(COVERAGE)
     c["has_crs"], c["crs"] = True, crs
@@ -274,20 +292,25 @@ def circle(lat: float, lon: float, radius_m: float, *, alt_m: float = 0.0,
     c["circle_center"] = [float(lon), float(lat), float(alt_m)]
     c["circle_radius_m"] = float(radius_m)
     if frame_ref is not None:
-        c["has_frame_ref"], c["frame_ref"] = True, frame_ref
+        c["has_frame_ref"], c["frame_ref"] = bool(frame_declared), frame_ref
     return c
 
 
 def bbox(west: float, south: float, east: float, north: float, *,
          crs: str = "EPSG:4326",
-         frame_ref: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    """A coverage element: this box of ground. §3.3.0's own bbox order."""
+         frame_ref: Optional[Dict[str, Any]] = None,
+         frame_declared: bool = True) -> Dict[str, Any]:
+    """A coverage element: this box of ground. §3.3.0's own bbox order.
+
+    `frame_declared` as in `circle`: false carries the frame as information
+    rather than as the coverage's own assertion.
+    """
     c = _blank(COVERAGE)
     c["has_crs"], c["crs"] = True, crs
     c["has_bbox"] = True
     c["bbox"] = [float(west), float(south), float(east), float(north)]
     if frame_ref is not None:
-        c["has_frame_ref"], c["frame_ref"] = True, frame_ref
+        c["has_frame_ref"], c["frame_ref"] = bool(frame_declared), frame_ref
     return c
 
 
@@ -381,6 +404,41 @@ def geopose(lat: float, lon: float, alt_m: float = 0.0, *,
     return gp
 
 
+def profile(name: str, *, major: int = 1, minor: Optional[int] = None,
+            min_minor: Optional[int] = None,
+            max_minor: Optional[int] = None) -> Dict[str, Any]:
+    """One entry in `Capabilities.supported_profiles`.
+
+    A version range is a claim about what this service implements, so there is
+    no default for it: pass `minor=8` for a single version, or `min_minor` and
+    `max_minor` for a range. `major` defaults to 1 because SpatialDDS is 1.x
+    and that is arithmetic rather than a claim.
+    """
+    if minor is None and (min_minor is None or max_minor is None):
+        raise ValueError(
+            f"profile({name!r}) needs a version: minor=8, or min_minor= and "
+            f"max_minor= for a range. A version range is a claim about what "
+            f"this service implements, so this library will not guess one.")
+    lo = min_minor if min_minor is not None else minor
+    hi = max_minor if max_minor is not None else minor
+    return {"name": name, "major": int(major), "min_minor": int(lo),
+            "max_minor": int(hi)}
+
+
+def capabilities(*, supported: Iterable[Dict[str, Any]] = (),
+                 preferred: Iterable[str] = (),
+                 features: Iterable[str] = ()) -> Dict[str, Any]:
+    """A `Capabilities`: what this service supports, prefers and offers.
+
+    Every member is what the caller said. An empty `Capabilities` is a service
+    that claims nothing, which is a true statement about most services and the
+    right default for all of them.
+    """
+    return {"supported_profiles": [dict(p) for p in supported],
+            "preferred_profiles": list(preferred),
+            "features": list(features)}
+
+
 def topic(type_name: str, *, scene: str, stream: str, version: str = "v1",
           durability: str = "TRANSIENT_LOCAL", qos_profile: str = "",
           rate_hz: float = 0.0, max_chunk_bytes: int = 0) -> Dict[str, Any]:
@@ -403,13 +461,22 @@ def topic(type_name: str, *, scene: str, stream: str, version: str = "v1",
 # ---- URIs, assembled under a stated authority ------------------------------
 
 def _uri(authority: str, scene: str, kind: str, ident: str) -> str:
+    """`spatialdds://<authority>/<scene>/<kind>/<name>`.
+
+    `ident` may be a record's own id, and a record's id often carries the kind
+    as a prefix: the committed duck's `content_id` is `content/duck` while its
+    manifest answers to `.../content/duck`. So the URI takes the id's last
+    segment, because the kind is already a segment of the path and repeating
+    it would address a manifest nobody holds.
+    """
+    ident = ident.strip("/").rsplit("/", 1)[-1]
     if not authority:
         raise ValueError(
             "a spatialdds:// URI needs an authority, and this library will "
             "not invent one: it is a DNS name somebody owns. Pass "
             "authority=, or let an Endpoint fill it from the resolver "
             "metadata the endpoint publishes about itself.")
-    return f"spatialdds://{authority}/{scene}/{kind}/{ident.lstrip('/')}"
+    return f"spatialdds://{authority}/{scene}/{kind}/{ident}"
 
 
 def service_uri(authority: str, scene: str, service_id: str) -> str:
@@ -431,6 +498,7 @@ def service_announce(service_id: str, kind: str, *, coverage: Any,
                      manifest_uri: Optional[str] = None,
                      auth_hint: str = "", ttl_sec: int = 86400,
                      hints: Optional[Dict[str, str]] = None,
+                     caps: Optional[Dict[str, Any]] = None,
                      coverage_frame_ref: Optional[Dict[str, Any]] = None,
                      when: Any = None) -> Dict[str, Any]:
     """A `spatial.disco.Announce`: a service, where it works, what it serves.
@@ -450,6 +518,8 @@ def service_announce(service_id: str, kind: str, *, coverage: Any,
     rec["stamp"] = stamp(when)
     rec["hints"] = [{"key": k, "value": v}
                     for k, v in sorted((hints or {}).items())]
+    if caps is not None:
+        rec["caps"] = caps
     if manifest_uri is not None:
         rec["manifest_uri"] = manifest_uri
     elif authority and scene:
@@ -548,30 +618,163 @@ _canon = canonjson.canon
 
 # ---- manifests (N.7 JSON, not IDL types) -----------------------------------
 
-def asset(uri: str, media_type: str, *, sha256: str = "",
-          meta: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
-    """One entry in a manifest's `assets`, with its integrity claim.
+#: The order the committed manifests put an asset's metadata in. Not sorted:
+#: these are two keys with a conventional order in this repository's own data,
+#: and a manifest rebuilt through the builders has to be the manifest that is
+#: committed, byte for byte, or `gates/builders.py`'s reconstruction fails.
+_META_ORDER = ("committed_path", "bytes")
 
-    `sha256` is the digest of the asset's bytes, and the client's
-    `fetch_asset` checks exactly that. Leave it out and a reader gets
-    `UnverifiableIntegrity` rather than a check that silently did nothing.
+
+def _meta(entries: Dict[str, str]) -> List[Dict[str, Any]]:
+    keys = ([k for k in _META_ORDER if k in entries]
+            + sorted(k for k in entries if k not in _META_ORDER))
+    return [{"namespace": "spatialdds-web", "json": "",
+             "entries": [{"key": k, "value": str(entries[k])} for k in keys]}]
+
+
+def asset(source: Any, *, media_type: str, uri: str = "",
+          meta: Optional[Dict[str, str]] = None,
+          committed_path: Optional[str] = None) -> Dict[str, Any]:
+    """One asset, hashed from its own bytes.
+
+    `source` is a path or the bytes themselves. The digest and the byte count
+    are **computed here, from the data**, never passed in: a hash a publisher
+    typed is a hash nobody checked, and the whole point of the field is that a
+    reader can verify it. `uri` is where those bytes will be reachable, which
+    is the one thing the bytes cannot tell you.
+
+    The byte count travels as metadata because readers find it useful and
+    nothing in the manifest profile carries it; `committed_path` is this
+    repository's own convention for saying which file in a checkout the bytes
+    came from, and is why the committed manifests carry both.
     """
-    out: Dict[str, Any] = {"uri": uri, "media_type": media_type}
-    if sha256:
-        out["hash"] = sha256 if sha256.startswith("sha256:") \
-            else f"sha256:{sha256}"
+    if isinstance(source, (bytes, bytearray)):
+        data = bytes(source)
+        name = ""
+    else:
+        path = Path(source)
+        data = path.read_bytes()
+        name = path.name
+    entries = dict(meta or {})
+    entries.setdefault("bytes", str(len(data)))
+    if committed_path:
+        entries.setdefault("committed_path", committed_path)
+    return {"uri": uri or name,
+            "media_type": media_type,
+            "hash": "sha256:" + hashlib.sha256(data).hexdigest(),
+            "meta": _meta(entries)}
+
+
+def asset_ref(url: str, *, media_type: str, hash: str = "",
+              meta: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
+    """One asset hosted somewhere else, with whatever integrity you can state.
+
+    `hash` comes from whoever has the bytes, because this function does not:
+    pointing at a URL is not possessing what is behind it. Leave it out and
+    the reference carries no integrity claim, which costs a reader exactly
+    one thing -- `fetch_asset()` raises `UnverifiableIntegrity` rather than
+    reporting a check it could not perform (spatialdds-web finding 31). That
+    is the honest outcome, not a failure; `sd.asset()` is the form to use when
+    you do have the bytes.
+    """
+    out: Dict[str, Any] = {"uri": url, "media_type": media_type}
+    if hash:
+        out["hash"] = hash if hash.startswith("sha256:") else f"sha256:{hash}"
     if meta:
-        out["meta"] = [{"namespace": "spatialdds-web", "json": "",
-                        "entries": [{"key": k, "value": v}
-                                    for k, v in sorted(meta.items())]}]
+        out["meta"] = _meta(meta)
     return out
+
+
+def _manifest_coverage(coverage: Any,
+                       cells_: Optional[Iterable[str]] = None
+                       ) -> Optional[Dict[str, Any]]:
+    """The coverage shape an N.7 manifest carries, which is not the IDL's.
+
+    A manifest is a JSON document rather than a typed record, and the
+    committed manifests show the difference: no `has_crs`, no coverage window,
+    and the service manifest declares `geohash` cells where the content ones
+    do not. `cells_` is therefore passed rather than derived -- both shapes
+    are in the committed data, so a default would make one of them wrong.
+    """
+    cov = _coverage(coverage)
+    if not cov:
+        return None
+    c = cov[0]
+    out: Dict[str, Any] = {"frame_ref": {"uuid": "", "fqn": "earth-fixed"},
+                           "has_bbox": False, "global": False,
+                           "has_circle": False}
+    if c.get("has_frame_ref") and c.get("frame_ref"):
+        fr = c["frame_ref"]
+        out["frame_ref"] = {"uuid": fr.get("uuid", ""),
+                            "fqn": fr.get("fqn", "")}
+    if c.get("has_circle"):
+        out["has_circle"] = True
+        out["circle_center"] = list(c["circle_center"])
+        out["circle_radius_m"] = c["circle_radius_m"]
+    elif c.get("has_bbox"):
+        out["has_bbox"] = True
+        out["bbox"] = list(c["bbox"])
+    if cells_:
+        out["geohash"] = list(cells_)
+    return out
+
+
+def service_manifest(service_id: str, kind: str, *, authority: str,
+                     scene: str, name: str = "", org: str = "",
+                     version: str = "",
+                     profiles: Iterable[str] = (),
+                     request: Optional[Dict[str, Any]] = None,
+                     response: Optional[Dict[str, Any]] = None,
+                     limits: Optional[Dict[str, Any]] = None,
+                     auth: Optional[Dict[str, Any]] = None,
+                     coverage: Any = None,
+                     cells: Optional[Iterable[str]] = None,
+                     ttl_sec: int = 1800,
+                     when: Any = None) -> Dict[str, Any]:
+    """An N.7 service manifest: the contract behind an announce.
+
+    The announce says a service is here and where; this says what it accepts,
+    what it answers with, and under what limits. Everything in it is a claim,
+    so everything in it is an argument: `profiles` is the 1.8 profile names
+    the service implements, `request` and `response` are the topic roles it
+    reads and writes, `limits` is what it will refuse beyond, `auth` is how to
+    present a credential. Pass none of them and the manifest says only that
+    the service exists, which is a true and useless document -- publish it
+    anyway if that is all you can honestly say.
+
+    `cells` is a geohash list for the coverage; the committed service manifest
+    carries one and the content manifests do not, so it is passed rather than
+    derived. `sd.cells(coverage)` computes it.
+    """
+    doc: Dict[str, Any] = {
+        "id": service_uri(authority, scene, service_id),
+        "profile": MANIFEST_PROFILE,
+        "rtype": "service",
+        "service": {"service_id": service_id, "kind": kind,
+                    "name": name or service_id, "org": org,
+                    "version": version},
+    }
+    if profiles:
+        doc["profiles"] = list(profiles)
+    for key, value in (("request", request), ("response", response),
+                       ("limits", limits), ("auth", auth)):
+        if value:
+            doc[key] = dict(value)
+    cov = _manifest_coverage(coverage, cells)
+    if cov:
+        doc["coverage"] = cov
+    doc["stamp"] = stamp(when)
+    doc["ttl_sec"] = int(ttl_sec)
+    return doc
 
 
 def content_manifest(content_id: str, *, authority: str, scene: str,
                      assets: Iterable[Dict[str, Any]] = (),
                      title: str = "", summary: str = "",
                      tags: Iterable[str] = (), class_id: str = "",
-                     coverage: Any = None, ttl_sec: int = 3600,
+                     coverage: Any = None,
+                     cells: Optional[Iterable[str]] = None,
+                     ttl_sec: int = 3600,
                      when: Any = None) -> Dict[str, Any]:
     """An N.7 content manifest, keyed by the URI it answers to.
 
@@ -584,25 +787,15 @@ def content_manifest(content_id: str, *, authority: str, scene: str,
         "id": content_uri(authority, scene, content_id),
         "profile": MANIFEST_PROFILE,
         "rtype": "content",
-        "content": {"content_id": content_id, "title": title or content_id,
+        "content": {"content_id": content_id,
+                    "title": title or content_id,
                     "summary": summary, "tags": list(tags),
                     "class_id": class_id},
         "assets": list(assets),
         "stamp": stamp(when),
         "ttl_sec": int(ttl_sec),
     }
-    cov = _coverage(coverage)
+    cov = _manifest_coverage(coverage, cells)
     if cov:
-        c = cov[0]
-        out: Dict[str, Any] = {"frame_ref": {"uuid": "", "fqn": "earth-fixed"},
-                               "has_bbox": False, "global": False,
-                               "has_circle": False}
-        if c.get("has_circle"):
-            out["has_circle"] = True
-            out["circle_center"] = list(c["circle_center"])
-            out["circle_radius_m"] = c["circle_radius_m"]
-        elif c.get("has_bbox"):
-            out["has_bbox"] = True
-            out["bbox"] = list(c["bbox"])
-        doc["coverage"] = out
+        doc["coverage"] = cov
     return doc

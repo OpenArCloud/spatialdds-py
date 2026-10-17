@@ -54,7 +54,8 @@ import spatialdds as sd
 ep = sd.connect("http://127.0.0.1:8787", token="tok")
 ep.publish_service(service_id="mytown-vps", kind="VPS",
                    coverage=sd.circle(30.2849, -97.7393, 500))
-ep.publish_content(content_id="duck", title="Duck", position=(30.2849, -97.7393),
+ep.publish_content(content_id="duck", title="A duck at the fountain",
+                   position=(30.2849, -97.7393),
                    asset="https://cdn.example/duck.gltf")
 for hit in ep.search(geohash="9v6krc"):
     print("service", hit.service_id, hit.kind)
@@ -70,6 +71,13 @@ sixteen; what the builders put in the ones you did not mention is listed field
 by field by `python3 gates/builders.py --census`, because a record that
 validates and says something you did not choose is worse than no builder at
 all.
+
+**These two calls are short because they say little, not because records are
+meant to be thin.** The same two verbs publish a full service contract and a
+hashed asset in the same one call each:
+[docs/MYTOWN.md](docs/MYTOWN.md) does exactly that, and
+`gates/builders.py` rebuilds this repository's hand-authored records through
+the builders to prove nothing is out of reach.
 
 ## Resolve
 

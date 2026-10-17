@@ -30,12 +30,13 @@ __all__ = [
     # The record builders, re-exported so that `sd.circle(...)` reads the way
     # it does in the documentation. They live in `spatialdds.records`.
     "records", "circle", "bbox", "earth_fixed", "frame", "stamp", "geopose",
-    "cov_pos3", "cov_none", "topic", "asset", "cells",
-    "service_announce", "content_announce", "content_manifest", "geo_anchor",
-    "service_uri", "content_uri",
+    "cov_pos3", "cov_none", "topic", "asset", "asset_ref", "cells",
+    "profile", "capabilities",
+    "service_announce", "service_manifest", "content_announce",
+    "content_manifest", "geo_anchor", "service_uri", "content_uri",
 ]
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 #: The SpatialDDS-spec commit whose Appendix N and generated artifacts this
 #: package implements. Package versions and specification versions move
 #: independently; this is the one that says what the wire looks like.

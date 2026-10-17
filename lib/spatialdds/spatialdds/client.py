@@ -329,9 +329,10 @@ class Endpoint:
     def publish_content(self, content_id: str, *,
                         position: Optional[Any] = None,
                         coverage: Any = None, radius_m: float = 10.0,
-                        asset: Optional[str] = None,
+                        asset: Any = None,
                         media_type: str = "application/octet-stream",
-                        sha256: str = "", assets: Any = None,
+                        sha256: str = "", asset_uri: str = "",
+                        assets: Any = None,
                         scene: Optional[str] = None,
                         stream: str = "content",
                         title: str = "", summary: str = "",
@@ -361,7 +362,8 @@ class Endpoint:
                 "position=(lat, lon) or coverage=sd.circle(...).")
         items = list(assets) if assets else []
         if asset is not None:
-            items.append(records.asset(asset, media_type, sha256=sha256))
+            items.append(self._asset_entry(asset, media_type, sha256,
+                                           asset_uri))
         man = records.content_manifest(
             content_id, authority=self.authority, scene=sc, assets=items,
             title=title, summary=summary, tags=tags, class_id=class_id,
@@ -376,6 +378,30 @@ class Endpoint:
                          key=content_id, record=rec)
         w.manifest = mw
         return w
+
+    def _asset_entry(self, asset: Any, media_type: str, sha256: str,
+                     asset_uri: str) -> Dict[str, Any]:
+        """Either asset form, from whatever the caller actually had.
+
+        A dict is used as it stands -- `sd.asset()` and `sd.asset_ref()`
+        return those. A URL becomes a reference, with whatever hash was
+        supplied. Bytes, or a path to a file that exists, are hashed from the
+        data: `sd.asset()` does that, and the URI defaults to this endpoint's
+        own asset route under the authority it advertises, which is where the
+        bytes will be if you put them there. Pass `asset_uri=` for anywhere
+        else.
+        """
+        if isinstance(asset, dict):
+            return asset
+        if isinstance(asset, str) and asset.startswith(("http://", "https://")):
+            return records.asset_ref(asset, media_type=media_type,
+                                     hash=sha256)
+        name = ""
+        if not isinstance(asset, (bytes, bytearray)):
+            name = str(asset).rsplit("/", 1)[-1]
+        uri = asset_uri or (f"https://{self.authority}/assets/{name}"
+                            if name else "")
+        return records.asset(asset, media_type=media_type, uri=uri)
 
     def publish_anchor(self, anchor_id: str, *, lat: float, lon: float,
                        method: str, alt_m: float = 0.0,
