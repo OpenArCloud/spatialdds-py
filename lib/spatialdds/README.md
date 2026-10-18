@@ -404,7 +404,7 @@ pumping 202 samples into two registered subscriber queues delivered 0 live
 events. If you call `notify` only from the serving loop, 0.5.0 and 0.5.1 were
 correct for you.
 
-0.5.3 lets a browser reach this gateway at all. `Authorization` is not a
+0.5.3 let a browser reach this gateway at all. `Authorization` is not a
 CORS-safelisted request header, so a cross-origin request carrying one is
 preceded by an `OPTIONS` preflight — and no `OPTIONS` was routed, so aiohttp
 answered `405 Allow: GET,HEAD,POST` and the browser stopped there without
@@ -429,7 +429,25 @@ required, and nothing is newly reachable without one.
 If your clients are not browsers, 0.5.0 through 0.5.2 were correct for you:
 nothing else changes, and no response loses a header it had.
 
-## Not in 0.5.3
+0.5.4 finishes what 0.5.3 started, and the gap is instructive. 0.5.3 threaded
+the asking origin through the three places that build a response from
+`_cache_headers` and missed the two that build one by hand: the N.6 command
+lane's own reply, and **every N.8 problem document**. So a command published
+and the page could not read the outcome --- a cross-origin `fetch` rejects a
+response with no allowed origin, so a client saw a failure for a command that
+had in fact succeeded --- and a `401`, `409` or `400` was unreadable by the
+client it was written for, which is N.8 failing at the one thing that
+distinguishes it from a bare status.
+
+The fix is a one-rule middleware rather than a fourth and fifth call site:
+where a response names no origin and the request had one, echo it with
+`Vary: Origin`. `_cache_headers` remains the place that decides cacheability
+and reach together and is unchanged where it already acts. Threading it
+explicitly was tried first and is what missed two paths.
+
+If your clients are not browsers, nothing here changes anything for you.
+
+## Not in 0.5.4
 
 Stated so nobody waits for them: no async API, no caching beyond ETag
 revalidation, no retry policy, no MCAP tooling beyond the journal the server

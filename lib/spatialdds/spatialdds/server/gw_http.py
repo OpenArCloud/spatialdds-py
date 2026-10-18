@@ -164,6 +164,49 @@ def _cache_headers(access: str, doc_ttl: int | None = None,
     return headers
 
 
+@web.middleware
+async def _reach(request: web.Request, handler) -> web.StreamResponse:
+    """Make sure every answer names the origin that asked for it.
+
+    **A backstop, not the policy.** `_cache_headers` remains the single place
+    that decides cacheability and reach together, and where it has already set
+    `Access-Control-Allow-Origin` this changes nothing. What it covers is the
+    responses that set no reach at all, because they are built by hand rather
+    than through that function --- and the reason it exists is that threading
+    the origin explicitly through every construction site was tried first, in
+    0.5.3, and missed two:
+
+    * `post_command`'s `202`. The command published and the page could not
+      read the outcome: a cross-origin `fetch` rejects a response with no
+      allowed origin, so `bindingCommand` in the demo's client landed in its
+      `catch` with no status at all, for a command that had in fact succeeded.
+    * **Every N.8 problem document.** `_problem` set `no-store` and nothing
+      else, so a `401`, `409` or `400` was unreadable by the client it was
+      written for. N.8 exists to hand a client a *reason*; a reason a browser
+      cannot read is the surface failing at the one thing that distinguishes
+      it from a bare status.
+
+    Both were found by curling the running demo after 0.5.3 shipped, not by
+    this repository's gates --- the same way the original defect was found,
+    which is the lesson repeating rather than a new one.
+
+    Only the origin is echoed here, and only when absent. `Vary: Origin` goes
+    with it so a shared cache cannot serve one origin's answer to another; the
+    `Expose-Headers` set is added for the same reason it is on a GET, since a
+    reader that cannot see the ETag cannot revalidate. `Allow-Credentials` is
+    still set nowhere.
+    """
+    response = await handler(request)
+    origin = request.headers.get("Origin")
+    if origin and "Access-Control-Allow-Origin" not in response.headers:
+        response.headers["Access-Control-Allow-Origin"] = origin
+        vary = response.headers.get("Vary")
+        response.headers["Vary"] = f"{vary}, Origin" if vary else "Origin"
+        response.headers.setdefault("Access-Control-Expose-Headers",
+                                    EXPOSE_HEADERS)
+    return response
+
+
 async def preflight(request: web.Request) -> web.Response:
     """Answer the `OPTIONS` a browser sends before a credentialed request.
 
@@ -1001,7 +1044,7 @@ def make_app(state: gateway.State, base: str, token: str | None,
     embedder passes `publish_enabled=False, live_subscriptions=True` and gets
     the live lane with no write surface at all.
     """
-    app = web.Application()
+    app = web.Application(middlewares=[_reach])
     app["state"] = state
     app["base"] = base.rstrip("/")
     app["token"] = token

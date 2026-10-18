@@ -1527,3 +1527,37 @@ The remaining half of that filing is not ours and not fixed here: a browser
 cannot put a credential on a WebSocket handshake at all, which N.4 requires
 and whose alternatives it forbids. That is blocker A, it is the spec agent's,
 and subprotocol carriage is the likely answer.
+
+### 34b. The same finding, one release later, 2026-10-18
+
+**0.5.3 fixed it in the three places that share a helper and missed the two
+that do not** --- and it was found the same way again: by curling the running
+demo after the release, not by the sixteen checks written for it.
+
+`post_command` builds its `202` by hand, and `_problem` builds every N.8
+document by hand with `Cache-Control: no-store` and nothing else. Neither went
+through `_cache_headers`, so neither named an origin. Consequences, in order
+of how bad they are:
+
+* **An N.8 problem document was unreadable by the client it was written for.**
+  A cross-origin `401`, `409` or `400` rejects at the `fetch`, so the page
+  gets no status and no body. N.8 exists to make a refusal a *stated reason*
+  rather than a number; a reason the client cannot read gives up exactly that.
+* A command's own reply was unreadable, so a page saw a failure for a command
+  that had published successfully. Worse than a plain error, because the
+  system and the client disagree about what happened.
+
+Fixed in 0.5.4 by a one-rule middleware --- if a response names no origin and
+the request had one, echo it with `Vary: Origin` --- rather than by threading
+the origin through a fourth and fifth call site. **That choice is the finding.**
+Explicit-at-every-site is the more careful-looking design and it is the one
+that failed: there were five sites, the obvious three shared a helper, and the
+two that did not were invisible precisely because they were written by hand.
+A rule that cannot be forgotten beats a convention that must be remembered,
+and `_cache_headers` keeps deciding cacheability and reach together where it
+already acts, so the pairing argument it was built on is untouched.
+
+The gate gained the two checks that would have caught this, and they are shown
+failing against 0.5.3 exactly as published. Note what they are: assertions
+about *the response a handler did not build through the shared path*. The
+sixteen checks before them all examined responses that did.

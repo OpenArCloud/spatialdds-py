@@ -185,6 +185,52 @@ async def _run() -> list[tuple[str, bool, str]]:
                 f"OPTIONS -> {vol}; a client that sends a credential it does "
                 f"not need is no longer refused before it asks"))
 
+            # --- every answer, not just the ones built by _cache_headers
+            #
+            # 0.5.3 threaded the origin through the three call sites that
+            # construct a response from `_cache_headers` and missed the two
+            # that do not. These rows are that miss, turned into checks: the
+            # command lane's reply, and an N.8 problem document, which is the
+            # worse of the two --- N.8 exists to hand a client a *reason*, and
+            # a reason a cross-origin browser cannot read is the surface
+            # failing at the one thing that distinguishes it from a status.
+            async with s.post(gw.base + public, json={}, headers={
+                    "Origin": ORIGIN,
+                    "Authorization": f"Bearer {gw.token}"}) as r:
+                cmd_status, cmd_h = r.status, dict(r.headers)
+            checks.append((
+                "the command lane's own reply names the asking origin",
+                cmd_h.get("Access-Control-Allow-Origin") == ORIGIN,
+                f"POST -> {cmd_status}, Access-Control-Allow-Origin: "
+                f"{cmd_h.get('Access-Control-Allow-Origin')!r}"))
+
+            async with s.get(gw.base + gated,
+                             headers={"Origin": ORIGIN}) as r:
+                prob_status, prob_h = r.status, dict(r.headers)
+                prob_type = r.headers.get("Content-Type", "")
+            checks.append((
+                "an N.8 problem document is readable by the client it is for",
+                prob_status == 401
+                and prob_h.get("Access-Control-Allow-Origin") == ORIGIN
+                and "problem" in prob_type,
+                f"{prob_status} {prob_type}, Access-Control-Allow-Origin: "
+                f"{prob_h.get('Access-Control-Allow-Origin')!r}"))
+
+            # A 304 too: a conditional GET is the common case for a public
+            # resource and its headers are built on a different branch again.
+            async with s.get(gw.base + public,
+                             headers={"Origin": ORIGIN}) as r:
+                etag = r.headers.get("ETag", "")
+            async with s.get(gw.base + public, headers={
+                    "Origin": ORIGIN, "If-None-Match": etag}) as r:
+                nm_status, nm_h = r.status, dict(r.headers)
+            checks.append((
+                "a 304 revalidation still names an origin",
+                nm_status == 304
+                and nm_h.get("Access-Control-Allow-Origin") is not None,
+                f"{nm_status}, Access-Control-Allow-Origin: "
+                f"{nm_h.get('Access-Control-Allow-Origin')!r}"))
+
             # --- the routes mirror the surface rather than catching all
             #
             # Two segments, deliberately. The first version of this check used
