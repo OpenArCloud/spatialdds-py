@@ -30,11 +30,50 @@ what a reader does; this is the surface they are doing it against.
 | `POST /{domain}/{stream}/{type}/{version}` | N.6: a command on the lane that accepts one |
 | `PUT /{domain}/{stream}/{type}/{version}/{key}` | the write surface, where publishing is on |
 | `DELETE /{domain}/{stream}/{type}/{version}/{key}` | removal, likewise |
+| `OPTIONS` on any of the above | the CORS preflight (0.5.3) |
 
 Every one of those is a plain resource: `GET` it with anything that speaks
 HTTP, and the WebSocket upgrade is the same URL. There is no index endpoint and
 no bootstrap: a client starts at the search path and follows what the service
 manifest hands it.
+
+### From a browser (0.5.3)
+
+A page on another origin needs two things this surface did not have before
+0.5.3, and the reason it needed them is worth stating because nothing in
+Appendix N says it.
+
+**The preflight.** `Authorization` is not a CORS-safelisted request header, so
+any cross-origin request carrying one is preceded by `OPTIONS`. Every path
+above answers it: `204`, with the asking origin echoed in
+`Access-Control-Allow-Origin`, the requested headers echoed in
+`Access-Control-Allow-Headers` (or `Authorization, Content-Type,
+If-None-Match` when none were named), `Access-Control-Allow-Methods`, and a
+ten-minute `Access-Control-Max-Age`. Without it the browser stops before
+making the request, which made **N.6 unreachable from a browser for every
+access class** — a command always carries a credential, so reclassifying a
+lane could not help.
+
+**The origin on the answer.** An authorized `operator-scoped` response now
+carries `Access-Control-Allow-Origin: <the asking origin>` and
+`Vary: Origin, Authorization`. Echoed rather than `*`, because a wildcard on a
+response that varies by credential is what a shared cache gets wrong. The body
+is still `no-store` and the credential is still required.
+
+**`Access-Control-Allow-Credentials` is absent, deliberately and everywhere.**
+That header is what lets cookies and HTTP auth ride along ambiently; a client
+of this gateway holds a token and attaches it on purpose. So:
+
+| the client | what happens |
+| --- | --- |
+| sends no credential to a `public-cacheable` resource | `200`, `Access-Control-Allow-Origin: *` — unchanged, and the normal case |
+| sends a credential to a `public-cacheable` resource | preflight answered, then `200`. Harmless now; before 0.5.3 the preflight `405`d and the read failed |
+| sends a valid credential to an `operator-scoped` resource | preflight answered, then `200` naming its origin, readable |
+| sends none to an `operator-scoped` resource | `401`, as before. No gate moved |
+
+A client should still send a credential only where the access class requires
+one. Volunteering one works now, but it costs a preflight round trip and
+nothing else.
 
 ## Commands (N.6), and the three things N.6 leaves open
 

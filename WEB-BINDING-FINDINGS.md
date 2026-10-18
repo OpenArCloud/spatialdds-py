@@ -1461,3 +1461,69 @@ Both populated shapes are unaffected and unchanged: serving the fountain, with
 the publish surface off and on, is **14 checks, 14 passed, 0 failed, 0
 skipped** in each, through the new `python -m spatialdds.serve` path as well as
 through `tools/run_gateway.py`.
+
+## 34. A browser could not use this gateway at all, 2026-10-18
+
+**Found from outside, which is the whole point of the finding.** Twenty-nine
+gates, a conformance suite, two recordings lifted message by message against a
+second implementation — and the first real browser to meet this surface could
+not issue a single credentialed request. No check here could have caught it,
+because `aiohttp` enforces no CORS: it reads a response with no
+`Access-Control-Allow-Origin` quite happily and sends an `Authorization`
+header with no preflight at all. Every client this repository tests with is
+the wrong client for this defect.
+
+Two halves, measured against 0.5.2 from a page on `http://localhost:5173`:
+
+```
+OPTIONS /…/world/model_command/v1
+  Origin, Access-Control-Request-Method: POST
+  Access-Control-Request-Headers: authorization,content-type
+→ 405 Allow: GET,HEAD,POST
+
+GET /…/world/entity/v1            (public, no credential)  → 200, ACAO: *
+GET /…/world/entity/v1            (public, credential)      → preflight 405, never asked
+GET  an operator-scoped resource  (valid credential)        → 200, no ACAO at all
+```
+
+**`Authorization` is not CORS-safelisted**, so a cross-origin request carrying
+one preflights, and no `OPTIONS` was routed. So **N.6 was unreachable from a
+browser for every access class** — a command always carries a credential, so
+the preflight is forced by the *request* and no reclassification of the
+resource can avoid it. And the converse bit a careful client: a page that
+volunteered a credential at a *public* lane, on the reasonable theory that a
+credential is harmless where it is not required, turned a working read into a
+silently empty one.
+
+The second half was a reasoning error rather than an omission, and it is the
+more interesting one. `_cache_headers` refused an origin to any gated resource,
+on the stated grounds that its credential "must not be invited to attach
+ambiently". Right about the risk, wrong about the mechanism:
+`Access-Control-Allow-Credentials` is what issues that invitation, this package
+sets it nowhere, and a `Bearer` token the page holds and chooses to attach is
+the opposite of ambient. Refusing the origin never kept a credential out of
+anything. It made an authorized `200` unreadable by the client that had
+authorized itself.
+
+Fixed in 0.5.3: every path answers `OPTIONS`, an authorized operator-scoped
+response echoes the asking origin with `Vary: Origin, Authorization`, and
+`Allow-Credentials` stays absent everywhere. `gates/cors_preflight.py` holds
+sixteen checks and says in its own docstring what it cannot claim — it asserts
+the headers a browser consults, never the browser's decision, because the
+harness cannot make that decision for it.
+
+**And the specification gap is separate, which is why it was routed
+separately.** Nothing in Appendix N required any of this. A conforming endpoint
+could omit every part of it and still pass, which is what happened here: this
+gateway had no defect against the text, and its flagship client could not use
+it. So the ask is not "permit this" — nothing forbade it — but *require a
+browser-facing binding to state its preflight behaviour*, most naturally an
+implementation-requirements note. Three sentences' worth of substance are
+drafted in `SpatialDDS-demo`'s `docs/browser-credential-finding.md`, including
+the one that is a **client** requirement: do not send a credential to a
+resource whose access class does not require one.
+
+The remaining half of that filing is not ours and not fixed here: a browser
+cannot put a credential on a WebSocket handshake at all, which N.4 requires
+and whose alternatives it forbids. That is blocker A, it is the spec agent's,
+and subprotocol carriage is the likely answer.

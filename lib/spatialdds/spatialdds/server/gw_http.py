@@ -91,20 +91,55 @@ def _problem(status: int, slug: str, title: str, detail: str,
                         headers={"Cache-Control": "no-store"})
 
 
-def _cache_headers(access: str, doc_ttl: int | None = None) -> dict[str, str]:
+#: What a cross-origin reader may see beyond the body. Without it the ETag and
+#: the access class are served and unreadable, which is the instrument failing
+#: to report what it measures.
+EXPOSE_HEADERS = ("ETag, X-SpatialDDS-Topic, X-SpatialDDS-Type, "
+                  "X-SpatialDDS-Access")
+
+#: Request headers a browser may send to this gateway. `Authorization` is the
+#: one that matters and the one that is not CORS-safelisted, so a request
+#: carrying it preflights; `Content-Type` is needed for any JSON body, and
+#: `If-None-Match` for conditional GETs.
+ALLOW_HEADERS = "Authorization, Content-Type, If-None-Match"
+
+#: Methods this gateway serves. Stated once so the preflight answer and the
+#: `Allow` header on a refusal cannot drift apart.
+ALLOW_METHODS = "GET, HEAD, POST, PUT, DELETE, OPTIONS"
+
+#: How long a browser may cache a preflight. Ten minutes: long enough that a
+#: page does not preflight every command, short enough that changing the
+#: policy takes effect inside a session.
+PREFLIGHT_MAX_AGE = 600
+
+
+def _cache_headers(access: str, doc_ttl: int | None = None,
+                   origin: str | None = None) -> dict[str, str]:
     """Cacheability, reach, and auth decided together or not at all.
 
     The CORS header lives in this branch rather than in a middleware for the
     same reason the cache header does: a public-cacheable resource is one a
     client may read without presenting anything, so there is no origin that
-    should be refused it, and an operator-scoped resource is gated by a
-    credential a browser must not be invited to attach ambiently. Putting the
-    two in one function makes the pairing impossible to drift apart.
+    should be refused it. Putting the two in one function makes the pairing
+    impossible to drift apart.
 
-    `Access-Control-Expose-Headers` is here because without it a cross-origin
-    reader can see the body but not the ETag or the access class that describes
-    it -- the headers would be served and unreadable, which is the instrument
-    failing to report what it measures.
+    **An operator-scoped response now carries an echoed origin too, and the
+    reasoning that said otherwise was close to right.** It read: gated by "a
+    credential a browser must not be invited to attach ambiently". The
+    invitation is real and `Access-Control-Allow-Origin` is not how it is
+    issued --- `Access-Control-Allow-Credentials` is. Cookies and HTTP auth
+    ride along only when that header says so and the client asks for
+    `credentials: 'include'`; this gateway sets it nowhere and never will, so
+    nothing here is ambient. A `Bearer` token in an `Authorization` header is
+    the opposite of ambient: the page had to hold it and choose to attach it.
+
+    Refusing the origin did not keep that credential out. It made an
+    authorized response unreadable by the client that authorized itself ---
+    measured from `SpatialDDS-demo`'s browser lane, where a page holding a
+    valid token could not read a word of a 200 it had earned. So the origin is
+    echoed rather than `*`, with `Vary: Origin`, which keeps a shared cache
+    from serving one origin's answer to another; the body stays `no-store`
+    regardless, and the credential is still required. No gate is weakened.
     """
     if access == gateway.PUBLIC:
         # N.4: where a public-cacheable resource is a manifest carrying its own
@@ -113,15 +148,73 @@ def _cache_headers(access: str, doc_ttl: int | None = None) -> dict[str, str]:
         age = gateway.PUBLIC_MAX_AGE if doc_ttl is None else doc_ttl
         return {"Cache-Control": f"public, max-age={age}",
                 "Access-Control-Allow-Origin": "*",
-                "Access-Control-Expose-Headers":
-                    "ETag, X-SpatialDDS-Topic, X-SpatialDDS-Type, "
-                    "X-SpatialDDS-Access"}
-    # Operator-scoped. Never cacheable and never CORS-open, by the same
-    # decision that gated it. `doc_ttl` is ignored here deliberately: N.4
-    # grants no lifetime to a gated resource whatever `ttl_sec` it carries,
-    # because the cache that would honour it is the shared one the gate exists
-    # to keep the body out of.
-    return {"Cache-Control": "no-store", "Vary": "Authorization"}
+                "Access-Control-Expose-Headers": EXPOSE_HEADERS}
+    # Operator-scoped. Never cacheable, by the same decision that gated it.
+    # `doc_ttl` is ignored here deliberately: N.4 grants no lifetime to a gated
+    # resource whatever `ttl_sec` it carries, because the cache that would
+    # honour it is the shared one the gate exists to keep the body out of.
+    headers = {"Cache-Control": "no-store", "Vary": "Authorization"}
+    if origin:
+        # Echoed, not `*`: a wildcard on a response that varies by credential
+        # is the combination a shared cache can get wrong, and there is no
+        # reason to name an origin this request did not come from.
+        headers["Access-Control-Allow-Origin"] = origin
+        headers["Vary"] = "Origin, Authorization"
+        headers["Access-Control-Expose-Headers"] = EXPOSE_HEADERS
+    return headers
+
+
+async def preflight(request: web.Request) -> web.Response:
+    """Answer the `OPTIONS` a browser sends before a credentialed request.
+
+    **Why this route has to exist, and why nothing in the specification said
+    so.** `Authorization` is not a CORS-safelisted request header, so a
+    cross-origin request carrying one is preceded by a preflight. This gateway
+    routed no `OPTIONS` at all, so aiohttp answered `405` with
+    `Allow: GET,HEAD,POST` --- and the browser stopped there, never making the
+    request. Two consequences, both measured against 0.5.2 from a page on
+    another origin:
+
+    * N.6 was unreachable from a browser for **every** access class, because a
+      command always carries a credential. Reclassifying a lane cannot help:
+      the preflight is triggered by the request, not by what the resource is.
+    * A `public-cacheable` GET that answers `200` with
+      `Access-Control-Allow-Origin: *` failed outright if the client
+      volunteered a credential it did not need.
+
+    Both are fixed here rather than in Appendix N, because nothing in N
+    forbade any of it --- a conforming endpoint could simply omit it, which is
+    the separate gap filed for the specification: a binding whose flagship
+    client is a browser should have to *state* its preflight behaviour.
+
+    `Allow-Credentials` is deliberately absent. It is the header that would
+    invite cookies and HTTP auth to ride along ambiently, and this gateway
+    wants the opposite: a credential the page holds and chooses to attach.
+
+    A bare `OPTIONS` with no `Origin` is not a preflight; it gets the same
+    `Allow` list as a courtesy, which also keeps `ALLOW_METHODS` the single
+    place that answer is written.
+    """
+    origin = request.headers.get("Origin")
+    headers = {"Allow": ALLOW_METHODS}
+    if origin:
+        headers.update({
+            "Access-Control-Allow-Origin": origin,
+            "Access-Control-Allow-Methods": ALLOW_METHODS,
+            # Echo what was asked for when it was asked, so a header this
+            # gateway has not thought of is refused rather than blanket-allowed,
+            # and fall back to the list above for a preflight that names none.
+            "Access-Control-Allow-Headers":
+                request.headers.get("Access-Control-Request-Headers")
+                or ALLOW_HEADERS,
+            "Access-Control-Max-Age": str(PREFLIGHT_MAX_AGE),
+            "Access-Control-Expose-Headers": EXPOSE_HEADERS,
+            # The answer depends on all three, so a cache must not reuse it
+            # across different ones.
+            "Vary": "Origin, Access-Control-Request-Method, "
+                    "Access-Control-Request-Headers",
+        })
+    return web.Response(status=204, headers=headers)
 
 
 def _authorized(request: web.Request, token: str | None) -> bool:
@@ -145,7 +238,9 @@ def _json_response(request: web.Request, doc: Any, access: str,
                    doc_ttl: int | None = None) -> web.Response:
     """One JSON resource, with its ETag, its cache class, and 304 handling."""
     etag = _etag(doc)
-    headers = {"ETag": etag, **_cache_headers(access, doc_ttl),
+    headers = {"ETag": etag,
+               **_cache_headers(access, doc_ttl,
+                                request.headers.get("Origin")),
                **(extra or {})}
     if request.headers.get("If-None-Match", "") == etag:
         return web.Response(status=304, headers=headers)
@@ -473,7 +568,9 @@ def _written(request: web.Request, doc: Any, created: bool,
         if not created else web.Response(
             body=_body(doc), status=201, content_type="application/json",
             headers={"ETag": _etag(doc),
-                     **_cache_headers(gateway.OPERATOR), **extra})
+                     **_cache_headers(gateway.OPERATOR, None,
+                                      request.headers.get("Origin")),
+                     **extra})
 
 
 def _running_loop():
@@ -741,7 +838,9 @@ async def delete_instance(request: web.Request) -> web.Response:
                      {"event": "dispose", "topic": topic, "key": key,
                       "reason": reason})
     return web.Response(status=204,
-                        headers=_cache_headers(gateway.OPERATOR))
+                        headers=_cache_headers(
+                            gateway.OPERATOR, None,
+                            request.headers.get("Origin")))
 
 
 async def put_manifest(request: web.Request) -> web.Response:
@@ -959,5 +1058,18 @@ def make_app(state: gateway.State, base: str, token: str | None,
         web.delete("/{scene}/{stream}/{type}/{version}/{key}",
                    delete_instance),
         web.put(gateway.RESOLVE_PATH, put_manifest),
+        # The preflight, on every path that can be asked for cross-origin
+        # with a credential or a JSON body. Mirrors the routes above rather
+        # than using a catch-all, so a path this gateway does not serve still
+        # 404s on OPTIONS instead of promising a method nobody implements.
+        web.options(f"{WELL_KNOWN}/schemas", preflight),
+        web.options(f"{WELL_KNOWN}/schemas/{{type}}", preflight),
+        web.options(f"{WELL_KNOWN}/search", preflight),
+        web.options(f"{WELL_KNOWN}/bootstrap", preflight),
+        web.options(f"{WELL_KNOWN}/resolver", preflight),
+        web.options(gateway.RESOLVE_PATH, preflight),
+        web.options(f"{ASSET_PATH}/{{name}}", preflight),
+        web.options("/{scene}/{stream}/{type}/{version}", preflight),
+        web.options("/{scene}/{stream}/{type}/{version}/{key}", preflight),
     ])
     return app

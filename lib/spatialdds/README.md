@@ -395,7 +395,7 @@ an object the app had already discarded. If you called `register()` before
 `make_app()`, 0.4.0 and 0.5.0 worked; if you called it after, the command lane
 advertised nothing and refused every POST.
 
-0.5.2 makes `notify` safe from the thread its own docstring invited. It put
+0.5.2 made `notify` safe from the thread its own docstring invited. It put
 onto the subscriber queue directly, and `asyncio.Queue.put_nowait` from a
 foreign thread enqueues without waking the loop — so a backend reading a bus
 in a thread fed a parked subscriber nothing until the loop woke for some other
@@ -404,7 +404,32 @@ pumping 202 samples into two registered subscriber queues delivered 0 live
 events. If you call `notify` only from the serving loop, 0.5.0 and 0.5.1 were
 correct for you.
 
-## Not in 0.5.2
+0.5.3 lets a browser reach this gateway at all. `Authorization` is not a
+CORS-safelisted request header, so a cross-origin request carrying one is
+preceded by an `OPTIONS` preflight — and no `OPTIONS` was routed, so aiohttp
+answered `405 Allow: GET,HEAD,POST` and the browser stopped there without
+making the request. Two consequences, both found from outside by a real page
+rather than by a gate here: **N.6 was unreachable from a browser for every
+access class**, because a command always carries a credential and so always
+preflights, which no reclassification can change; and a `public-cacheable`
+`GET` that answers `200` with `Access-Control-Allow-Origin: *` failed outright
+if the client volunteered a credential it did not need.
+
+An authorized operator-scoped response now also carries the asking origin,
+echoed, with `Vary: Origin, Authorization`. The previous reasoning was that a
+gated resource should never be CORS-open because its credential "must not be
+invited to attach ambiently" — right about the risk and wrong about the
+mechanism. `Access-Control-Allow-Credentials` is what issues that invitation,
+this package sets it nowhere, and a `Bearer` token the page holds and chooses
+to attach is the opposite of ambient. Refusing the origin never kept a
+credential out; it made an authorized `200` unreadable by the client that had
+authorized itself. The body is still `no-store`, the credential is still
+required, and nothing is newly reachable without one.
+
+If your clients are not browsers, 0.5.0 through 0.5.2 were correct for you:
+nothing else changes, and no response loses a header it had.
+
+## Not in 0.5.3
 
 Stated so nobody waits for them: no async API, no caching beyond ETag
 revalidation, no retry policy, no MCAP tooling beyond the journal the server

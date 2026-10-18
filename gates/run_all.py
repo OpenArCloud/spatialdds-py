@@ -184,6 +184,14 @@ def gates() -> list[dict]:
         {"name": "live_backend", "what": "apply_sample and notify are two halves, and the write surface is a separate switch",
          "cmd": ["gates/live_backend.py"],
          "skip": no_web or no_fountain},
+        # The browser's half of the HTTP contract. Found from outside, by the
+        # demo's browser lane: an `Authorization` header forces a preflight
+        # this gateway did not route, so N.6 was unreachable from a browser
+        # for every access class, and an authorized operator-scoped response
+        # named no origin so its own client could not read it.
+        {"name": "cors_preflight", "what": "a credentialed cross-origin request is preflighted and its answer names the asking origin",
+         "cmd": ["gates/cors_preflight.py"],
+         "skip": no_web},
     ]
 
 

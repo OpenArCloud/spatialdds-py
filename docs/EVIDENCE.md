@@ -44,8 +44,11 @@ python3 gates/run_all.py
   PASS     serve_demo          the packaged demo serves, and the examples do not know the difference
   PASS     builders            the record builders produce what the hand-authored records say
   PASS     deploy_image        the image's own instructions serve the endpoint from the new layout
+  PASS     commands_n6         the N.6 command surface accepts, declines with a reason, and advertises only what it serves
+  PASS     live_backend        apply_sample and notify are two halves, and the write surface is a separate switch
+  PASS     cors_preflight      a credentialed cross-origin request is preflighted and its answer names the asking origin
 
-28 gates: 28 passed, 0 failed, 0 skipped
+29 gates: 29 passed, 0 failed, 0 skipped
 ```
 
 The newest of them, `library`, is the only one with a second implementation to
