@@ -476,6 +476,24 @@ def _written(request: web.Request, doc: Any, created: bool,
                      **_cache_headers(gateway.OPERATOR), **extra})
 
 
+def _running_loop():
+    """The loop running in *this* thread, or None. Never raises."""
+    try:
+        return asyncio.get_running_loop()
+    except RuntimeError:
+        return None
+
+
+async def _remember_loop(app: web.Application) -> None:
+    """Record the serving loop, so `notify` can reach it from a thread.
+
+    An `on_startup` signal rather than `make_app`, because `make_app` is
+    ordinarily called before there is a loop to record -- an embedder builds
+    the app, then hands it to `run_app`.
+    """
+    app["loop"] = asyncio.get_running_loop()
+
+
 def notify(app: web.Application, topic: str, event: dict) -> None:
     """Hand an event to every subscriber currently on that topic.
 
@@ -500,16 +518,38 @@ def notify(app: web.Application, topic: str, event: dict) -> None:
                                     "topic": topic,
                                     "key": key, "data": data})
 
-    Synchronous on purpose: it only puts onto unbounded queues, so there is
-    nothing to await, and a backend reading a DDS bus from a thread can call
-    it without arranging a loop.
+    Synchronous on purpose: there is nothing to await, so a backend reading a
+    DDS bus from a thread can call it without arranging a loop. **That use is
+    now actually safe**, which it was not in 0.5.0 and 0.5.1: this put onto
+    the queue directly, and `asyncio.Queue.put_nowait` from a foreign thread
+    enqueues without waking the selector, so a parked subscriber resumed only
+    when the loop happened to wake for some other reason. On a busy endpoint
+    that is immediate and the bug invisible; on an idle one the events sat
+    unseen. The docstring promised the thread case before the code delivered
+    it, which is the worse half of the defect.
 
     Subscriptions only stay open to be woken when `live_subscriptions` is on
     --- see `make_app`. Calling this against an endpoint serving a finished
     recording is harmless and reaches nobody.
     """
+    loop = app.get("loop")
     for q in list(app["subs"].get(topic, ())):
-        q.put_nowait(event)
+        if loop is None or loop is _running_loop():
+            q.put_nowait(event)
+        else:
+            # `asyncio.Queue.put_nowait` is not thread-safe, and the part
+            # that bites is not the enqueue -- it is the wakeup. It resolves
+            # the parked getter's future directly, and resolving a future
+            # from a foreign thread schedules the callback without waking
+            # the selector, so the subscriber's `await q.get()` resumes only
+            # when the loop next happens to wake for some other reason. On a
+            # busy endpoint that is immediate and the bug is invisible; on an
+            # idle one the events sit in the queue.
+            #
+            # Measured on 2026-10-17: a bridge pumping 202 samples into two
+            # registered subscriber queues delivered 0 live events, while the
+            # same call from the loop thread delivered every one.
+            loop.call_soon_threadsafe(q.put_nowait, event)
 
 
 async def _broadcast(request: web.Request, topic: str, event: dict) -> None:
@@ -888,6 +928,11 @@ def make_app(state: gateway.State, base: str, token: str | None,
                        else commands.Registry())
     app["journal"] = journal
     app["subs"] = {}
+    #: The serving loop, filled in at startup. `notify` needs it to hand an
+    #: event across a thread boundary safely; None until then, which is
+    #: correct -- nothing can be subscribed before the app is running.
+    app["loop"] = None
+    app.on_startup.append(_remember_loop)
     app["assets"] = assets
     app.add_routes([
         web.get("/", root),

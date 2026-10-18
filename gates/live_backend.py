@@ -29,6 +29,8 @@ from __future__ import annotations
 import asyncio
 import json
 import sys
+import threading
+import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -45,6 +47,10 @@ from spatialdds.server import gw_http, publish                 # noqa: E402
 #: How long a wakened subscriber gets. Generous against a loaded machine; the
 #: defect this gate guards was unbounded silence, not slowness.
 PATIENCE = 4.0
+#: How promptly a threaded `notify` must arrive. Tight on purpose: the
+#: broken path delivered eventually, once something else woke the loop,
+#: so a generous deadline passes over the defect this exists to catch.
+THREAD_DEADLINE = 1.5
 #: How long silence has to last to count as silence. The negative half of the
 #: contract is a wait, so it costs this much wall clock and is worth it.
 QUIET = 3.0
@@ -77,6 +83,59 @@ async def _one_event(ws, timeout: float):
     if msg.type is not aiohttp.WSMsgType.TEXT:
         return None
     return json.loads(msg.data)
+
+
+def _threaded_notify_check() -> tuple[str, bool, str]:
+    """Does `notify` wake a parked subscriber from a foreign thread?
+
+    **Not through the HTTP harness, and that is the point.** The in-process
+    gateway shares one event loop with the gate's own client, so that loop is
+    never idle --- every `await` in the gate drives it, and a foreign-thread
+    wakeup that would otherwise be missed gets picked up immediately. A check
+    written there passed identically with the defect present and absent,
+    which is a check that measures nothing.
+
+    So this tests the mechanism where it lives: a loop in its own thread with
+    nothing else to do, one coroutine parked on `q.get()`, and `notify`
+    called from outside. `asyncio.Queue.put_nowait` enqueues fine from a
+    foreign thread; what it cannot do is wake the selector, so the parked
+    getter resumes only when the loop next wakes for some other reason ---
+    never, when there is no other reason.
+
+    Measured on 2026-10-17 before the fix: a bridge pumping 202 samples into
+    two registered subscriber queues delivered 0 live events to either.
+    """
+    loop = asyncio.new_event_loop()
+    ready = threading.Event()
+    arrived = threading.Event()
+    app: dict = {"subs": {}, "loop": None}
+    topic = "t"
+
+    async def parked():
+        q: asyncio.Queue = asyncio.Queue()
+        app["subs"].setdefault(topic, set()).add(q)
+        app["loop"] = asyncio.get_running_loop()
+        ready.set()
+        await q.get()
+        arrived.set()
+
+    def spin():
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(asyncio.wait_for(parked(), timeout=20))
+
+    th = threading.Thread(target=spin, daemon=True)
+    th.start()
+    if not ready.wait(5):
+        return ("notify wakes a parked subscriber from a foreign thread",
+                False, "the probe's own loop never started")
+    time.sleep(0.3)                      # let the loop settle into idle
+    gw_http.notify(app, topic, {"event": "sample"})
+    woke = arrived.wait(THREAD_DEADLINE)
+    loop.call_soon_threadsafe(loop.stop)
+    return ("notify wakes a parked subscriber from a foreign thread, with "
+            "that thread's loop idle",
+            woke,
+            f"woke within {THREAD_DEADLINE:.1f}s: {woke}")
 
 
 async def _run() -> list[tuple[str, bool, str]]:
@@ -200,6 +259,7 @@ async def _run() -> list[tuple[str, bool, str]]:
 
 def main() -> int:
     checks = asyncio.run(_run())
+    checks.append(_threaded_notify_check())
     ok = all(c[1] for c in checks)
     return harness.report(
         "a live backend: apply_sample, notify, and the flag that is now two",

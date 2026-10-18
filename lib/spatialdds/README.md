@@ -395,7 +395,16 @@ an object the app had already discarded. If you called `register()` before
 `make_app()`, 0.4.0 and 0.5.0 worked; if you called it after, the command lane
 advertised nothing and refused every POST.
 
-## Not in 0.5.1
+0.5.2 makes `notify` safe from the thread its own docstring invited. It put
+onto the subscriber queue directly, and `asyncio.Queue.put_nowait` from a
+foreign thread enqueues without waking the loop — so a backend reading a bus
+in a thread fed a parked subscriber nothing until the loop woke for some other
+reason. Busy endpoint, invisible; idle endpoint, silent. Measured: a bridge
+pumping 202 samples into two registered subscriber queues delivered 0 live
+events. If you call `notify` only from the serving loop, 0.5.0 and 0.5.1 were
+correct for you.
+
+## Not in 0.5.2
 
 Stated so nobody waits for them: no async API, no caching beyond ETag
 revalidation, no retry policy, no MCAP tooling beyond the journal the server
