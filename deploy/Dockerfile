@@ -32,6 +32,15 @@ FROM python:3.12-slim
 # build time and no question about which release it picked up.
 WORKDIR /srv
 COPY lib/spatialdds/ /srv/lib/spatialdds/
+# certifi before the first fetch: GHSA-6q48-6c7w-9gw2 (Critical).
+# pip verifies TLS against a certifi bundle -- its own vendored one,
+# which moves only when pip does -- so the install below would
+# otherwise run against whatever the base image shipped.
+#
+# **This does not reach an image that is already built.** Layers are
+# immutable, so the deployed endpoint picks it up only on a rebuild
+# and redeploy; see deploy/RUNBOOK.md.
+RUN pip install --no-cache-dir -U pip certifi
 RUN pip install --no-cache-dir "/srv/lib/spatialdds[server]" && \
     rm -rf /srv/lib
 

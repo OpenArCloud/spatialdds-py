@@ -136,8 +136,27 @@ def main() -> int:
                        f"({copied} path(s), {n_files} file(s))",
                        n_files > 100, f"{n_files} files"))
 
+        # ---- certifi before anything is fetched ----
+        # GHSA-6q48-6c7w-9gw2: pip verifies TLS against a certifi bundle --
+        # its own vendored one, which moves only when pip moves -- so an image
+        # whose first fetch runs on the base image's pip is fetching against
+        # whatever trust store that shipped with.
+        pip_runs = [r for r in runs if re.match(r"pip3? install", r)]
+        prelude = bool(pip_runs) and bool(
+            re.search(r"(?:-U|--upgrade)\s+pip\s+certifi", pip_runs[0]))
+        checks.append(("its first pip install refreshes pip and certifi, so "
+                       "no later fetch uses the base image's trust store",
+                       prelude,
+                       f"{pip_runs[0][:90]!r}" if pip_runs else "no pip install"))
+
         # ---- replicate the pip install ----
-        install = next((r for r in runs if r.startswith("pip install")), "")
+        # Selected by what it installs, not by being first. It was
+        # `runs[0].startswith("pip install")` until 2026-10-20, and the
+        # certifi prelude above -- which is also a `pip install` -- took that
+        # position and failed this check against a line it was never about.
+        # Aim-by-position survives only until something legitimate is added
+        # in front of the subject.
+        install = next((r for r in pip_runs if "lib/spatialdds" in r), "")
         target = re.search(r'"([^"]+)"', install)
         checks.append(("its install line installs the distribution from the "
                        "build context rather than from an index",

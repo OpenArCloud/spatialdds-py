@@ -34,6 +34,15 @@ jobs:
       - name: Build the wheel and the sdist
         working-directory: lib/spatialdds
         run: |
+          # certifi before anything else is fetched. GHSA-6q48-6c7w-9gw2
+          # (Critical): certifi before 2026.10.19 bundles `emSign ECC Root
+          # CA - G3`, whose chaining intermediates have compromised, revoked
+          # keys, and pip verifies TLS against a certifi bundle. `-U pip` is
+          # not redundant with `-U certifi`: pip uses its own vendored copy
+          # at pip._vendor.certifi, which moves only when pip moves. The
+          # runner image is not ours to pin, so its preinstalled pip is what
+          # every later fetch uses unless it is replaced first.
+          python -m pip install --upgrade pip certifi
           python -m pip install --upgrade build
           python -m build
       # The version in the tag and the version in the package have to be the

@@ -158,6 +158,26 @@ repeat reads without the endpoint seeing them.
 Rollback is `docker stop`. There is no state to migrate and nothing downstream
 of it.
 
+### Rebuilding for a CA change
+
+The image's trust store is baked in. `deploy/Dockerfile` refreshes pip and
+certifi before it installs anything — GHSA-6q48-6c7w-9gw2 (Critical), where
+certifi before 2026.10.19 bundled `emSign ECC Root CA - G3` and pip verified
+TLS against it — but **layers are immutable, so a tag keeps whatever it was
+built with.** A certifi advisory therefore needs a rebuild and a redeploy,
+not a restart; a running container cannot pick one up.
+
+Two details that cost time if assumed the other way. The fix is 2026.10.19,
+not 2026.10.18: the earlier release removed every emSign root and the later
+one restored the unaffected ones, so a *patched* bundle still contains three
+of them and the only meaningful check is whether `emSign ECC Root CA - G3`
+specifically is present. And `pip install -U certifi` does not fix pip, which
+verifies against its own vendored copy at `pip._vendor.certifi` and moves
+only when pip does — which is why the line upgrades both.
+
+`gates/deploy_image.py` asserts the prelude is the image's *first* pip
+install, so an edit that puts a fetch in front of it fails there.
+
 ## Releasing the `spatialdds` package
 
 Separate from the endpoint, and separate from this repository's own version:
