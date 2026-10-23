@@ -1561,3 +1561,90 @@ The gate gained the two checks that would have caught this, and they are shown
 failing against 0.5.3 exactly as published. Note what they are: assertions
 about *the response a handler did not build through the shared path*. The
 sixteen checks before them all examined responses that did.
+
+## Findings from the demo.spatialdds.org deploy, 2026-10-23
+
+Found by standing up the public sandbox on 0.5.4 from PyPI in the persistent
+shape (`--demo --publish --journal`), rehearsed locally first and then
+exercised on the box. Nothing here was patched on the box.
+
+### 40. The journal has no compaction, and every write rewrites all of it
+
+Measured, 0.5.4. `Journal` keeps every accepted entry for the life of the
+file and rewrites the whole MCAP on each write (`_flush`, temp file then
+`os.replace`) — which is why the file is a complete, summarised recording at
+every instant, and is the right call for that property. Neither rotation nor
+compaction exists.
+
+| state | bytes |
+| --- | ---: |
+| first write (the embedded IDL dominates) | 47,038 |
+| per `examples/publish_duck.py` run (one manifest record + one announce sample) | ~1,128 |
+| per withdraw (one dispose record) | 245 |
+
+Five republishes of the same duck added five copies of the same two entries
+(47,283 → 52,928 bytes), and replay walked all 13 to reach a state holding
+one duck. At sandbox rates this is a future problem; the costs are linear in
+history rather than in state, both on disk and on every write.
+
+*Smallest change:* journal compaction that emits a closed, indexed MCAP
+snapshot of the current state — the latest sample per instance, live
+manifests, and the disposes still needed to explain an absence — written over
+the same temp-and-rename path, so the every-instant-valid property survives.
+
+### 41. A published manifest's served bytes change at the first restart
+
+Found by the persistence proof: across a restart, six of seven served paths
+were byte-identical; the duck's resolve document was not. Same JSON value,
+different spelling — `158.0` → `158`, `2.0` → `2`:
+
+```
+40c40
+<             158.0
+---
+>             158
+42c42
+<         "circle_radius_m": 2.0,
+---
+>         "circle_radius_m": 2,
+```
+
+The journal stores `webjson.canon(doc)` (finding 34), but the accepting
+process serves the PUT body as received. So the property finding 34 claimed —
+a journalled manifest and a served one cannot differ — holds for key order and
+not for number spelling, and the first restart is when a client's ETag stops
+matching a document whose content never changed. Reproduced on the live
+endpoint, identically.
+
+*Smallest change:* store `canon(doc)` at accept, so the accepting process
+serves the same bytes replay will.
+
+### 42. The startup banner writes a pinned operator token to the system log
+
+With `--token` given, the banner still prints `bearer token`, `export TOK=` and
+`export SPATIALDDS_TOKEN=` with the value, so under systemd a pinned token is
+in `journalctl -u <unit>` — readable by the `adm` group, retained beyond any
+rotation of the token itself. Printing it makes sense when the token was
+generated (nobody else knows it); it does not when the operator supplied it.
+
+*Smallest change:* print the token only when it was generated; when given,
+print that it was given.
+
+### 43. `examples/hello_spatial.py` cannot reach a TLS endpoint
+
+It turns the topic URL into a WebSocket URL with `.replace("http://", "ws://")`,
+which leaves `https://` untouched; against `https://demo.spatialdds.org` it
+ends in `InvalidURI: ... scheme isn't ws or wss`. Its default is the one
+example default still pointing at localhost, so flipping it to the live
+endpoint would ship the front page's first example broken.
+
+*Smallest change:* `.replace("http", "ws", 1)`.
+
+### 44. Withdrawing content leaves its manifest resolvable
+
+`DELETE` on the announce disposes it (the dispose and its reason reach a live
+subscriber), but there is no route that withdraws the manifest: after the
+withdraw, `resolve` still answers 200 for the duck. That is defensible — a
+manifest is an N.7 document, not an instance — but it means "withdraw" on this
+surface is half a withdrawal, and only a deliberate reset removes the rest.
+Worth a sentence in docs/PUBLISH.md, or a `DELETE` on the resolve path.
