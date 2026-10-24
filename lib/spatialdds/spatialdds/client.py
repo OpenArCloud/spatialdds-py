@@ -604,7 +604,7 @@ class Resolved:
         `IntegrityError`. A declared value that is not a SHA-256 of anything
         this library can compute raises `UnverifiableIntegrity` -- because
         SpatialDDS does not say what `checksum`-style integrity fields digest
-        (spatialdds-web finding 31), and reporting success for a check that
+        (spatialdds-py finding 31), and reporting success for a check that
         did not happen would be worse than refusing.
         """
         want_check = self.ep.verify_integrity if verify_integrity is None \

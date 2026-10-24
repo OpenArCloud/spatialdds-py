@@ -21,7 +21,7 @@ versions and specification versions move independently; `spatialdds.SPEC_TAG`
 and `spatialdds.SPEC_COMMIT` are the ones that say what the wire looks like.
 
 The source, the reference gateway, the recordings and every gate behind the
-claims on this page are at [https://github.com/OpenArCloud/spatialdds-web](https://github.com/OpenArCloud/spatialdds-web). Every code block below is executed
+claims on this page are at [https://github.com/OpenArCloud/spatialdds-py](https://github.com/OpenArCloud/spatialdds-py). Every code block below is executed
 by one of those gates on every run, against an endpoint started for it.
 
 ## A native participant, over DDS
@@ -118,7 +118,7 @@ nothing:
 `sd.events` holds the four event classes both transports share; `sd.dds` is the
 layer itself. Request and reply (VPS, coverage queries) is documented as a
 convention, not built, until 1.9 settles it:
-[REQUEST-REPLY.md](https://github.com/OpenArCloud/spatialdds-web/blob/main/docs/REQUEST-REPLY.md).
+[REQUEST-REPLY.md](https://github.com/OpenArCloud/spatialdds-py/blob/main/docs/REQUEST-REPLY.md).
 
 ## Your own registry, in one command
 
@@ -206,9 +206,9 @@ limits   {'max_fps': 10}
 ```
 
 Every one of those is something a service operator knows and a library cannot
-guess. [The mytown walkthrough](https://github.com/OpenArCloud/spatialdds-web/blob/main/docs/MYTOWN.md) publishes that
+guess. [The mytown walkthrough](https://github.com/OpenArCloud/spatialdds-py/blob/main/docs/MYTOWN.md) publishes that
 and prints the whole served document;
-[`gates/builders.py`](https://github.com/OpenArCloud/spatialdds-web/blob/main/gates/builders.py) rebuilds that
+[`gates/builders.py`](https://github.com/OpenArCloud/spatialdds-py/blob/main/gates/builders.py) rebuilds that
 repository's hand-authored `austin-vps` and duck records through these calls
 and compares them member by member, which is what makes "every member is
 reachable from an argument" a check rather than a claim.
@@ -220,7 +220,7 @@ and the byte count itself: a hash nobody typed is a hash a reader can trust.
 else hosts, and the hash comes from whoever has the bytes. Pass no hash and
 the reference carries no integrity claim, which costs a reader one thing:
 `fetch_asset()` raises rather than reporting a check it could not perform
-([finding 31](https://github.com/OpenArCloud/spatialdds-web/blob/main/WEB-BINDING-FINDINGS.md)).
+([finding 31](https://github.com/OpenArCloud/spatialdds-py/blob/main/WEB-BINDING-FINDINGS.md)).
 `publish_content` takes either, or a path, or bytes, or a URL.
 
 The builders are also usable on their own: `sd.service_announce`,
@@ -252,7 +252,7 @@ they never fill is **identity**: `provider_id` and `org` are yours to state,
 because a library that invented a provider id would be inventing provenance.
 
 `GeoAnchor.checksum` is required by 1.8 and specified by nobody
-(spatialdds-web finding 31). The builder fills it with the SHA-256 of the
+(spatialdds-py finding 31). The builder fills it with the SHA-256 of the
 record's own canonical JSON with `checksum` emptied -- a convention, chosen
 because a reader can recompute it from what was served. If the specification
 settles the semantics, this changes.
@@ -419,7 +419,7 @@ One family, built from the endpoint's own N.8 problem documents — `status`,
 
 That last one is the unusual one and it is deliberate. SpatialDDS counts "a
 checksum field in the body" as a §7.5.2 integrity signal, but nothing specifies
-what such a field digests or in what form (spatialdds-web finding 31). Where a
+what such a field digests or in what form (spatialdds-py finding 31). Where a
 declared value does not parse as a SHA-256 of the asset's bytes, this library
 raises rather than reporting a check it did not perform.
 
@@ -562,7 +562,7 @@ Two changes may need a line of yours:
   `…/ut-austin-south-mall/…`.
 
 The security fixes, the limits table and the details are in the
-[changelog](https://github.com/OpenArCloud/spatialdds-web/blob/main/lib/spatialdds/CHANGELOG.md).
+[changelog](https://github.com/OpenArCloud/spatialdds-py/blob/main/lib/spatialdds/CHANGELOG.md).
 
 ## Not in 0.6.0
 

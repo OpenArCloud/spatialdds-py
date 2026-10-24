@@ -859,8 +859,15 @@ def shipped_page(checks: list) -> None:
 
     checks.append((f"it names the repository by URL, since a reader on an "
                    f"index has no sidebar",
-                   "github.com/OpenArCloud/spatialdds-web" in text,
+                   "github.com/OpenArCloud/spatialdds-py" in text,
                    "no repository URL on the page"))
+    # The repository was renamed at 0.7.0 (spatialdds-web -> spatialdds-py).
+    # GitHub redirects the old URLs, but a page baked into a wheel should name
+    # the current one. Data that names the old repository, such as the
+    # committed manifests' asset URLs, is not on this page and is kept.
+    checks.append(("…by its current name: the shipped page links no "
+                   "github.com/OpenArCloud/spatialdds-web URL",
+                   "github.com/OpenArCloud/spatialdds-web" not in text, ""))
 
     # The shell fences: an install line and the serve lines.
     helptext = sp.run([sys.executable, "-m", "spatialdds.serve", "--help"],

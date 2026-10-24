@@ -217,7 +217,7 @@ bridged gateway. Unblocks nothing in this repository, which is the point.
 
 Recorded here so the 1.9 pass does not rediscover them as features. Both are
 errata to published text, tracked in
-`spatialdds-web/WEB-BINDING-FINDINGS.md`:
+`spatialdds-py/WEB-BINDING-FINDINGS.md`:
 
 - **N.3 states no encoding rule for an instance key** (finding 13). The
   specification's own `GeoAnchor.anchor_id` example contains the path
@@ -237,7 +237,7 @@ finding that explains it (finding 15).
 
 ## 4. A web-binding write path
 
-**Status:** implemented as an endpoint extension in `spatialdds-web`, labeled
+**Status:** implemented as an endpoint extension in `spatialdds-py`, labeled
 implementation-defined everywhere it appears, and offered here as evidence
 rather than as settled text. 1.8 specifies no publish verb and forbids none, so
 nothing about this belongs in published text by erratum: an erratum fixes a
@@ -331,7 +331,7 @@ with where it was measured:
 * **A URI's scene segment and a resource path's first segment are one
   namespace, and 1.8 does not say so.** The seed recording named its manifests
   `…/south-mall/…` while its topics used `ut-austin-south-mall`, and nothing
-  compared them (spatialdds-web finding 48). A write surface that scopes
+  compared them (spatialdds-py finding 48). A write surface that scopes
   anything by scene needs §7.5's URI scene segment to *be* §3.3.1's domain
   segment, stated, or the resolve surface and the collections are two
   namespaces with one name. Measured: `gates/tenancy.py`, the manifest
@@ -352,7 +352,7 @@ with where it was measured:
 
 ### Evidence
 
-`spatialdds-web`: `spatialdds/server/publish.py`, routes in `gw_http.py`, and
+`spatialdds-py`: `spatialdds/server/publish.py`, routes in `gw_http.py`, and
 five gates — `golden_publish`, `publish_reject`, `journal_replay`,
 `publish_live`, `publish_offswitch`. The last is the one that matters for this
 entry: with the surface off, every read is byte-identical to an endpoint built
@@ -537,7 +537,7 @@ its census records the whole measurement
 
 **The question for 1.9:** whether Appendix N.2 blesses
 `/.well-known/spatialdds/openapi` (OpenAPI 3.1, YAML) beside `schemas`, with
-spatialdds-web as the reference implementation.
+spatialdds-py as the reference implementation.
 
 **What exists (2026-10-24).** `tools/gen_openapi.py` generates the document
 from the gateway's own type tables, the published JSON Schemas and the write
@@ -567,7 +567,7 @@ collection path, not modelled; AsyncAPI would be the formal home.
 ## 9. Native participants: what the SDK census found the spec does not say
 
 **Origin.** These come from the native-SDK census of four codebases
-(spatialdds-web `docs/NATIVE-SDK-CENSUS.md`, 2026-10-24) and from building the
+(spatialdds-py `docs/NATIVE-SDK-CENSUS.md`, 2026-10-24) and from building the
 SDK at the `v1.8` tag. Each sub-entry is a question for 1.9, with the evidence
 and what the SDK does meanwhile.
 
@@ -679,5 +679,5 @@ uses an extension lane of its own.
 N.1 is "finite only; NaN/Inf rejected". DDS carries NaN. The spec says what a
 web publisher must not send, and nothing about what a gateway serving a
 recording, or a bridge from DDS, does with a sample that carries one. The
-reference gateway refuses the whole recording (spatialdds-web finding 64). The
+reference gateway refuses the whole recording (spatialdds-py finding 64). The
 SDK refuses the sample at write time.

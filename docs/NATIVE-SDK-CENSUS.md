@@ -346,7 +346,7 @@ James to forward.
 9. The signal flag is only seen between stdin lines.
 10. Stale prose.
 
-**spatialdds-web (this repo)**
+**spatialdds-py (this repo)**
 
 1. `records.topic()` defaults `durability="TRANSIENT_LOCAL"` whatever
    `qos_profile` says (`records.py:442-460`). A `POSE_RT` row built with it

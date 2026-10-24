@@ -45,7 +45,7 @@ dds = ["cyclonedds>=11.0.1,<12", "mcap>=1.1", "jsonschema>=4.0"]
 spatialdds-serve = "spatialdds.serve:main"
 
 [project.urls]
-Homepage = "https://github.com/OpenArCloud/spatialdds-web"
+Homepage = "https://github.com/OpenArCloud/spatialdds-py"
 Specification = "https://github.com/OpenArCloud/SpatialDDS-spec"
 
 # Found rather than listed: the native layer's generated bindings are a tree

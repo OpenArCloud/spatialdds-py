@@ -70,7 +70,7 @@ class UnverifiableIntegrity(SpatialDDSError):
     Raised rather than passed over. SpatialDDS 1.8 requires a `checksum` on
     some records and counts "a checksum field in the body" as a §7.5.2
     integrity signal, but nothing specifies what it digests or in what form
-    (spatialdds-web finding 31). Where a declared value does not parse as a
+    (spatialdds-py finding 31). Where a declared value does not parse as a
     SHA-256 of the asset's bytes, this library says it cannot verify it
     instead of reporting success it did not establish.
     """

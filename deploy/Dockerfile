@@ -10,10 +10,10 @@
 # This CMD passes --no-publish to keep it off, because a public endpoint is
 # not somebody's first two minutes with the thing.
 #
-#   docker build -f deploy/Dockerfile -t spatialdds-web .
+#   docker build -f deploy/Dockerfile -t spatialdds-py .
 #   docker run --rm -p 8787:8787 --read-only \
 #       -e SPATIALDDS_AUTHORITY=demo.spatialdds.org \
-#       spatialdds-web
+#       spatialdds-py
 #
 # See deploy/RUNBOOK.md. Nothing here contacts any infrastructure; building
 # the image is the whole of it.

@@ -13,10 +13,10 @@ that wrote this. What a build would have caught was checked another way; see
 ## Build and run
 
 ```sh
-docker build -f deploy/Dockerfile -t spatialdds-web .
+docker build -f deploy/Dockerfile -t spatialdds-py .
 docker run --rm -p 8787:8787 --read-only \
     -e SPATIALDDS_AUTHORITY=demo.spatialdds.org \
-    spatialdds-web
+    spatialdds-py
 ```
 
 The image changed shape in 0.2.0 and got smaller: it installs the

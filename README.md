@@ -1,4 +1,4 @@
-# spatialdds-web
+# spatialdds-py
 
 A registry for spatial services, content and anchors, over plain HTTPS and
 WebSocket. Run one, publish to it, and read from it in a few lines.

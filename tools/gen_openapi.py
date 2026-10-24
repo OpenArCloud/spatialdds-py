@@ -533,7 +533,7 @@ def document() -> dict:
     return {
         "openapi": "3.1.0",
         "info": {
-            "title": "SpatialDDS web binding (spatialdds-web)",
+            "title": "SpatialDDS web binding (spatialdds-py)",
             "version": spatialdds.__version__,
             "summary": "SpatialDDS 1.8 Appendix N over HTTPS, plus this "
                        "endpoint's write surface.",

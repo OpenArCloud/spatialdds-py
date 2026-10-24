@@ -688,7 +688,7 @@ def geo_anchor(anchor_id: str, *, lat: float, lon: float, alt_m: float = 0.0,
 
     **`checksum` is a convention, not a rule.** 1.8 requires the member and
     says only "integrity/versioning"; nothing specifies what it digests
-    (spatialdds-web finding 31). This one is the SHA-256 of the record's own
+    (spatialdds-py finding 31). This one is the SHA-256 of the record's own
     canonical JSON with `checksum` itself emptied -- which a reader can
     recompute from what was served, unlike a digest of some authoring form
     they never see. If the specification settles the semantics, this changes.
@@ -732,6 +732,9 @@ _META_ORDER = ("committed_path", "bytes")
 def _meta(entries: Dict[str, str]) -> List[Dict[str, Any]]:
     keys = ([k for k in _META_ORDER if k in entries]
             + sorted(k for k in entries if k not in _META_ORDER))
+    # "spatialdds-web" is data, not the repository's name: every manifest
+    # built and published carries it, and the committed ones are hashed with
+    # it. The 0.7.0 rename keeps it, deliberately.
     return [{"namespace": "spatialdds-web", "json": "",
              "entries": [{"key": k, "value": str(entries[k])} for k in keys]}]
 
@@ -777,7 +780,7 @@ def asset_ref(url: str, *, media_type: str, hash: str = "",
     pointing at a URL is not possessing what is behind it. Leave it out and
     the reference carries no integrity claim, which costs a reader exactly
     one thing -- `fetch_asset()` raises `UnverifiableIntegrity` rather than
-    reporting a check it could not perform (spatialdds-web finding 31). That
+    reporting a check it could not perform (spatialdds-py finding 31). That
     is the honest outcome, not a failure; `sd.asset()` is the form to use when
     you do have the bytes.
     """
