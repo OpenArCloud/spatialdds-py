@@ -87,7 +87,8 @@ def geopose(g: dict, stamp: dict, cov_row_major: list[float]) -> dict:
             "cov": {"_discriminator": "COV_POS3", "pos": cov_row_major}}
 
 
-def geo_anchor(a: dict, fr: dict, stamp: dict, authority: str) -> dict:
+def geo_anchor(a: dict, fr: dict, stamp: dict, authority: str,
+               scene: str) -> dict:
     return {
         "anchor_id": a["anchor_id"],
         "map_id": a["map_id"],
@@ -105,7 +106,7 @@ def geo_anchor(a: dict, fr: dict, stamp: dict, authority: str) -> dict:
         # anchor and the content it names cannot end up in different
         # namespaces. An anchor with no `content` key carries "" -- absence
         # is data, and both legs get a served exhibit.
-        "manifest_uri": (f"spatialdds://{authority}/south-mall/content/"
+        "manifest_uri": (f"spatialdds://{authority}/{scene}/content/"
                          f"{a['content'].split('/')[-1]}"
                          if a.get("content") else ""),
     }
@@ -137,7 +138,7 @@ def coverage_circle(lat: float, lon: float, alt: float, radius_m: float,
     }
 
 
-def announce(svc: dict, fr: dict, stamp: dict, authority: str,
+def announce(svc: dict, fr: dict, stamp: dict, authority: str, scene: str,
              topics: list[dict]) -> dict:
     """The service announce, with coverage the author declared.
 
@@ -174,7 +175,7 @@ def announce(svc: dict, fr: dict, stamp: dict, authority: str,
         "has_coverage_eval_time": False,
         "coverage_eval_time": {"sec": 0, "nanosec": 0},
         "transforms": [],
-        "manifest_uri": f"spatialdds://{authority}/south-mall/service/"
+        "manifest_uri": f"spatialdds://{authority}/{scene}/service/"
                         f"{svc['service_id']}",
         "auth_hint": svc.get("auth_hint", ""),
         "stamp": stamp,
@@ -200,7 +201,7 @@ def topic_meta(name: str, type_seg: str, version: str,
 
 
 def content_announce(c: dict, anchor: dict, fr: dict, stamp: dict,
-                     authority: str, provider: str) -> dict:
+                     authority: str, provider: str, scene: str) -> dict:
     g = anchor["geopose"]
     return {
         "content_id": c["content_id"],
@@ -209,7 +210,7 @@ def content_announce(c: dict, anchor: dict, fr: dict, stamp: dict,
         "summary": c["summary"],
         "tags": list(c["tags"]),
         "class_id": c["class_id"],
-        "manifest_uri": f"spatialdds://{authority}/south-mall/content/"
+        "manifest_uri": f"spatialdds://{authority}/{scene}/content/"
                         f"{c['content_id'].split('/')[-1]}",
         "coverage": [coverage_circle(g["lat_deg"], g["lon_deg"], g["alt_m"],
                                      c["radius_m"], fr)],
@@ -270,18 +271,19 @@ def main() -> int:
         rows.append((f"spatialdds/{domain}/discovery/announce/v1",
                      "spatial::disco::Announce",
                      announce(doc["service"], fr, stamp, doc["authority"],
+                              domain,
                               [topic_meta(anchor_topic, "geo_anchor", "v1",
                                           dur),
                                topic_meta(content_topic, "content_announce",
                                           "v1", dur)])))
     for x in doc["anchors"]:
         rows.append((anchor_topic, "spatial::core::GeoAnchor",
-                     geo_anchor(x, fr, stamp, doc["authority"])))
+                     geo_anchor(x, fr, stamp, doc["authority"], domain)))
     for c in doc["content"]:
         at = anchors[c["at_anchor"]]
         rows.append((content_topic, "spatial::disco::ContentAnnounce",
                      content_announce(c, at, fr, stamp, doc["authority"],
-                                      doc["provider_id"])))
+                                      doc["provider_id"], domain)))
 
     a.out.parent.mkdir(parents=True, exist_ok=True)
     counts: dict[str, int] = {}

@@ -16,7 +16,7 @@
     "media_type": "model/gltf+json"
   },
   "manifest": {
-    "id": "spatialdds://demo.spatialdds.org/south-mall/content/duck",
+    "id": "spatialdds://demo.spatialdds.org/ut-austin-south-mall/content/duck",
     "profile": "spatial.manifest/1.8",
     "rtype": "content",
     "content": {
@@ -89,7 +89,7 @@
         "walkthrough"
       ],
       "class_id": "https://schema.org/CreativeWork",
-      "manifest_uri": "spatialdds://demo.spatialdds.org/south-mall/content/duck",
+      "manifest_uri": "spatialdds://demo.spatialdds.org/ut-austin-south-mall/content/duck",
       "coverage": [
         {
           "has_crs": true,
@@ -277,7 +277,7 @@
           0.48999999999999994
         ]
       },
-      "manifest_uri": "spatialdds://demo.spatialdds.org/south-mall/content/duck"
+      "manifest_uri": "spatialdds://demo.spatialdds.org/ut-austin-south-mall/content/duck"
     }
   }
 }

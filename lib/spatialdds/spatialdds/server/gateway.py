@@ -187,6 +187,19 @@ def uri_authority(uri: str) -> str:
     return rest.split("/", 1)[0] if "/" in rest else ""
 
 
+def uri_scene(uri: str) -> str:
+    """The scene a `spatialdds://<authority>/<scene>/<kind>/<id>` URI names.
+
+    The second segment, aligned with the first segment of every resource path,
+    so one lane rule covers both the collections and the resolve surface. ""
+    for a URI with no scene segment, which no lane grants.
+    """
+    if not uri.startswith(SCHEME):
+        return ""
+    parts = uri[len(SCHEME):].split("/")
+    return parts[1] if len(parts) > 1 else ""
+
+
 def base_authority(base: str) -> str:
     """The authority this endpoint answers as, from the URL it is reached at.
 

@@ -93,9 +93,9 @@ announce created: True | manifest created: True
   "circle_center": [
    -97.7393,
    30.2849,
-   0.0
+   0
   ],
-  "circle_radius_m": 500.0,
+  "circle_radius_m": 500,
   "frame_ref": {
    "fqn": "earth-fixed",
    "uuid": ""
@@ -218,9 +218,9 @@ content created: True | manifest created: True
   "circle_center": [
    -97.7393,
    30.2849,
-   0.0
+   0
   ],
-  "circle_radius_m": 2.0,
+  "circle_radius_m": 2,
   "frame_ref": {
    "fqn": "earth-fixed",
    "uuid": ""

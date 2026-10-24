@@ -125,7 +125,7 @@ client does — read the advertised `https_base`, then `GET` the URI against it:
 RESOLVE=$(curl -s "$BASE/.well-known/spatialdds/resolver" \
   | python3 -c 'import json,sys; print(json.load(sys.stdin)["https_base"])')
 curl -sD - -o /dev/null --get "$RESOLVE" \
-  --data-urlencode "uri=spatialdds://demo.spatialdds.org/south-mall/content/fountain-marker" \
+  --data-urlencode "uri=spatialdds://demo.spatialdds.org/ut-austin-south-mall/content/fountain-marker" \
   | tr -d '\r' | grep -iE '^(HTTP|cache-control|etag)'
 ```
 
@@ -189,7 +189,7 @@ pypi.org and the only reason the workflow is inert as committed.
 
 Five lines, from a commit whose gates are green:
 
-1. `python3 gates/run_all.py` — 29 gates, 0 failed. A release is cut from a
+1. `python3 gates/run_all.py` — 31 gates, 0 failed. A release is cut from a
    verified commit, which is why the workflow does not re-run them itself.
 2. Bump `__version__` in `lib/spatialdds/spatialdds/__init__.py`, and
    `version` in `lib/spatialdds/pyproject.toml`, to the same number.

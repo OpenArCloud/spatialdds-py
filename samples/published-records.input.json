@@ -129,7 +129,7 @@
         "nanosec": 0
       },
       "transforms": [],
-      "manifest_uri": "spatialdds://demo.spatialdds.org/south-mall/service/austin-vps",
+      "manifest_uri": "spatialdds://demo.spatialdds.org/ut-austin-south-mall/service/austin-vps",
       "auth_hint": "",
       "stamp": {
         "sec": "1791559800",
@@ -154,7 +154,7 @@
         "campus"
       ],
       "class_id": "https://schema.org/LandmarksOrHistoricalBuildings",
-      "manifest_uri": "spatialdds://demo.spatialdds.org/south-mall/content/south-mall-tour",
+      "manifest_uri": "spatialdds://demo.spatialdds.org/ut-austin-south-mall/content/south-mall-tour",
       "coverage": [
         {
           "has_crs": true,
@@ -241,7 +241,7 @@
     }
   },
   "manifest": {
-    "id": "spatialdds://demo.spatialdds.org/south-mall/content/south-mall-tour",
+    "id": "spatialdds://demo.spatialdds.org/ut-austin-south-mall/content/south-mall-tour",
     "profile": "spatial.manifest/1.8",
     "rtype": "content",
     "ttl_sec": 7200,
@@ -278,7 +278,7 @@
         "campus"
       ],
       "class_id": "https://schema.org/LandmarksOrHistoricalBuildings",
-      "manifest_uri": "spatialdds://demo.spatialdds.org/south-mall/content/canonical-probe",
+      "manifest_uri": "spatialdds://demo.spatialdds.org/ut-austin-south-mall/content/canonical-probe",
       "coverage": [
         {
           "has_crs": true,
@@ -376,7 +376,7 @@
         "campus"
       ],
       "class_id": "https://schema.org/LandmarksOrHistoricalBuildings",
-      "manifest_uri": "spatialdds://demo.spatialdds.org/south-mall/content/canonical-probe",
+      "manifest_uri": "spatialdds://demo.spatialdds.org/ut-austin-south-mall/content/canonical-probe",
       "coverage": [
         {
           "has_crs": true,
@@ -463,7 +463,7 @@
     }
   },
   "service_manifest": {
-    "id": "spatialdds://demo.spatialdds.org/south-mall/service/austin-vps",
+    "id": "spatialdds://demo.spatialdds.org/ut-austin-south-mall/service/austin-vps",
     "profile": "spatial.manifest/1.8",
     "rtype": "service",
     "service": {

@@ -81,7 +81,8 @@ class Gateway:
                  advertise: str | None = None, publish: bool = False,
                  journal: Path | None = None,
                  commands: "object | None" = None,
-                 live: bool | None = None) -> None:
+                 live: bool | None = None,
+                 tokens: "object | None" = None) -> None:
         self.state = st
         self.token = token
         self.advertise = advertise
@@ -95,6 +96,9 @@ class Gateway:
         #: None follows `publish`, which is what every gate but the live one
         #: wants.
         self.live = live
+        #: A `tenancy.TokenTable`, for a gate that needs principals and
+        #: lanes; None keeps the one-`token` shape every other gate uses.
+        self.tokens = tokens
         self._runner: web.AppRunner | None = None
         self.base = ""
         #: The app itself, for a gate that acts as an embedder: `notify`
@@ -109,7 +113,8 @@ class Gateway:
         app = gw_http.make_app(self.state, "http://127.0.0.1", self.token,
                                self.publish, self.journal, ASSETS,
                                command_registry=self.commands,
-                               live_subscriptions=self.live)
+                               live_subscriptions=self.live,
+                               tokens=self.tokens)
         self._runner = web.AppRunner(app)
         await self._runner.setup()
         site = web.TCPSite(self._runner, "127.0.0.1", 0)

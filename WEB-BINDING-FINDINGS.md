@@ -1699,3 +1699,45 @@ writer, and any party can withdraw any record.
 
 *Smallest change:* `--token` repeatable or a token file of `name token`
 lines, with the name recorded on journal entries.
+
+## Lanes: the multi-tenancy batch, 2026-10-24
+
+Built to the gateway multi-tenancy directive: one process, scenes as tenancy,
+tokens scoped to scenes. `gates/tenancy.py` and `gates/client_scope.py` are
+its acceptance, each shown failing against a planted fault (below).
+
+**Closed by this batch.**
+
+| finding | closed by |
+| --- | --- |
+| 41, a manifest's bytes change at the first restart | the accepting process holds `canon(doc)`, the bytes the journal stores; `tenancy` asserts a restart serves both lanes byte-identically, and fails with the change reverted |
+| 42, a pinned token in the system log | the banner prints a token only when it generated one; `--tokens` prints principals and scenes, never a token |
+| 44, half a withdrawal | `DELETE /spatialdds/resolve?uri=…`, lane-checked and journalled; replay applies it after the seed, so a withdrawn seed manifest stays withdrawn |
+| 45, the client's bearer to asset hosts | `Endpoint._headers` sends `Authorization` only to the origin `connect()` was given; `client_scope` serves an asset from a second origin that records headers |
+| 46, an unnamed scene is `default` | the gateway refuses a scene that exists nowhere (`403 scene-creation-not-granted`) unless the principal may create scenes; the client's publish verbs refuse with no scene and name the ones served |
+| 47, one token per registry | the token table: per-principal tokens, hashed at rest, each scoped to scenes, reloaded on SIGHUP |
+
+### 48. The seed's URI namespace was a constant, not data
+
+`tools/author_anchors.py` says the input is the data and the tool only
+serializes it, and three `manifest_uri` builders hard-coded the segment
+`south-mall` while the topics used the input's `domain`, `ut-austin-south-mall`.
+So every seeded URI named a scene no resource path did, and nothing compared the
+two: the URI's second segment had no meaning until lanes gave it one, and then
+it was the one place a lane rule would read and find a scene that does not
+exist. Fixed by building the segment from `domain`. The regenerated recording
+was shown to differ from the committed one only there: the old tool reproduces
+`8d9282c3…` byte for byte from `SpatialDDS-spec 9c3e1f2`, and the new one's
+decoded samples equal the old one's with exactly that substitution.
+
+The lesson is the tool's own rule, applied to itself: "no defaults filled in
+behind the author's back" has to include the parts of a string nobody thought
+of as a value.
+
+**Plants, each confirmed in the file before its run counted.** P1 lane check
+removed → 6 `tenancy` checks fail; P2 scene-existence check removed → 3; P3
+reset keeps every scene → 2; P4 canonicalization at accept reverted → 2; P5
+client token unscoped → the asset-host check; P6 `default` scene restored → 2
+`client_scope` checks. One misfire of the instrument, not the plant: P4
+replaced a line with nothing, and a presence check for the empty string always
+succeeds, so it was re-run with an absence check on the removed line.

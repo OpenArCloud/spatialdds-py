@@ -192,6 +192,15 @@ def gates() -> list[dict]:
         {"name": "cors_preflight", "what": "a credentialed cross-origin request is preflighted and its answer names the asking origin",
          "cmd": ["gates/cors_preflight.py"],
          "skip": no_web},
+        # Multi-tenancy: tokens scoped to scenes. The lanes gate is the
+        # deployed sandbox's shape in process; the client gate is findings 45
+        # and 46, the credential and the scene a client must never guess.
+        {"name": "tenancy", "what": "writes are per lane, refused across lanes, and each lane persists and resets alone",
+         "cmd": ["gates/tenancy.py"],
+         "skip": no_fountain or no_web or no_js},
+        {"name": "client_scope", "what": "the client's token goes only to its endpoint, and a publish never guesses a scene",
+         "cmd": ["gates/client_scope.py"],
+         "skip": no_fountain or no_web or no_requests},
     ]
 
 

@@ -307,8 +307,9 @@ or both.
 
 * **Leases and expiry.** A registry must shed dead publishers; SSD parity
   requires it. Both records carry `ttl_sec` and nothing enforces it.
-* **Per-provider tokens and scopes.** One operator credential publishes
-  anything; no notion of a publisher owning its records.
+* **Per-provider tokens and scopes.** Built 2026-10-24 as *lanes*: tokens
+  scoped to scenes, measured below under "Lanes". Per-record ownership inside
+  a scene remains deferred.
 * **Server-set identity fields.** See the design rule above.
 * **Upstream WebSocket streaming** for high-rate publishers.
 * **Anchor provenance.** `geo_anchor` joined the publishable kinds after the
@@ -321,6 +322,33 @@ or both.
   **method is the claim level**: a published anchor asserts a pose at the
   confidence its own `method` and `cov` declare, and publishing does not
   upgrade that claim.
+
+### Lanes, measured (2026-10-24)
+
+What the multi-tenancy batch found that normative text would need to say, each
+with where it was measured:
+
+* **A URI's scene segment and a resource path's first segment are one
+  namespace, and 1.8 does not say so.** The seed recording named its manifests
+  `…/south-mall/…` while its topics used `ut-austin-south-mall`, and nothing
+  compared them (spatialdds-web finding 48). A write surface that scopes
+  anything by scene needs §7.5's URI scene segment to *be* §3.3.1's domain
+  segment, stated, or the resolve surface and the collections are two
+  namespaces with one name. Measured: `gates/tenancy.py`, the manifest
+  cross-lane refusal.
+* **A withdrawal has two halves.** Disposing an announce leaves its manifest
+  resolvable (finding 44, observed live on demo.spatialdds.org 2026-10-24); the
+  binding names no verb for the manifest half. This endpoint uses
+  `DELETE /spatialdds/resolve?uri=…`. If 1.9 specifies a write path, it
+  specifies both halves or neither.
+* **`403` versus `401` is a lane fact.** Unknown or absent credential: `401`
+  with `WWW-Authenticate`. Known credential, wrong scene: `403` problem
+  document naming the scene. A scene that exists nowhere: `403`, distinct
+  type, so a typo is a refusal and not a new scene (finding 46).
+* **Existence is a grant, not a write.** An empty lane exists because a grant
+  names it; minting a scene is a separate permission. Without that split, an
+  operator could not give a party an empty lane without also giving every
+  wildcard holder the power to create scenes by typo.
 
 ### Evidence
 

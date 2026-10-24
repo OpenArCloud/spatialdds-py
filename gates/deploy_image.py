@@ -282,7 +282,7 @@ def main() -> int:
                            st == 200 and len(body) == 954, f"{st}"))
             st, body = get(f"{base}/.well-known/spatialdds/resolver")
             meta = json.loads(body) if st == 200 else {}
-            uri = ("spatialdds://demo.spatialdds.org/south-mall/content/"
+            uri = ("spatialdds://demo.spatialdds.org/ut-austin-south-mall/content/"
                    "fountain-marker")
             hb = meta.get("https_base", "")
             path = base + hb[hb.index("/", 8):] if "//" in hb else ""

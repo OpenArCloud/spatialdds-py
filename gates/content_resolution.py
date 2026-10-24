@@ -250,10 +250,10 @@ async def run(remote: bool = False) -> int:
         # hold. Both are 404 by §7.5.3 and are distinguished in the body.
         for label, uri, slug in (
                 ("another authority's URI",
-                 "spatialdds://austin.openarcloud.example/south-mall/"
+                 "spatialdds://austin.openarcloud.example/ut-austin-south-mall/"
                  "content/fountain-marker", "foreign-authority"),
                 ("its own authority, a URI it does not hold",
-                 "spatialdds://demo.spatialdds.org/south-mall/service/"
+                 "spatialdds://demo.spatialdds.org/ut-austin-south-mall/service/"
                  "fountain-anchors", "no-such-manifest")):
             async with s.get(resolve_url, params={"uri": uri}) as r:
                 st_, body = r.status, await r.json()

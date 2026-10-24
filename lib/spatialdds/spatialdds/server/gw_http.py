@@ -36,7 +36,7 @@ from typing import Any
 
 from aiohttp import WSMsgType, web
 
-from . import commands, gateway, publish, webjson
+from . import commands, gateway, publish, tenancy, webjson
 
 WELL_KNOWN = "/.well-known/spatialdds"
 
@@ -260,11 +260,46 @@ async def preflight(request: web.Request) -> web.Response:
     return web.Response(status=204, headers=headers)
 
 
-def _authorized(request: web.Request, token: str | None) -> bool:
-    if not token:
+def _principal(request: web.Request) -> "tenancy.Principal | None":
+    """The principal the request's bearer token names, or None."""
+    return request.app["tokens"].authenticate(
+        request.headers.get("Authorization", ""))
+
+
+def _authorized(request: web.Request) -> bool:
+    """Any principal at all: what an operator-scoped *read* needs (N.4).
+
+    Access class is observation versus configuration, not a lane, so a read of
+    an operator-scoped resource wants a credential and any principal's will
+    do. Writes go through `_writer`, which also checks the lane.
+    """
+    if not request.app["tokens"]:
         return True                       # no token configured: nothing gated
-    got = request.headers.get("Authorization", "")
-    return got.startswith("Bearer ") and got[7:] == token
+    return _principal(request) is not None
+
+
+def _writer(request: web.Request,
+            scene: str) -> "tenancy.Principal | web.Response":
+    """The principal allowed to write `scene`, or the refusal to send.
+
+    401 for no credential or one this endpoint does not know; 403 as a problem
+    document for a known principal outside its lane, or a scene that does not
+    exist and that this principal may not create. With no table configured at
+    all, writes are ungated exactly as before, under an anonymous principal.
+    """
+    table: tenancy.TokenTable = request.app["tokens"]
+    if not table:
+        return tenancy.Principal("", "", frozenset({tenancy.ALL}), True)
+    p = _principal(request)
+    if p is None:
+        return _unauthorized(str(request.rel_url))
+    refused = tenancy.check_write(p, scene, request.app["state"].scenes, table)
+    if refused is not None:
+        status, slug, title, detail = refused
+        return _problem(status, slug, title, detail,
+                        instance=str(request.rel_url), principal=p.name,
+                        scene=scene, granted=sorted(p.scenes))
+    return p
 
 
 def _unauthorized(instance: str | None = None) -> web.Response:
@@ -489,8 +524,7 @@ async def collection(request: web.Request) -> web.Response:
         return await subscribe(request)
     st: gateway.State = request.app["state"]
     topic, res = _resolve(request)
-    if res.access == gateway.OPERATOR and not _authorized(
-            request, request.app["token"]):
+    if res.access == gateway.OPERATOR and not _authorized(request):
         return _unauthorized(str(request.rel_url))
     doc = [inst.data for inst in st.latched.get(topic, {}).values()]
     return _json_response(request, doc, res.access,
@@ -502,8 +536,7 @@ async def collection(request: web.Request) -> web.Response:
 async def instance(request: web.Request) -> web.Response:
     st: gateway.State = request.app["state"]
     topic, res = _resolve(request)
-    if res.access == gateway.OPERATOR and not _authorized(
-            request, request.app["token"]):
+    if res.access == gateway.OPERATOR and not _authorized(request):
         return _unauthorized(str(request.rel_url))
     key = request.match_info["key"]
     inst = st.latched.get(topic, {}).get(key)
@@ -748,8 +781,9 @@ async def post_command(request: web.Request) -> web.Response:
             f"acceptance.",
             accepts=reg.types()), request)
 
-    if not _authorized(request, request.app["token"]):
-        return _unauthorized(str(request.rel_url))
+    who = _writer(request, res.scene)
+    if isinstance(who, web.Response):
+        return who
 
     try:
         body = await request.json()
@@ -795,10 +829,11 @@ async def put_instance(request: web.Request) -> web.Response:
     """PUT on the same instance URL a GET already serves."""
     if not request.app["publish"]:
         return _disabled(request)
-    if not _authorized(request, request.app["token"]):
-        return _unauthorized(str(request.rel_url))
-    st: gateway.State = request.app["state"]
     m = request.match_info
+    who = _writer(request, m["scene"])
+    if isinstance(who, web.Response):
+        return who
+    st: gateway.State = request.app["state"]
     try:
         body = await request.json()
     except Exception as e:
@@ -844,7 +879,8 @@ async def put_instance(request: web.Request) -> web.Response:
     created = publish.apply_sample(st, topic, res, key, data)
     jr: publish.Journal | None = request.app["journal"]
     if jr is not None:
-        jr.record_sample(topic, res.fqn, key, raw)
+        jr.record_sample(topic, res.fqn, key, raw, principal=who.name,
+                         scene=res.scene)
     await _broadcast(request, topic,
                      {"event": "sample", "topic": topic, "key": key,
                       "data": data})
@@ -858,10 +894,11 @@ async def delete_instance(request: web.Request) -> web.Response:
     """DELETE is dispose: it leaves the latched set and the event streams."""
     if not request.app["publish"]:
         return _disabled(request)
-    if not _authorized(request, request.app["token"]):
-        return _unauthorized(str(request.rel_url))
-    st: gateway.State = request.app["state"]
     m = request.match_info
+    who = _writer(request, m["scene"])
+    if isinstance(who, web.Response):
+        return who
+    st: gateway.State = request.app["state"]
     try:
         topic, res = publish.resource_for_put(
             st, m["scene"], m["stream"], m["type"], m["version"])
@@ -876,7 +913,8 @@ async def delete_instance(request: web.Request) -> web.Response:
     reason = request.query.get("reason") or "withdrawn"
     jr: publish.Journal | None = request.app["journal"]
     if jr is not None:
-        jr.record_dispose(topic, key, reason)
+        jr.record_dispose(topic, key, reason, principal=who.name,
+                          scene=m["scene"])
     await _broadcast(request, topic,
                      {"event": "dispose", "topic": topic, "key": key,
                       "reason": reason})
@@ -894,7 +932,7 @@ async def put_manifest(request: web.Request) -> web.Response:
     """
     if not request.app["publish"]:
         return _disabled(request)
-    if not _authorized(request, request.app["token"]):
+    if request.app["tokens"] and _principal(request) is None:
         return _unauthorized(str(request.rel_url))
     st: gateway.State = request.app["state"]
     try:
@@ -913,13 +951,65 @@ async def put_manifest(request: web.Request) -> web.Response:
         publish.check_authority(request.app["base"], doc)
     except publish.Rejected as r:
         return _rejected(r, request)
+    # The manifest's lane is its URI's scene segment, so the resolve surface
+    # is enforced by the same rule as the collection paths.
+    who = _writer(request, gateway.uri_scene(uri))
+    if isinstance(who, web.Response):
+        return who
     created = uri not in st.manifests
+    # Held as its canonical form, the same bytes the journal stores, so the
+    # accepting process serves what every later restart will (finding 41:
+    # served as sent, `158.0` became `158` at the first restart and the ETag
+    # moved with no change of content).
+    doc = json.loads(webjson.canon(doc))
     st.manifests[uri] = doc
     jr = request.app.get("journal")
     if jr is not None:
-        jr.record_manifest(uri, doc)
+        jr.record_manifest(uri, doc, principal=who.name,
+                           scene=gateway.uri_scene(uri))
     return _written(request, doc, created,
                     {"X-SpatialDDS-Access": gateway.OPERATOR})
+
+
+async def delete_manifest(request: web.Request) -> web.Response:
+    """Withdraw a manifest: the other half of a withdrawal (finding 44).
+
+    `DELETE /spatialdds/resolve?uri=<urlencoded>&reason=<text>`, owner-checked
+    by the lane rule: the URI's scene segment must be one the principal may
+    write. Afterwards `resolve` answers 404 for that URI. The withdrawal is
+    journalled, so it survives a restart, and a seeded manifest withdrawn this
+    way stays withdrawn: replay runs after the seed loads.
+    """
+    if not request.app["publish"]:
+        return _disabled(request)
+    st: gateway.State = request.app["state"]
+    uri = request.query.get("uri", "")
+    if not gateway.uri_authority(uri):
+        if request.app["tokens"] and _principal(request) is None:
+            return _unauthorized(str(request.rel_url))
+        return _rejected(publish.Rejected(
+            400, "not-a-spatialdds-uri", "Not a resolvable SpatialDDS URI",
+            f"DELETE withdraws the manifest named by the `uri` query "
+            f"parameter, percent-encoded; {uri!r} is not a spatialdds:// URI."),
+            request)
+    who = _writer(request, gateway.uri_scene(uri))
+    if isinstance(who, web.Response):
+        return who
+    if uri not in st.manifests:
+        return _rejected(publish.Rejected(
+            404, "no-such-manifest", "No such manifest",
+            f"This endpoint holds no manifest with id {uri!r}, so there is "
+            f"nothing to withdraw.", uri=uri), request)
+    del st.manifests[uri]
+    reason = request.query.get("reason") or "withdrawn"
+    jr = request.app.get("journal")
+    if jr is not None:
+        jr.record_manifest_withdraw(uri, reason, principal=who.name,
+                                    scene=gateway.uri_scene(uri))
+    return web.Response(status=204,
+                        headers=_cache_headers(
+                            gateway.OPERATOR, None,
+                            request.headers.get("Origin")))
 
 
 # ---- the subscription ------------------------------------------------------
@@ -934,8 +1024,7 @@ async def subscribe(request: web.Request) -> web.StreamResponse:
     """
     st: gateway.State = request.app["state"]
     topic, res = _resolve(request)
-    if res.access == gateway.OPERATOR and not _authorized(
-            request, request.app["token"]):
+    if res.access == gateway.OPERATOR and not _authorized(request):
         return _unauthorized(str(request.rel_url))
 
     ws = web.WebSocketResponse(heartbeat=None)
@@ -1023,7 +1112,8 @@ def make_app(state: gateway.State, base: str, token: str | None,
              journal: "publish.Journal | None" = None,
              assets: Path | None = None,
              command_registry: "commands.Registry | None" = None,
-             live_subscriptions: bool | None = None) -> web.Application:
+             live_subscriptions: bool | None = None,
+             tokens: "tenancy.TokenTable | None" = None) -> web.Application:
     """The app, with two switches that used to be one.
 
     `publish_enabled` means what its name says and nothing else: the
@@ -1048,6 +1138,11 @@ def make_app(state: gateway.State, base: str, token: str | None,
     app["state"] = state
     app["base"] = base.rstrip("/")
     app["token"] = token
+    # Who may write where. A table from `--tokens` when one is given; else the
+    # one `--token`, as a single principal over every scene, which is exactly
+    # what that flag meant before tenancy (and nothing gated with neither).
+    app["tokens"] = tokens if tokens is not None \
+        else tenancy.TokenTable.single(token)
     # Off unless asked for. The write routes are registered either way so
     # that a refusal is an N.8 problem document rather than a framework's
     # default page, and so that the surface's absence is something the
@@ -1101,6 +1196,7 @@ def make_app(state: gateway.State, base: str, token: str | None,
         web.delete("/{scene}/{stream}/{type}/{version}/{key}",
                    delete_instance),
         web.put(gateway.RESOLVE_PATH, put_manifest),
+        web.delete(gateway.RESOLVE_PATH, delete_manifest),
         # The preflight, on every path that can be asked for cross-origin
         # with a credential or a JSON body. Mirrors the routes above rather
         # than using a catch-all, so a path this gateway does not serve still

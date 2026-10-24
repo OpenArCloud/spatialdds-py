@@ -52,7 +52,7 @@ anchor/fountain-north-rim      30.284986 -97.739350 Surveyed  -
 anchor/fountain-south-rim      30.284914 -97.739350 VisualFix -
 anchor/fountain-east-rim       30.284950 -97.739314 VisualFix -
 anchor/fountain-west-rim       30.284950 -97.739386 VisualFix -
-anchor/fountain-plaque         30.284968 -97.739329 GNSS      spatialdds://demo.spatialdds.org/south-mall/content/fountain-label
+anchor/fountain-plaque         30.284968 -97.739329 GNSS      spatialdds://demo.spatialdds.org/ut-austin-south-mall/content/fountain-label
 ```
 
 ## What is the shape of a zone?

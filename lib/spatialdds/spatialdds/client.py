@@ -90,14 +90,16 @@ def _event(raw: Dict[str, Any], fqn: str, lifted: bool):
 
 def connect(base: str, token: Optional[str] = None,
             verify_integrity: bool = True, timeout: float = 15.0,
-            lifted: bool = True, scene: str = "default",
+            lifted: bool = True, scene: Optional[str] = None,
             authority: Optional[str] = None) -> "Endpoint":
     """An endpoint. Nothing is fetched until you ask for something.
 
     `scene` is the §3.3.1 domain segment the composed publish verbs put
     records under -- the first path segment of every resource URL. One word,
-    yours to choose; `default` is what you get for not choosing, and it is
-    visible in every URL so nobody is left wondering where their records went.
+    yours to choose, and on a multi-tenant registry it is your lane. Leave it
+    unset and reading works as before, but a publish verb refuses and names
+    the scenes the endpoint serves: until 0.6 an unset scene meant `default`,
+    which minted a new scene beside the one the caller meant (finding 46).
 
     `authority` is the DNS name records are addressed under. Left unset, the
     endpoint is asked -- see `Endpoint.authority` -- because the authority is
@@ -121,7 +123,7 @@ class Endpoint:
 
     def __init__(self, base: str, token: Optional[str] = None,
                  verify_integrity: bool = True, timeout: float = 15.0,
-                 lifted: bool = True, scene: str = "default",
+                 lifted: bool = True, scene: Optional[str] = None,
                  authority: Optional[str] = None) -> None:
         self.base = base.rstrip("/")
         self.token = token
@@ -140,18 +142,54 @@ class Endpoint:
             return path_or_url
         return self.base + path_or_url
 
-    def _headers(self, extra: Optional[Dict[str, str]] = None) -> Dict[str, str]:
+    def _origin(self, url: str) -> str:
+        """scheme://host[:port], lowercased: what a credential is scoped to."""
+        scheme, _, rest = url.partition("://")
+        return f"{scheme.lower()}://{rest.split('/', 1)[0].lower()}"
+
+    def _headers(self, extra: Optional[Dict[str, str]] = None,
+                 url: Optional[str] = None) -> Dict[str, str]:
+        """Request headers; the token only for this endpoint's own origin.
+
+        A manifest's asset may live on any host, and `fetch_asset` follows it
+        with this same session. Until 0.6 the bearer went with it, handing the
+        endpoint's write credential to whoever served the asset -- and failing
+        the fetch, since a host that does not know a bearer may refuse it
+        (finding 45). The token is scoped to the origin `connect()` was given,
+        and nowhere else.
+        """
         h = dict(extra or {})
-        if self.token:
+        if self.token and (url is None
+                           or self._origin(url) == self._origin(self.base)):
             h["Authorization"] = "Bearer " + self.token
         return h
+
+    def _scene(self, scene: Optional[str]) -> str:
+        """The scene a publish verb writes, or a refusal naming the choices."""
+        if scene or self.scene:
+            return scene or self.scene
+        served: set = set()
+        try:
+            for h in self.search():
+                for t in h.topics:
+                    path = t.get("url", "").split("//", 1)[-1]
+                    served.add(path.split("/")[1] if "/" in path else "")
+        except SpatialDDSError:
+            pass
+        served.discard("")
+        raise ValueError(
+            "no scene to publish into: pass scene= to connect() or to this "
+            "call. A publish never picks one, because a guessed scene is a "
+            "new lane nobody asked for (finding 46)."
+            + (f" This endpoint serves: {', '.join(sorted(served))}."
+               if served else ""))
 
     def _request(self, method: str, path: str, *, body: Any = None,
                  headers: Optional[Dict[str, str]] = None,
                  params: Optional[Dict[str, Any]] = None,
                  raw: bool = False):
         url = self._url(path)
-        h = self._headers(headers)
+        h = self._headers(headers, url)
         if body is not None:
             h["Content-Type"] = "application/json"
         try:
@@ -312,7 +350,7 @@ class Endpoint:
         contract behind it and is published first so that the URI the announce
         names resolves the moment the announce is visible.
         """
-        sc = scene or self.scene
+        sc = self._scene(scene)
         man: Optional["Written"] = None
         if manifest is not None:
             man = self.publish_manifest(manifest)
@@ -350,7 +388,7 @@ class Endpoint:
         `UnverifiableIntegrity` rather than a check that silently passed. That
         is the honest default for a URL somebody handed you.
         """
-        sc = scene or self.scene
+        sc = self._scene(scene)
         cov = coverage
         if cov is None and position is not None:
             lat, lon = float(position[0]), float(position[1])
@@ -416,7 +454,7 @@ class Endpoint:
         anchor's own frame, precision and method, and publishing does not
         raise a claim. Pass `manifest_uri=` for a URI you already have.
         """
-        sc = scene or self.scene
+        sc = self._scene(scene)
         if content is not None and "manifest_uri" not in kw:
             kw["manifest_uri"] = records.content_uri(self.authority, sc,
                                                      content)

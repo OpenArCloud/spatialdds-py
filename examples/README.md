@@ -158,11 +158,11 @@ line.
 <!-- gate: authority py examples/migration/scd_content.py -->
 ```console
   Littlefield Fountain marker
-    resolved spatialdds://demo.spatialdds.org/south-mall/content/fountain-marker
+    resolved spatialdds://demo.spatialdds.org/ut-austin-south-mall/content/fountain-marker
     model/gltf+json    https://raw.githubusercontent.com/OpenArCloud/spatialdds-web/main/samples/assets/fountain-marker.gltf
     sha256:26c80427c7cbfc9626b57b1a4e25bcf6004332b3758c0ab0e3e73bc1dd53a6cf
   Littlefield Fountain label
-    resolved spatialdds://demo.spatialdds.org/south-mall/content/fountain-label
+    resolved spatialdds://demo.spatialdds.org/ut-austin-south-mall/content/fountain-label
     text/plain         https://raw.githubusercontent.com/OpenArCloud/spatialdds-web/main/samples/assets/fountain-label.txt
     sha256:1970b1b67efc916f9799db2a6159a713fa5a46bed0a0485df469bfcd857a669c
 ```
@@ -190,9 +190,9 @@ python3 tools/run_gateway.py --mcap samples/fountain-anchors.mcap --port 8787 \
 <!-- gate: publish py examples/publish_service.py -->
 ```console
   PUT announce  -> 201  austin-vps
-  PUT manifest  -> 201  spatialdds://demo.spatialdds.org/south-mall/service/austin-vps
+  PUT manifest  -> 201  spatialdds://demo.spatialdds.org/ut-austin-south-mall/service/austin-vps
   GET search    -> austin-vps, fountain-anchors
-  GET resolve   -> service spatialdds://demo.spatialdds.org/south-mall/service/austin-vps ttl 1800
+  GET resolve   -> service spatialdds://demo.spatialdds.org/ut-austin-south-mall/service/austin-vps ttl 1800
 
 {
   "auth": {
@@ -203,9 +203,9 @@ python3 tools/run_gateway.py --mcap samples/fountain-anchors.mcap --port 8787 \
     "circle_center": [
       -97.73934584,
       30.28495359,
-      158.0
+      158
     ],
-    "circle_radius_m": 25.0,
+    "circle_radius_m": 25,
     "frame_ref": {
       "fqn": "earth-fixed",
       "uuid": ""
@@ -217,7 +217,7 @@ python3 tools/run_gateway.py --mcap samples/fountain-anchors.mcap --port 8787 \
     "has_bbox": false,
     "has_circle": true
   },
-  "id": "spatialdds://demo.spatialdds.org/south-mall/service/austin-vps",
+  "id": "spatialdds://demo.spatialdds.org/ut-austin-south-mall/service/austin-vps",
   "limits": {
     "max_fps": 10,
     "max_image_px": 1920
@@ -268,9 +268,9 @@ resolver answering for a URI that did not exist a moment earlier, with the
 <!-- gate: publish py examples/publish_content.py -->
 ```console
   PUT announce  -> 201  content/south-mall-tour
-  PUT manifest  -> 201  spatialdds://demo.spatialdds.org/south-mall/content/south-mall-tour
+  PUT manifest  -> 201  spatialdds://demo.spatialdds.org/ut-austin-south-mall/content/south-mall-tour
   GET list      -> content/fountain-label, content/fountain-marker, content/south-mall-tour
-  GET resolve   -> content spatialdds://demo.spatialdds.org/south-mall/content/south-mall-tour ttl 7200 -> public, max-age=7200
+  GET resolve   -> content spatialdds://demo.spatialdds.org/ut-austin-south-mall/content/south-mall-tour ttl 7200 -> public, max-age=7200
 
 {
   "assets": [
@@ -285,7 +285,7 @@ resolver answering for a URI that did not exist a moment earlier, with the
     "summary": "A short audio tour published over the web binding.",
     "title": "South Mall walking tour"
   },
-  "id": "spatialdds://demo.spatialdds.org/south-mall/content/south-mall-tour",
+  "id": "spatialdds://demo.spatialdds.org/ut-austin-south-mall/content/south-mall-tour",
   "profile": "spatial.manifest/1.8",
   "rtype": "content",
   "stamp": {
@@ -318,7 +318,7 @@ read-only on this endpoint, so pinning the duck to one is a separate batch. See
 
 <!-- gate: publish py examples/publish_duck.py -->
 ```console
-  PUT manifest  -> 201  spatialdds://demo.spatialdds.org/south-mall/content/duck
+  PUT manifest  -> 201  spatialdds://demo.spatialdds.org/ut-austin-south-mall/content/duck
   PUT announce  -> 201  content/duck
   GET list      -> content/duck, content/fountain-label, content/fountain-marker
   GET resolve   -> model/gltf+json https://demo.spatialdds.org/assets/duck.gltf
@@ -363,9 +363,9 @@ read-only on this endpoint, so pinning the duck to one is a separate batch. See
     "circle_center": [
       -97.73935,
       30.2849859,
-      158.0
+      158
     ],
-    "circle_radius_m": 2.0,
+    "circle_radius_m": 2,
     "frame_ref": {
       "fqn": "earth-fixed",
       "uuid": ""
@@ -374,7 +374,7 @@ read-only on this endpoint, so pinning the duck to one is a separate batch. See
     "has_bbox": false,
     "has_circle": true
   },
-  "id": "spatialdds://demo.spatialdds.org/south-mall/content/duck",
+  "id": "spatialdds://demo.spatialdds.org/ut-austin-south-mall/content/duck",
   "profile": "spatial.manifest/1.8",
   "rtype": "content",
   "stamp": {
@@ -447,7 +447,7 @@ record this endpoint accepted cannot contradict itself.
 
 <!-- gate: publish py examples/publish_anchor.py -->
 ```console
-  PUT manifest  -> 201  spatialdds://demo.spatialdds.org/south-mall/content/duck
+  PUT manifest  -> 201  spatialdds://demo.spatialdds.org/ut-austin-south-mall/content/duck
   PUT anchor    -> 201  anchor/duck-perch  method VisualFix
   GET anchors   -> anchor/duck-perch, anchor/fountain-east-rim, anchor/fountain-north-rim, anchor/fountain-plaque, anchor/fountain-south-rim, anchor/fountain-west-rim
   GET resolve   -> model/gltf+json https://demo.spatialdds.org/assets/duck.gltf
@@ -509,7 +509,7 @@ record this endpoint accepted cannot contradict itself.
       "sec": "1791559800"
     }
   },
-  "manifest_uri": "spatialdds://demo.spatialdds.org/south-mall/content/duck",
+  "manifest_uri": "spatialdds://demo.spatialdds.org/ut-austin-south-mall/content/duck",
   "map_id": "ut-austin/south-mall",
   "method": "VisualFix"
 }

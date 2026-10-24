@@ -220,7 +220,7 @@ def main() -> int:
     with Served("--demo", "--authority", "demo.spatialdds.org",
                 "--port", str(port + 1)) as s:
         base = f"http://127.0.0.1:{port + 1}"
-        uri = "spatialdds://demo.spatialdds.org/south-mall/content/fountain-label"
+        uri = "spatialdds://demo.spatialdds.org/ut-austin-south-mall/content/fountain-label"
         st, body = get(f"{base}/spatialdds/resolve?uri="
                        + urllib.parse.quote(uri, safe=""))
         doc = json.loads(body) if st == 200 else {}

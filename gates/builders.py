@@ -158,12 +158,12 @@ def schema_and_shape(checks: list) -> None:
     built = {
         "service_announce": R.service_announce(
             "austin-vps", "VPS", coverage=cov, authority="demo.spatialdds.org",
-            scene="south-mall", org="openarcloud.example", version="2026-q4",
+            scene="ut-austin-south-mall", org="openarcloud.example", version="2026-q4",
             topics=[R.topic("geo_anchor", scene="ut-austin-south-mall",
                             stream="frames")]),
         "content_announce": R.content_announce(
             "content/duck", coverage=cov, authority="demo.spatialdds.org",
-            scene="south-mall", title="A duck"),
+            scene="ut-austin-south-mall", title="A duck"),
         "geo_anchor": R.geo_anchor(
             "anchor/duck-perch", lat=30.2849859, lon=-97.73935, alt_m=158.0,
             method="VisualFix", map_id="ut-austin/south-mall",
@@ -466,12 +466,15 @@ async def the_four_lines(checks: list) -> None:
         try:
             tok = TOKEN
             contract = {
-                "id": f"spatialdds://{AUTH}/default/service/mytown-vps",
+                "id": f"spatialdds://{AUTH}/mytown/service/mytown-vps",
                 "profile": "spatial.manifest/1.8", "rtype": "service",
                 "service": {"service_id": "mytown-vps", "kind": "VPS"}}
 
             def run():
-                ep = sd.connect(gw.base, token=tok)
+                # A publisher names its lane. Until 0.6 these lines left the
+                # scene unset and landed in `default`; now that refuses
+                # (finding 46), so the directive's lines gain one argument.
+                ep = sd.connect(gw.base, token=tok, scene="mytown")
                 a = ep.publish_service(
                     service_id="mytown-vps", kind="VPS",
                     coverage=sd.circle(30.28, -97.74, 500), manifest=contract)
@@ -505,7 +508,7 @@ async def the_four_lines(checks: list) -> None:
                            [h.service_id for h in hits] == ["mytown-vps"],
                            f"{[h.service_id for h in hits]}"))
             res = await asyncio.to_thread(
-                ep.resolve, f"spatialdds://{AUTH}/default/content/duck")
+                ep.resolve, f"spatialdds://{AUTH}/mytown/content/duck")
             checks.append(("the content manifest the verb built resolves, and "
                            "names the asset it was given",
                            res.doc["assets"][0]["uri"]
@@ -523,12 +526,12 @@ async def the_four_lines(checks: list) -> None:
                            "a check it did not do",
                            err is not None, f"{err!r}"))
             anchors = await asyncio.to_thread(
-                ep.get_json, "/default/frames/geo_anchor/v1")
+                ep.get_json, "/mytown/frames/geo_anchor/v1")
             checks.append((f"publish_anchor's record carries the content "
                            "linkage the 1.8 revision made expressible",
                            len(anchors) == 1
                            and anchors[0]["manifest_uri"]
-                           == f"spatialdds://{AUTH}/default/content/duck",
+                           == f"spatialdds://{AUTH}/mytown/content/duck",
                            f"{[a.get('manifest_uri') for a in anchors]}"))
         finally:
             await gw.stop()
@@ -541,9 +544,9 @@ async def the_four_lines(checks: list) -> None:
             ep2 = sd.connect(gw2.base, token=TOKEN)
             hits = await asyncio.to_thread(ep2.search, "9v6k")
             res = await asyncio.to_thread(
-                ep2.resolve, f"spatialdds://{AUTH}/default/content/duck")
+                ep2.resolve, f"spatialdds://{AUTH}/mytown/content/duck")
             anchors = await asyncio.to_thread(
-                ep2.get_json, "/default/frames/geo_anchor/v1")
+                ep2.get_json, "/mytown/frames/geo_anchor/v1")
             checks.append(("after a restart everything is still served: the "
                            "service, both manifests, the content and the "
                            "anchor",

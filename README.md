@@ -55,7 +55,7 @@ client library is for.
 <!-- bar: publish -->
 ```python
 import spatialdds as sd
-ep = sd.connect("http://127.0.0.1:8787", token="tok")
+ep = sd.connect("http://127.0.0.1:8787", token="tok", scene="mytown")
 ep.publish_service(service_id="mytown-vps", kind="VPS",
                    coverage=sd.circle(30.2849, -97.7393, 500))
 ep.publish_content(content_id="duck", title="A duck at the fountain",
@@ -89,7 +89,7 @@ the builders to prove nothing is out of reach.
 ```python
 import spatialdds as sd
 ep = sd.connect("http://127.0.0.1:8787")
-doc = ep.resolve("spatialdds://demo.spatialdds.org/south-mall/content/fountain-marker")
+doc = ep.resolve("spatialdds://demo.spatialdds.org/ut-austin-south-mall/content/fountain-marker")
 print(doc.doc["content"]["title"])
 print(doc.asset_url())
 ```
@@ -122,6 +122,7 @@ versions of everything above.
 | | |
 | --- | --- |
 | [Your own registry in eight steps](docs/MYTOWN.md) | from nothing to a registry a stranger can read, persistence included |
+| [Lanes: one registry, several publishers](docs/PUBLISH.md#access) | tokens scoped to scenes, a `403` across lanes, per-lane reset; virtual authorities designed, not built |
 | [Publish and retrieve, step by step](docs/WALKTHROUGH.md) | every record shown in full on the wire |
 | [The client library](lib/spatialdds/README.md) | the full API, the lift, errors, integrity |
 | [What's on the wire](docs/WIRE.md) | paths, formats, the binding itself |

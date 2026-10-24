@@ -74,7 +74,7 @@ GET /.well-known/spatialdds/resolver
         "https_base": "https://demo.spatialdds.org/spatialdds/resolve",
         "cache_ttl_sec": 300}
 
-GET /spatialdds/resolve?uri=spatialdds%3A%2F%2Fdemo.spatialdds.org%2Fsouth-mall%2Fcontent%2Ffountain-marker
+GET /spatialdds/resolve?uri=spatialdds%3A%2F%2Fdemo.spatialdds.org%2Fut-austin-south-mall%2Fcontent%2Ffountain-marker
     -> 200, application/json, the content manifest
        ETag: "sha256:…"   the canonical digest, as every resource here carries
 ```
@@ -145,7 +145,7 @@ Resolution is DNS-scoped. §7.5.2's metadata path is
 are published under:
 
 ```
-spatialdds://austin.openarcloud.example/south-mall/content/fountain-marker
+spatialdds://austin.openarcloud.example/ut-austin-south-mall/content/fountain-marker
 ```
 
 A demo endpoint at `demo.spatialdds.org` is not that authority and must not
@@ -221,7 +221,7 @@ What the prediction missed, both small and both worth recording:
 - **No resolution of anchor or service URIs.** The endpoint holds content
   manifests; anchors cannot carry a `manifest_uri` in 1.8 at all (1.9 candidate
   2). The recording's service announce does carry
-  `spatialdds://demo.spatialdds.org/south-mall/service/fountain-anchors`, and
+  `spatialdds://demo.spatialdds.org/ut-austin-south-mall/service/fountain-anchors`, and
   the endpoint is the authority for it and holds no manifest for it, so it
   answers `404 no-such-manifest`. That is §7.5.3's own answer and it is
   exercised as a gate check rather than hidden: it is the "its own authority, a

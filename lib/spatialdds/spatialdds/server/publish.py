@@ -72,6 +72,15 @@ DISPOSE_RECORD = "spatialdds-web:dispose"
 #: empty registry is the normal way to start, "everything still served after a
 #: restart" has to include them.
 MANIFEST_RECORD = "spatialdds-web:manifest"
+#: A manifest withdrawn over `DELETE /spatialdds/resolve` (finding 44).
+MANIFEST_WITHDRAW_RECORD = "spatialdds-web:manifest-withdraw"
+#: Who wrote a journalled sample, and into which scene. A sample is an MCAP
+#: message, which has no room for attribution of its own, so it rides beside
+#: the message as a metadata record keyed by the same sequence number.
+#: Disposes and manifests carry the same two fields in their own records.
+#: A journal written before tenancy has none of these, and replays with an
+#: empty principal: attribution unknown, which is the truth about it.
+WRITTEN_BY_RECORD = "spatialdds-web:written-by"
 
 
 class Rejected(Exception):
@@ -266,28 +275,13 @@ class Journal:
             self.state.model, self.state.idl = model, idl
         dec = xcdr2.Decoder(self.state.model)
         proj = webjson.Projector(self.state.model, webjson.tables())
-        items: list[tuple[int, dict]] = []
-        with open(self.path, "rb") as f:
-            r = make_reader(f)
-            for sch, ch, msg in r.iter_messages():
-                fqn = sch.name.replace("::", ".")
-                items.append((msg.log_time,
-                              {"kind": "sample", "topic": ch.topic,
-                               "fqn": fqn, "raw": msg.data}))
-            for md in r.iter_metadata():
-                if md.name == DISPOSE_RECORD:
-                    items.append((int(md.metadata["seq"]),
-                                  {"kind": "dispose",
-                                   "topic": md.metadata["topic"],
-                                   "key": md.metadata["key"],
-                                   "reason": md.metadata.get("reason", "")}))
-                elif md.name == MANIFEST_RECORD:
-                    items.append((int(md.metadata["seq"]),
-                                  {"kind": "manifest",
-                                   "uri": md.metadata["uri"],
-                                   "doc": md.metadata["doc"]}))
-        for seq, e in sorted(items, key=lambda x: x[0]):
+        items, _idl = read_entries(self.path)
+        for seq, e in items:
             self.seq = max(self.seq, seq)
+            if e["kind"] == "manifest-withdraw":
+                self.state.manifests.pop(e["uri"], None)
+                self.entries.append({**e, "seq": seq})
+                continue
             if e["kind"] == "manifest":
                 # Last one wins, which is what replaying in sequence means: a
                 # manifest republished under the same URI replaced the earlier
@@ -315,13 +309,16 @@ class Journal:
         return self.seq
 
     def record_sample(self, topic: str, fqn: str, key: str,
-                      raw: bytes) -> None:
+                      raw: bytes, principal: str = "",
+                      scene: str = "") -> None:
         self.entries.append({"kind": "sample", "seq": self._next(),
                              "topic": topic, "fqn": fqn, "key": key,
-                             "raw": raw})
+                             "raw": raw, "principal": principal,
+                             "scene": scene or _topic_scene(topic)})
         self._flush()
 
-    def record_manifest(self, uri: str, doc: dict) -> None:
+    def record_manifest(self, uri: str, doc: dict, principal: str = "",
+                        scene: str = "") -> None:
         """A published manifest, stored as the canonical JSON that was served.
 
         `webjson.canon` and not `json.dumps`: the bytes written here are the
@@ -329,52 +326,153 @@ class Journal:
         served one cannot differ by key order or spacing.
         """
         self.entries.append({"kind": "manifest", "seq": self._next(),
-                             "uri": uri, "doc": webjson.canon(doc)})
+                             "uri": uri, "doc": webjson.canon(doc),
+                             "principal": principal,
+                             "scene": scene or gateway.uri_scene(uri)})
         self._flush()
 
-    def record_dispose(self, topic: str, key: str, reason: str) -> None:
+    def record_manifest_withdraw(self, uri: str, reason: str,
+                                 principal: str = "",
+                                 scene: str = "") -> None:
+        self.entries.append({"kind": "manifest-withdraw", "seq": self._next(),
+                             "uri": uri, "reason": reason,
+                             "principal": principal,
+                             "scene": scene or gateway.uri_scene(uri)})
+        self._flush()
+
+    def record_dispose(self, topic: str, key: str, reason: str,
+                       principal: str = "", scene: str = "") -> None:
         self.entries.append({"kind": "dispose", "seq": self._next(),
-                             "topic": topic, "key": key, "reason": reason})
+                             "topic": topic, "key": key, "reason": reason,
+                             "principal": principal,
+                             "scene": scene or _topic_scene(topic)})
         self._flush()
 
     def _flush(self) -> None:
-        idl = self.state.idl
-        fd, tmp = tempfile.mkstemp(dir=str(self.path.parent),
-                                   suffix=".mcap.tmp")
-        try:
-            with os.fdopen(fd, "wb") as f:
-                w = McapWriter(f)
-                w.start(profile="spatialdds", library="spatialdds-web/publish")
-                sch_ids: dict[str, int] = {}
-                ch_ids: dict[str, int] = {}
-                for e in self.entries:
-                    if e["kind"] != "sample":
-                        continue
-                    if e["fqn"] not in sch_ids:
-                        name, data = idl[e["fqn"]]
-                        sch_ids[e["fqn"]] = w.register_schema(
-                            name=name, encoding="omgidl", data=data)
-                    if e["topic"] not in ch_ids:
-                        ch_ids[e["topic"]] = w.register_channel(
-                            topic=e["topic"], message_encoding="cdr",
-                            schema_id=sch_ids[e["fqn"]])
-                    w.add_message(channel_id=ch_ids[e["topic"]],
-                                  log_time=e["seq"], publish_time=e["seq"],
-                                  data=e["raw"], sequence=e["seq"])
-                for e in self.entries:
-                    if e["kind"] == "dispose":
-                        w.add_metadata(name=DISPOSE_RECORD, data={
-                            "seq": str(e["seq"]), "topic": e["topic"],
-                            "key": e["key"], "reason": e["reason"]})
-                    elif e["kind"] == "manifest":
-                        w.add_metadata(name=MANIFEST_RECORD, data={
-                            "seq": str(e["seq"]), "uri": e["uri"],
-                            "doc": e["doc"]})
-                w.finish()
-            os.replace(tmp, self.path)
-        except BaseException:
-            Path(tmp).unlink(missing_ok=True)
-            raise
+        write_entries(self.path, self.entries, self.state.idl)
+
+
+def _topic_scene(topic: str) -> str:
+    seg = gateway.split_topic(topic)
+    return seg[0] if seg else ""
+
+
+def read_entries(path: Path) -> tuple[list[tuple[int, dict]], dict]:
+    """Every journal entry in sequence order, with its attribution, unapplied.
+
+    Also returns the embedded IDL by type, so an offline tool can write the
+    entries back without a gateway or a specification checkout.
+    """
+    items: list[tuple[int, dict]] = []
+    who: dict[int, tuple[str, str]] = {}
+    idl: dict[str, tuple[str, bytes]] = {}
+    with open(path, "rb") as f:
+        r = make_reader(f)
+        for sch, ch, msg in r.iter_messages():
+            fqn = sch.name.replace("::", ".")
+            idl.setdefault(fqn, (sch.name, sch.data))
+            items.append((msg.log_time,
+                          {"kind": "sample", "topic": ch.topic,
+                           "fqn": fqn, "raw": msg.data}))
+        for md in r.iter_metadata():
+            m = md.metadata
+            attr = {"principal": m.get("principal", ""),
+                    "scene": m.get("scene", "")}
+            if md.name == WRITTEN_BY_RECORD:
+                who[int(m["seq"])] = (m.get("principal", ""),
+                                      m.get("scene", ""))
+            elif md.name == DISPOSE_RECORD:
+                items.append((int(m["seq"]),
+                              {"kind": "dispose", "topic": m["topic"],
+                               "key": m["key"], "reason": m.get("reason", ""),
+                               **attr}))
+            elif md.name == MANIFEST_RECORD:
+                items.append((int(m["seq"]),
+                              {"kind": "manifest", "uri": m["uri"],
+                               "doc": m["doc"], **attr}))
+            elif md.name == MANIFEST_WITHDRAW_RECORD:
+                items.append((int(m["seq"]),
+                              {"kind": "manifest-withdraw", "uri": m["uri"],
+                               "reason": m.get("reason", ""), **attr}))
+    for seq, e in items:
+        if e["kind"] == "sample":
+            p, sc = who.get(seq, ("", ""))
+            e["principal"], e["scene"] = p, sc or _topic_scene(e["topic"])
+        elif not e.get("scene"):
+            e["scene"] = (gateway.uri_scene(e["uri"]) if "uri" in e
+                          else _topic_scene(e["topic"]))
+    items.sort(key=lambda x: x[0])
+    return items, idl
+
+
+def write_entries(path: Path, entries: list[dict],
+                  idl: dict[str, tuple[str, bytes]]) -> None:
+    """The whole journal, rewritten and renamed into place.
+
+    Every entry carries its sequence number, so a filtered rewrite (a
+    per-scene reset) keeps every surviving entry's seq, and therefore its
+    order and its bytes, exactly.
+    """
+    fd, tmp = tempfile.mkstemp(dir=str(Path(path).parent),
+                               suffix=".mcap.tmp")
+    try:
+        with os.fdopen(fd, "wb") as f:
+            w = McapWriter(f)
+            w.start(profile="spatialdds", library="spatialdds-web/publish")
+            sch_ids: dict[str, int] = {}
+            ch_ids: dict[str, int] = {}
+            for e in entries:
+                if e["kind"] != "sample":
+                    continue
+                if e["fqn"] not in sch_ids:
+                    name, data = idl[e["fqn"]]
+                    sch_ids[e["fqn"]] = w.register_schema(
+                        name=name, encoding="omgidl", data=data)
+                if e["topic"] not in ch_ids:
+                    ch_ids[e["topic"]] = w.register_channel(
+                        topic=e["topic"], message_encoding="cdr",
+                        schema_id=sch_ids[e["fqn"]])
+                w.add_message(channel_id=ch_ids[e["topic"]],
+                              log_time=e["seq"], publish_time=e["seq"],
+                              data=e["raw"], sequence=e["seq"])
+            for e in entries:
+                attr = {"principal": e.get("principal", ""),
+                        "scene": e.get("scene", "")}
+                if e["kind"] == "sample":
+                    w.add_metadata(name=WRITTEN_BY_RECORD, data={
+                        "seq": str(e["seq"]), **attr})
+                elif e["kind"] == "dispose":
+                    w.add_metadata(name=DISPOSE_RECORD, data={
+                        "seq": str(e["seq"]), "topic": e["topic"],
+                        "key": e["key"], "reason": e["reason"], **attr})
+                elif e["kind"] == "manifest":
+                    w.add_metadata(name=MANIFEST_RECORD, data={
+                        "seq": str(e["seq"]), "uri": e["uri"],
+                        "doc": e["doc"], **attr})
+                elif e["kind"] == "manifest-withdraw":
+                    w.add_metadata(name=MANIFEST_WITHDRAW_RECORD, data={
+                        "seq": str(e["seq"]), "uri": e["uri"],
+                        "reason": e["reason"], **attr})
+            w.finish()
+        os.replace(tmp, path)
+    except BaseException:
+        Path(tmp).unlink(missing_ok=True)
+        raise
+
+
+def reset_scene(path: Path, scene: str) -> tuple[int, int]:
+    """Remove one scene's entries from a journal, offline. (removed, kept)
+
+    The operator action behind a per-lane reset: stop the service, run this,
+    start it. The seed is not in the journal, so a seeded lane returns to its
+    seed and an empty lane to empty. Every other scene's entries are written
+    back with their own sequence numbers and bytes, so every other lane serves
+    exactly what it served before.
+    """
+    items, idl = read_entries(path)
+    kept = [{**e, "seq": seq} for seq, e in items if e.get("scene") != scene]
+    write_entries(path, kept, idl)
+    return len(items) - len(kept), len(kept)
 
 
 def now_stamp() -> dict:

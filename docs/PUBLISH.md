@@ -81,6 +81,7 @@ does a VPS and a duck with `curl` and no library at all. Both are executed by
 | `PUT /{domain}/{stream}/{type}/{version}/{key}` | publish an instance: `201` created, `200` replaced |
 | `DELETE /{domain}/{stream}/{type}/{version}/{key}` | dispose it: `204`, and the dispose streams on the topic's WS |
 | `PUT /spatialdds/resolve` | publish a content manifest, keyed by the `id` it declares |
+| `DELETE /spatialdds/resolve?uri=…&reason=…` | withdraw that manifest: `204`, and `resolve` answers `404` for it |
 
 The instance key is the record's own `@key` member, percent-encoded as one path
 segment exactly as a GET requires, and a body whose key disagrees with the URL
@@ -136,8 +137,41 @@ being theoretical.
 
 ## Access
 
-Bearer token, the endpoint's existing operator credential — no second kind of
-credential is minted. No token or a wrong one is `401`.
+**Lanes: tokens scoped to scenes.** A scene — the first segment of every
+resource path, and the second of every `spatialdds://` URI this endpoint holds
+— is a lane. A token resolves to a principal (a name, a provider identity, the
+scenes it may write, and whether it may create scenes), and every `PUT`,
+`DELETE` and command `POST` checks the path's scene, or a manifest URI's scene
+segment, against the grant:
+
+| | |
+| --- | --- |
+| no token, or one nobody issued | `401`, with `WWW-Authenticate` |
+| a valid token, outside its lane | `403` `not-your-lane`, naming the scene and the grant |
+| a scene that does not exist, from a principal that may not create scenes | `403` `scene-creation-not-granted` |
+
+A scene exists when the endpoint serves it or a grant names it, so an operator
+stands up an empty lane by naming it in a grant, without handing anyone the
+right to mint scenes. The wildcard grant `*` covers every scene that exists and
+creates none unless `may_create_scenes` is also set. **Reads stay open**: an
+operator-scoped resource still wants a credential, and any principal's will do.
+
+The table lives in a file, hashed — SHA-256 of 256-bit random tokens, never the
+token itself — and `python -m spatialdds.tokens` issues (printing the token
+once), lists and revokes rows. `python -m spatialdds.serve --tokens FILE`
+serves it and re-reads it on `SIGHUP`, without dropping a connection; a file
+that fails to load is refused and the old table keeps serving. `--token TOK`
+still works and means what it always did: one principal, every scene.
+
+A withdrawal is complete now: `DELETE` on the announce disposes it, and
+`DELETE /spatialdds/resolve?uri=…` withdraws its manifest under the same lane
+rule (finding 44). Both are journalled.
+
+**Virtual authorities: designed, not built.** Today one endpoint answers as
+one authority over every lane. The hook is `tenancy.AUTHORITIES` — an
+authority name mapped to the scenes it answers for, selected by the request's
+`Host` header — and nothing reads it yet. It becomes real when a partner wants
+their own DNS name over their own lanes.
 
 A record is accepted only into the authority this endpoint answers for, which
 is the same `--public-url`-derived authority the resolver uses, checked against
@@ -174,6 +208,17 @@ MCAP puts its summary at the end, so appending in place leaves a file that is
 not a complete MCAP until the process exits cleanly — and a journal valid only
 after a graceful shutdown is not a backup. A registry of this size makes the
 rewrite cheaper than an append-and-repair scheme.
+
+**Every entry carries its principal and its scene** — a sample as a
+`spatialdds-web:written-by` metadata record beside it, keyed by sequence
+number; disposes, manifests and manifest withdrawals (`spatialdds-web:
+manifest-withdraw`) in their own records — and replays with them. A journal
+written before lanes replays with no principal, which is the truth about it.
+`python -m spatialdds.journal --journal J reset-scene S` is the per-lane reset:
+stop the registry, run it, start it. It removes that scene's entries and
+writes every other entry back with its own sequence number and bytes, so every
+other lane serves exactly what it served before (`gates/tenancy.py` asserts
+both). `list` counts entries per scene and principal.
 
 **A dispose has no 1.8 record, and that is a gap rather than a design.**
 `Depart` is `{service_id, stamp}` — a service withdrawal — and nothing
@@ -220,8 +265,9 @@ terminates exactly as before, which every existing WebSocket gate depends on and
 
 - **Leases and expiry.** A registry must eventually shed dead publishers, and
   SSD parity requires it. Both records carry `ttl_sec` and nothing enforces it.
-- **Per-provider tokens and scopes.** One operator credential publishes
-  anything; there is no notion of a publisher owning its own records.
+- **Per-record ownership.** Tokens are scoped to scenes (above); within a
+  scene every principal granted it may replace or withdraw every record in it.
+  A lane is the unit of ownership, not a record.
 - **Server-set identity fields.** `provider_id` and `org` are read from the
   request body. They should come from the credential — the OSCP census's
   platform-set SCR fields are the precedent — and the design rule that outlives
@@ -233,7 +279,7 @@ terminates exactly as before, which every existing WebSocket gate depends on and
 ## Gates
 
 `golden_publish`, `publish_reject`, `journal_replay`, `publish_live`,
-`publish_offswitch`, `publish_duck`, `publish_anchor`. The walkthrough in
+`publish_offswitch`, `publish_duck`, `publish_anchor`, `tenancy`. The walkthrough in
 [WALKTHROUGH.md](WALKTHROUGH.md) is walked command by command by
 `gates/quickstart.py`, including its step 8, which prints the three published
 documents in full -- the VPS manifest, the duck's manifest, and the announce

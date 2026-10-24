@@ -99,6 +99,10 @@ def build_parser(ap: argparse.ArgumentParser) -> argparse.ArgumentParser:
     ap.add_argument("--token", default=None,
                     help="bearer token for operator-scoped resources; "
                          "generated and printed if not given")
+    ap.add_argument("--tokens", type=Path, default=None,
+                    help="a token table: per-principal tokens, each scoped "
+                         "to scenes (python -m spatialdds.tokens manages it). "
+                         "Replaces --token; reloaded on SIGHUP")
     return ap
 
 
@@ -170,7 +174,21 @@ def main(argv: list[str] | None = None) -> int:
     if a.demo:
         cmd_registry.register("spatial.core.GeoAnchor", _demo_command)
 
-    token = a.token or secrets.token_urlsafe(24)
+    if a.tokens is not None and a.token:
+        raise SystemExit(
+            "--tokens and --token both say who may write. --tokens is the "
+            "table of per-scene principals; --token is the single-operator "
+            "shape it replaces. Pass one.")
+    from .server import tenancy
+    table = tenancy.TokenTable.load(a.tokens) if a.tokens is not None \
+        else None
+    if table is not None and not table:
+        raise SystemExit(f"{a.tokens} holds no principals, so nothing could "
+                         f"write and every operator-scoped read would be "
+                         f"ungated. Add one with python -m spatialdds.tokens.")
+    generated = table is None and not a.token
+    token = None if table is not None else (a.token
+                                            or secrets.token_urlsafe(24))
     st = gateway.build_state(
         a.mcap, a.manifests if a.manifests and a.manifests.is_dir() else None)
     # The manifest hands clients absolute URLs, so the base has to be the
@@ -204,7 +222,18 @@ def main(argv: list[str] | None = None) -> int:
     print(f"              SpatialDDS-spec {_spec_commit()}")
     print(f"serving       {base}"
           + (f"  (bound {a.host}:{a.port})" if advertised else ""))
-    print(f"bearer token  {token}\n")
+    # The token is printed only when this process generated it, which is the
+    # one case where nobody else knows it. A token the operator supplied is
+    # already known to them, and printing it would copy it into whatever
+    # collects this output -- under systemd, the system log (finding 42).
+    if table is not None:
+        print(f"tokens        {a.tokens}: "
+              + ", ".join(f"{p.name} -> {','.join(sorted(p.scenes))}"
+                          for p in table.principals()) + "\n")
+    elif generated:
+        print(f"bearer token  {token}\n")
+    else:
+        print("bearer token  (given with --token; not printed)\n")
     n_l = sum(len(v) for v in st.latched.values())
     n_e = sum(len(v) for v in st.live.values())
     print(f"  {len(st.resources)} resource(s) in {len(st.scenes)} domain(s), "
@@ -244,7 +273,7 @@ def main(argv: list[str] | None = None) -> int:
     print("\n  paste this into the second terminal:\n")
     print(f"    export BASE={reach}")
     print(f"    export SPATIALDDS_ENDPOINT={reach}")
-    if a.publish:
+    if a.publish and generated:
         print(f"    export TOK={token}")
         print(f"    export SPATIALDDS_TOKEN={token}")
     if advertised and gateway.base_authority(base) != reach.split("//")[1]:
@@ -322,11 +351,13 @@ def main(argv: list[str] | None = None) -> int:
     sys.stdout.flush()
 
     try:
-        web.run_app(gw_http.make_app(st, base, token, a.publish, jr,
-                                     a.assets if a.assets
-                                     and a.assets.is_dir() else None,
-                                     command_registry=cmd_registry),
-                    host=a.host, port=a.port, print=None)
+        app = gw_http.make_app(st, base, token, a.publish, jr,
+                               a.assets if a.assets
+                               and a.assets.is_dir() else None,
+                               command_registry=cmd_registry, tokens=table)
+        if table is not None:
+            app.on_startup.append(_reload_on_hup(table))
+        web.run_app(app, host=a.host, port=a.port, print=None)
     except OSError as e:
         # An already-bound port is the one failure where everything downstream
         # still looks healthy: a client connects, a readiness probe succeeds,
@@ -340,6 +371,30 @@ def main(argv: list[str] | None = None) -> int:
                 f"--port.")
         raise
     return 0
+
+
+def _reload_on_hup(table):
+    """SIGHUP re-reads the token table in place; no connection is dropped.
+
+    A table that fails to load leaves the old one serving and says why, so a
+    typo in the file cannot lock every writer out.
+    """
+    import signal
+
+    async def install(app) -> None:
+        import asyncio
+
+        def reload() -> None:
+            try:
+                table.reload()
+                print(f"tokens        reloaded {table.path}: "
+                      + ", ".join(p.name for p in table.principals()),
+                      flush=True)
+            except Exception as e:                   # noqa: BLE001
+                print(f"tokens        reload of {table.path} refused, old "
+                      f"table kept: {type(e).__name__}: {e}", flush=True)
+        asyncio.get_running_loop().add_signal_handler(signal.SIGHUP, reload)
+    return install
 
 
 def _spec_commit() -> str:

@@ -99,7 +99,7 @@ def main() -> int:
         if aid not in served:
             continue
         got = served[aid].data.get("manifest_uri")
-        want_uri = (f"spatialdds://{auth}/south-mall/content/"
+        want_uri = (f"spatialdds://{auth}/ut-austin-south-mall/content/"
                     f"{a['content'].split('/')[-1]}") if a.get("content") else ""
         leg = "names content" if a.get("content") else "names none"
         checks.append((f"{aid}: manifest_uri {leg}"

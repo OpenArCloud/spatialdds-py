@@ -247,7 +247,7 @@ declared.
 <!-- bar: resolve -->
 ```python
 import json, spatialdds as sd
-ep = sd.connect("http://127.0.0.1:8787", token="not-a-secret"); ep.publish_manifest(json.load(open("samples/duck.input.json"))["manifest"]); print(len(ep.resolve("spatialdds://demo.spatialdds.org/south-mall/content/duck").fetch_asset()), "bytes verified")
+ep = sd.connect("http://127.0.0.1:8787", token="not-a-secret"); ep.publish_manifest(json.load(open("samples/duck.input.json"))["manifest"]); print(len(ep.resolve("spatialdds://demo.spatialdds.org/ut-austin-south-mall/content/duck").fetch_asset()), "bytes verified")
 ```
 
 ```console
@@ -262,7 +262,7 @@ call goes away and the bar is one line.
 
 | call | what it does |
 | --- | --- |
-| `sd.connect(base, token=None, verify_integrity=True, timeout=15.0, lifted=True, scene="default", authority=None)` | an `Endpoint`; nothing is fetched until you ask |
+| `sd.connect(base, token=None, verify_integrity=True, timeout=15.0, lifted=True, scene=None, authority=None)` | an `Endpoint`; nothing is fetched until you ask. `scene` is the lane the publish verbs write; unset, they refuse rather than guess |
 | `ep.search(geohash=None, kinds=None)` | §3.3.0 search → a list of `Hit` |
 | `ep.near(lat, lon, radius_m)` | a helper over `search`, never a second protocol |
 | `ep.resolve(uri)` | §7.5.2 resolution → `Resolved` |

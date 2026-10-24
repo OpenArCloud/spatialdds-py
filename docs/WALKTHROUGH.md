@@ -60,7 +60,7 @@ curl -s "$BASE/.well-known/spatialdds/search" \
 ```
 
 ```console
-PUT     austin-vps | VPS | spatialdds://demo.spatialdds.org/south-mall/service/austin-vps
+PUT     austin-vps | VPS | spatialdds://demo.spatialdds.org/ut-austin-south-mall/service/austin-vps
 GET     search -> austin-vps, fountain-anchors
 ```
 
@@ -83,7 +83,7 @@ built = sd.service_announce(
     "austin-vps", "VPS", coverage=area, coverage_frame_ref=site,
     name="Austin VPS, published over HTTP", org="openarcloud.example",
     version="2026-q4",
-    manifest_uri="spatialdds://demo.spatialdds.org/south-mall/service/austin-vps",
+    manifest_uri="spatialdds://demo.spatialdds.org/ut-austin-south-mall/service/austin-vps",
     caps=sd.capabilities(
         supported=[sd.profile("spatial.core", minor=8),
                    sd.profile("spatial.disco", minor=8)],
@@ -117,12 +117,12 @@ python3 -c 'import json; print(json.dumps(json.load(open("samples/published-reco
       -H "Authorization: Bearer $TOK" -H "Content-Type: application/json" --data @- \
   | python3 -c 'import json,sys; d=json.load(sys.stdin); print("PUT    ", d["rtype"], d["id"], "ttl", d["ttl_sec"])'
 curl -s --get "$BASE/spatialdds/resolve" \
-      --data-urlencode "uri=spatialdds://demo.spatialdds.org/south-mall/service/austin-vps" \
+      --data-urlencode "uri=spatialdds://demo.spatialdds.org/ut-austin-south-mall/service/austin-vps" \
   | python3 -c 'import json,sys; d=json.load(sys.stdin); print("GET     resolve ->", d.get("rtype"), "ttl", d.get("ttl_sec"))'
 ```
 
 ```console
-PUT     service spatialdds://demo.spatialdds.org/south-mall/service/austin-vps ttl 1800
+PUT     service spatialdds://demo.spatialdds.org/ut-austin-south-mall/service/austin-vps ttl 1800
 GET     resolve -> service ttl 1800
 ```
 
@@ -138,7 +138,7 @@ import os, spatialdds as sd
 ep = sd.connect(os.environ["BASE"], scene="ut-austin-south-mall")
 area = sd.circle(30.28495359, -97.73934584, 25.0, alt_m=158.0)
 built = sd.service_manifest(
-    "austin-vps", "VPS", authority="demo.spatialdds.org", scene="south-mall",
+    "austin-vps", "VPS", authority="demo.spatialdds.org", scene="ut-austin-south-mall",
     name="Austin VPS, published over HTTP", org="openarcloud.example",
     version="2026-q4", profiles=["Core", "SLAM Frontend", "AR+Geo"],
     request={"features_topic": "feat.keyframe",
@@ -168,12 +168,12 @@ python3 -c 'import json; print(json.dumps(json.load(open("samples/duck.input.jso
       -H "Authorization: Bearer $TOK" -H "Content-Type: application/json" --data @- \
   | python3 -c 'import json,sys; d=json.load(sys.stdin); a=d["assets"][0]; print("PUT    ", d["id"], "->", a["media_type"])'
 curl -s --get "$BASE/spatialdds/resolve" \
-      --data-urlencode "uri=spatialdds://demo.spatialdds.org/south-mall/content/duck" \
+      --data-urlencode "uri=spatialdds://demo.spatialdds.org/ut-austin-south-mall/content/duck" \
   | python3 -c 'import json,sys; print("GET     resolve ->", json.load(sys.stdin)["assets"][0]["uri"])'
 ```
 
 ```console
-PUT     spatialdds://demo.spatialdds.org/south-mall/content/duck -> model/gltf+json
+PUT     spatialdds://demo.spatialdds.org/ut-austin-south-mall/content/duck -> model/gltf+json
 GET     resolve -> https://demo.spatialdds.org/assets/duck.gltf
 ```
 
@@ -188,7 +188,7 @@ python3 - <<'PY'
 import os, spatialdds as sd
 ep = sd.connect(os.environ["BASE"], scene="ut-austin-south-mall")
 built = sd.content_manifest(
-    "content/duck", authority="demo.spatialdds.org", scene="south-mall",
+    "content/duck", authority="demo.spatialdds.org", scene="ut-austin-south-mall",
     title="A duck at the Littlefield Fountain",
     summary="An original glTF duck, placed by its own pose beside the fountain.",
     tags=["duck", "glTF", "walkthrough"],
@@ -251,7 +251,7 @@ built = sd.content_announce(
     tags=["duck", "glTF", "walkthrough"],
     class_id="https://schema.org/CreativeWork",
     provider_id="openarcloud.example/austin",
-    manifest_uri="spatialdds://demo.spatialdds.org/south-mall/content/duck",
+    manifest_uri="spatialdds://demo.spatialdds.org/ut-austin-south-mall/content/duck",
     available_from="2026-10-09T15:30:00Z", ttl_sec=86400)
 served = ep.get_json(
     "/ut-austin-south-mall/content/content_announce/v1/content%2Fduck")
@@ -289,7 +289,7 @@ curl -s "$BASE/ut-austin-south-mall/frames/geo_anchor/v1" \
 ```
 
 ```console
-PUT     anchor/duck-perch | VisualFix | conf 0.5882 | spatialdds://demo.spatialdds.org/south-mall/content/duck
+PUT     anchor/duck-perch | VisualFix | conf 0.5882 | spatialdds://demo.spatialdds.org/ut-austin-south-mall/content/duck
 GET     anchors -> anchor/duck-perch, anchor/fountain-east-rim, anchor/fountain-north-rim, anchor/fountain-plaque, anchor/fountain-south-rim, anchor/fountain-west-rim
 ```
 
@@ -332,7 +332,7 @@ content/duck, content/fountain-label, content/fountain-marker
 export BASE=http://127.0.0.1:8787
 export TOK=tok
 curl -s --get "$BASE/spatialdds/resolve" \
-      --data-urlencode "uri=spatialdds://demo.spatialdds.org/south-mall/content/duck" \
+      --data-urlencode "uri=spatialdds://demo.spatialdds.org/ut-austin-south-mall/content/duck" \
   | python3 -c 'import json,sys; print(json.load(sys.stdin)["assets"][0]["hash"])'
 python3 -c 'import os, sys, urllib.request
 b = urllib.request.urlopen(os.environ["BASE"] + "/assets/duck.gltf").read()
@@ -363,7 +363,7 @@ it carries are the two things that example is missing (findings 27 and 28).
 ```sh
 export BASE=http://127.0.0.1:8787
 curl -s --get "$BASE/spatialdds/resolve" \
-      --data-urlencode "uri=spatialdds://demo.spatialdds.org/south-mall/service/austin-vps" \
+      --data-urlencode "uri=spatialdds://demo.spatialdds.org/ut-austin-south-mall/service/austin-vps" \
   | python3 -m json.tool
 ```
 
@@ -377,9 +377,9 @@ curl -s --get "$BASE/spatialdds/resolve" \
         "circle_center": [
             -97.73934584,
             30.28495359,
-            158.0
+            158
         ],
-        "circle_radius_m": 25.0,
+        "circle_radius_m": 25,
         "frame_ref": {
             "fqn": "earth-fixed",
             "uuid": ""
@@ -391,7 +391,7 @@ curl -s --get "$BASE/spatialdds/resolve" \
         "has_bbox": false,
         "has_circle": true
     },
-    "id": "spatialdds://demo.spatialdds.org/south-mall/service/austin-vps",
+    "id": "spatialdds://demo.spatialdds.org/ut-austin-south-mall/service/austin-vps",
     "limits": {
         "max_fps": 10,
         "max_image_px": 1920
@@ -435,7 +435,7 @@ authored from, so the document says where its own bytes came from.
 ```sh
 export BASE=http://127.0.0.1:8787
 curl -s --get "$BASE/spatialdds/resolve" \
-      --data-urlencode "uri=spatialdds://demo.spatialdds.org/south-mall/content/duck" \
+      --data-urlencode "uri=spatialdds://demo.spatialdds.org/ut-austin-south-mall/content/duck" \
   | python3 -m json.tool
 ```
 
@@ -479,9 +479,9 @@ curl -s --get "$BASE/spatialdds/resolve" \
         "circle_center": [
             -97.73935,
             30.2849859,
-            158.0
+            158
         ],
-        "circle_radius_m": 2.0,
+        "circle_radius_m": 2,
         "frame_ref": {
             "fqn": "earth-fixed",
             "uuid": ""
@@ -490,7 +490,7 @@ curl -s --get "$BASE/spatialdds/resolve" \
         "has_bbox": false,
         "has_circle": true
     },
-    "id": "spatialdds://demo.spatialdds.org/south-mall/content/duck",
+    "id": "spatialdds://demo.spatialdds.org/ut-austin-south-mall/content/duck",
     "profile": "spatial.manifest/1.8",
     "rtype": "content",
     "stamp": {
@@ -623,7 +623,7 @@ curl -s "$BASE/ut-austin-south-mall/discovery/announce/v1/austin-vps" \
     "has_coverage_eval_time": false,
     "hints": [],
     "kind": "VPS",
-    "manifest_uri": "spatialdds://demo.spatialdds.org/south-mall/service/austin-vps",
+    "manifest_uri": "spatialdds://demo.spatialdds.org/ut-austin-south-mall/service/austin-vps",
     "name": "Austin VPS, published over HTTP",
     "org": "openarcloud.example",
     "service_id": "austin-vps",
