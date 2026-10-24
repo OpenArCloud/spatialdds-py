@@ -353,6 +353,9 @@ def nest_packages(staging: Path, out_dir: Path, package: str) -> None:
     (out_dir / "__init__.py").write_text(
         HEADER
         + f'"""Generated SpatialDDS types, spec {spec_pin()}. See tools/generate_types.py."""\n\n'
+        # The native layer's one refusal point, before any binding imports
+        # cyclonedds: without the extra, `MissingExtra` names it.
+        + "from .._extra import require_cyclonedds\nrequire_cyclonedds()\n\n"
         + "".join(f"from . import {r}\n" for r in roots)
         + "\n__all__ = [%s]\n" % ", ".join(f'"{r}"' for r in roots)
     )

@@ -244,6 +244,87 @@ def main() -> int:
                    'pip install "spatialdds[server]"' in out,
                    f"{out[-300:]!r}"))
 
+    # ---- the native layer: a third half ----
+    # It may use the gateway's codec, which is the point (one JSON, ruling 5):
+    # the four stdlib-only modules that parse, encode, decode and project.
+    # Nothing that serves, holds state or needs aiohttp, and nothing of the
+    # client.
+    codec_ok = {"..server", "..server.idlmodel", "..server.pin",
+                "..server.webjson", "..server.xcdr2", "..server.mcapmeta"}
+    native = sorted(p for p in (PKG / "dds").glob("*.py"))
+    bad = []
+    for p in native:
+        for m in imports(p):
+            if m.startswith("..server") and m not in codec_ok:
+                bad.append(f"{p.name} imports {m}")
+            if m in ("..client", "requests", "websockets", "aiohttp") \
+                    or m.startswith("spatialdds.client"):
+                bad.append(f"{p.name} imports {m}")
+    # `from ..server import idlmodel, pin` reads as "..server": the names
+    # imported are the ones that matter.
+    for p in native:
+        for n in ast.walk(ast.parse(p.read_text())):
+            if isinstance(n, ast.ImportFrom) and n.level == 2 \
+                    and n.module == "server":
+                for a in n.names:
+                    if f"..server.{a.name}" not in codec_ok:
+                        bad.append(f"{p.name} imports ..server.{a.name}")
+    checks.append((f"the native layer uses only the gateway's codec "
+                   f"(idlmodel, pin, webjson, xcdr2) and the recording's "
+                   f"metadata names (mcapmeta), and nothing of the client "
+                   f"({len(native)} modules read)", not bad, "; ".join(bad[:3])))
+    leaf = [m for m in imports(PKG / "events.py")
+            if not m.startswith(".") and m.split(".")[0]
+            not in sys.stdlib_module_names]
+    checks.append(("`spatialdds.events`, which both halves yield, imports "
+                   "nothing but the standard library", not leaf, f"{leaf}"))
+
+    out = probe(
+        "import spatialdds as sd\n"
+        "try:\n"
+        "    sd.participant('plaza', domain=1)\n"
+        "    print('NO REFUSAL')\n"
+        "except sd.MissingExtra as e:\n"
+        "    print('refused:', e, '| ImportError:', isinstance(e, ImportError))\n"
+        "try:\n"
+        "    from spatialdds.dds.types.spatial.owm import Entity\n"
+        "    print('TYPES IMPORTED')\n"
+        "except sd.MissingExtra:\n"
+        "    print('types refused too')\n"
+        "print('connect', callable(sd.connect))\n"
+        "print('frames', round(sd.frames.geodetic_of(\n"
+        "    sd.frames.enu_to_ecef_pose(30.0, -97.0, 10.0)[0])[2], 6))\n"
+        "print('recency', sd.Recency().threshold('k'))\n"
+        "from spatialdds.dds import registry\n"
+        "print('topic', registry.topic_name('plaza', 'r', 'geopose'))",
+        block=("cyclonedds",))
+    checks.append(("with cyclonedds forbidden, `sd.participant` and the "
+                   "generated types raise `sd.MissingExtra` (an ImportError) "
+                   "naming the extra",
+                   'refused: the native layer needs cyclonedds: pip install '
+                   '"spatialdds[dds]" | ImportError: True' in out
+                   and "types refused too" in out,
+                   f"{out[-300:]!r}"))
+    checks.append(("…while the web client, the frames, Recency and the "
+                   "registry all still work",
+                   "connect True" in out and "frames 10.0" in out
+                   and "recency 1.0" in out
+                   and "topic spatialdds/plaza/r/geopose/v1" in out,
+                   f"{out[-300:]!r}"))
+    out = probe(
+        "import sys\n"
+        "import spatialdds as sd\n"
+        "f = sd.participant\n"
+        "from spatialdds.dds import codec, registry, qos\n"
+        "print(f.__name__, '| client', 'spatialdds.client' in sys.modules,\n"
+        "      '| gw_http', 'spatialdds.server.gw_http' in sys.modules)",
+        block=("requests", "websockets", "aiohttp"))
+    checks.append(("with requests, websockets and aiohttp forbidden, the "
+                   "native layer imports, and loads neither the client nor "
+                   "the HTTP server",
+                   out.endswith("participant | client False | gw_http False"),
+                   f"{out[-300:]!r}"))
+
     return report("the import graph: one gateway, two halves", checks,
                   "neither half imports the other, and there is one of each")
 

@@ -35,6 +35,10 @@ __all__ = [
     "profile", "capabilities",
     "service_announce", "service_manifest", "content_announce",
     "content_manifest", "geo_anchor", "service_uri", "content_uri",
+    # The native layer, beside `connect`: `sd.participant(...)`. Needs the
+    # `[dds]` extra, and without it raises `MissingExtra` naming it. `frames`
+    # and `Recency` are pure Python and need nothing.
+    "participant", "MissingExtra", "dds", "events", "frames", "Recency",
 ]
 
 __version__ = "0.6.0"
@@ -61,8 +65,15 @@ APPENDIX_N = f"Appendix N as of spec {SPEC_TAG} ({SPEC_COMMIT})"
 #: before the import machinery tries the submodule -- and answering that
 #: question by importing the client would hand the server `requests` through
 #: the back door, which is exactly the coupling this file exists to avoid.
-_SUBMODULES = frozenset({"client", "canonical", "errors", "records",
-                         "serve", "server"})
+_SUBMODULES = frozenset({"client", "canonical", "canonjson", "errors",
+                         "records", "serve", "server", "dds", "events",
+                         "frames", "recency"})
+
+#: Names the native layer answers, resolved before the client so that
+#: `sd.participant` never imports `requests` and a web-only `sd.connect` never
+#: imports cyclonedds.
+_NATIVE = {"participant": ".dds", "MissingExtra": ".dds",
+           "Recency": ".recency"}
 
 
 def __getattr__(name: str) -> Any:
@@ -70,6 +81,8 @@ def __getattr__(name: str) -> Any:
         raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
     if name in _SUBMODULES:
         return importlib.import_module("." + name, __name__)
+    if name in _NATIVE:
+        return getattr(importlib.import_module(_NATIVE[name], __name__), name)
     # `import_module` and not `from . import client`: the latter asks this
     # module for the attribute first, which calls straight back into here.
     client = importlib.import_module(".client", __name__)

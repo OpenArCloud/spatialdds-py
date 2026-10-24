@@ -1,0 +1,751 @@
+"""A native SpatialDDS participant: conventions as code, and still a plain program.
+
+    import spatialdds as sd
+
+    with sd.participant("ut-austin-littlefield", domain=7,
+                        service_id="svc:pondwatch",
+                        authority="demo.spatialdds.org") as p:
+        pond = p.writer("model_entity", qos_profile="MAP_META", on_exit="keep")
+        p.announce("OTHER", coverage=sd.circle(30.2849, -97.7341, 60))
+        for _ in p.loop(hz=0.2):
+            pond.write(observation())
+
+What each constructor requires, what it defaults, and what silence means, is
+the API (docs/NATIVE-SDK-CENSUS.md, "The proposed API surface", as ruled). The
+short form:
+
+* **Refused when absent:** `scene`; `domain` (or `SPATIALDDS_DDS_DOMAIN`);
+  `service_id` to write or announce; `authority` (or `manifest_uri`) to
+  announce; `qos_profile` where §3.3.2 names none; `stream` where §3.3.2 gives
+  no template; `on_exit` on every latched keyed writer. Every refusal from one
+  constructor is raised together.
+* **Defaulted, documented:** the §3.3.2 row's profile and template; the
+  announce refreshed every `ttl_sec / 3`; schema validation on.
+* **Never a parameter:** autodispose. It is off on every writer. A removal is
+  `withdraw()`: a terminal sample, then the dispose, with a reason.
+
+**Crash is never a dispose.** A participant that dies leaves its instances,
+and a reader sees `Liveliness(alive=False)` once its lease expires, never
+`Dispose`. A clean stop departs the announce: its terminal sample, its dispose,
+then `Depart`. Each latched writer does what its `on_exit` said. Then every
+writer waits for its acknowledgements, so a clean stop is flushed rather than
+hoped for.
+
+**No hidden threads.** `tick()` refreshes the announce and runs the floors.
+`loop(hz)` is a generator that ticks and sleeps, and installs SIGINT and
+SIGTERM handlers only while it iterates. Nothing runs that the program did not
+call.
+"""
+from __future__ import annotations
+
+import dataclasses
+import logging
+import os
+import signal
+import threading
+import time
+from typing import Any, Dict, Iterator, List, Optional, Tuple, Type, Union
+
+from ._extra import require_cyclonedds
+
+require_cyclonedds()
+from cyclonedds.core import InstanceState  # noqa: E402
+from cyclonedds.domain import DomainParticipant  # noqa: E402
+from cyclonedds.pub import DataWriter  # noqa: E402
+from cyclonedds.sub import DataReader  # noqa: E402
+from cyclonedds.topic import Topic  # noqa: E402
+from cyclonedds.util import duration  # noqa: E402
+
+from .. import records  # noqa: E402
+from ..events import Dispose, EndOfReplay, Liveliness, Sample  # noqa: E402
+from . import codec, registry  # noqa: E402
+from .qos import reader_qos, writer_qos  # noqa: E402
+from .registry import Profile, RegistryError  # noqa: E402
+
+__all__ = ["Participant", "Writer", "Reader", "ParticipantRefused",
+           "participant", "ON_EXIT", "DOMAIN_ENV"]
+
+log = logging.getLogger("spatialdds.dds")
+
+#: The environment variable a domain may come from, as every SpatialDDS
+#: deployment in this family already spells it.
+DOMAIN_ENV = "SPATIALDDS_DDS_DOMAIN"
+#: What a latched writer's instances do when it stops cleanly. Required on
+#: every latched keyed writer, because both answers are claims only the
+#: program can make: a robot still exists after its bridge stops; a
+#: withdrawn catalogue item does not.
+ON_EXIT = ("keep", "withdraw")
+#: Message types whose well-known writers the participant owns: it announces
+#: and departs on a program's behalf, so a second writer would be a second
+#: claim about the same presence.
+_OWNED = ("Announce", "Depart")
+
+
+class ParticipantRefused(ValueError):
+    """Configuration the native layer will not start with, every reason at once."""
+
+    def __init__(self, problems: List[str]) -> None:
+        self.problems = list(problems)
+        super().__init__("; ".join(problems))
+
+
+def _types_class(fqn: str) -> type:
+    """The generated class for a dotted type identity."""
+    import importlib
+    parts = fqn.split(".")
+    mod = importlib.import_module("spatialdds.dds.types." + ".".join(parts[:-1]))
+    return getattr(mod, parts[-1])
+
+
+def _now_time():
+    from .types.builtin import Time
+    t = time.time()
+    return Time(sec=int(t), nanosec=int((t % 1) * 1e9))
+
+
+def _has_member(sample: Any, name: str) -> bool:
+    return any(f.name == name for f in dataclasses.fields(sample))
+
+
+class _Lane:
+    """What a writer or reader resolved its type, topic and QoS to."""
+
+    def __init__(self, scene: str, type_: Union[str, type], *,
+                 type_name: Optional[str], stream: Optional[str],
+                 qos_profile: Union[str, Profile, None], version: str,
+                 problems: List[str]) -> None:
+        self.well_known: Optional[registry.WellKnown] = None
+        self.type_name, self.cls, self.fqn = "", None, ""
+        self.topic, self.profile = "", None
+        try:
+            if isinstance(type_, type):
+                # A deployment extension: its own generated class, a name per
+                # §3.3.2's pattern, and an explicit Profile.
+                self.cls, self.fqn = type_, codec.fqn_of(type_)
+                if not type_name:
+                    problems.append(f"{type_.__name__} is an extension type: "
+                                    f"pass type_name= (e.g. 'myorg.depth_frame')")
+                    return
+                if type_name in registry.registrations():
+                    problems.append(f"type_name {type_name!r} is registered "
+                                    f"(§3.3.2); pass the name, not a class")
+                    return
+                if not isinstance(qos_profile, Profile):
+                    problems.append(f"{type_name}: an extension type needs a "
+                                    f"Profile(...) object for qos_profile=")
+                    return
+                self.type_name, self.profile = type_name, qos_profile
+                self.topic = registry.topic_name(scene, stream, type_name,
+                                                 version)
+            elif type_ in registry.well_known():
+                wk = registry.well_known(type_)
+                if stream is not None or qos_profile is not None:
+                    problems.append(f"{type_} is a well-known topic "
+                                    f"({wk.topic}): its name and QoS are the "
+                                    f"spec's, so stream= and qos_profile= are "
+                                    f"not accepted")
+                    return
+                self.well_known, self.type_name = wk, type_
+                self.fqn, self.topic, self.profile = wk.fqn, wk.topic, wk.profile
+                self.cls = _types_class(wk.fqn)
+            else:
+                reg = registry.registration(type_)
+                self.type_name, self.fqn = type_, reg.fqn
+                self.profile = registry.resolve_profile(reg, qos_profile)
+                self.topic = registry.topic_name(scene, stream, type_, version)
+                self.cls = _types_class(reg.fqn)
+        except RegistryError as e:
+            problems.append(str(e))
+        except TypeError as e:
+            problems.append(str(e))
+
+
+class Writer:
+    """One lane's writer. Created by `Participant.writer`, never directly."""
+
+    def __init__(self, p: "Participant", lane: _Lane, on_exit: Optional[str],
+                 floor_hz: Optional[float], validate: bool,
+                 lifespan_sec: Optional[float]) -> None:
+        self._p, self._lane = p, lane
+        self.on_exit, self.floor_hz, self.validate = on_exit, floor_hz, validate
+        self._dw = DataWriter(p._dp, p._topic(lane),
+                              qos=writer_qos(lane.profile, lifespan_sec))
+        self._last: Dict[str, Any] = {}
+        self._lock = threading.Lock()
+        self._next_floor = 0.0
+        self.keyed = codec.key_member(lane.fqn) is not None
+
+    # -- what this lane is -------------------------------------------------
+    @property
+    def topic(self) -> str:
+        return self._lane.topic
+
+    @property
+    def type_name(self) -> str:
+        return self._lane.type_name
+
+    @property
+    def profile(self) -> Profile:
+        return self._lane.profile
+
+    @property
+    def cls(self) -> type:
+        return self._lane.cls
+
+    def keys(self) -> List[str]:
+        """The instances this writer holds: written, and not withdrawn."""
+        with self._lock:
+            return list(self._last)
+
+    # -- writing -----------------------------------------------------------
+    def _coerce(self, sample: Any) -> Any:
+        if isinstance(sample, dict):
+            sample = codec.from_json(self.cls, sample)
+        if not isinstance(sample, self.cls):
+            raise TypeError(f"{self.topic} carries {self.cls.__name__}, not "
+                            f"{type(sample).__name__}")
+        return sample
+
+    def write(self, sample: Any) -> Any:
+        """Write a typed sample, or its N.1 document. Returns the typed sample.
+
+        Validated against the published schema first unless the writer was
+        made with `validate=False`; an invalid sample raises `SchemaInvalid`
+        and nothing reaches the bus.
+        """
+        sample = self._coerce(sample)
+        if self.validate:
+            codec.validate(sample)
+        key = codec.key_of(sample)
+        with self._lock:
+            self._dw.write(sample)
+            self._last[key] = sample
+        self._p._recorded(self.topic, self._lane.fqn, sample)
+        return sample
+
+    def _terminal(self, sample: Any, reason: str) -> Any:
+        """The instance's terminal state: its last state, plus a reason where
+        the type has a member to carry one.
+
+        The members are found, not listed: a `state` that can be RETIRED, a
+        `state_reason`, and a top-level `stamp`, which records when it was
+        retired. A type without them is rewritten as it last was. Its reason
+        then travels in the recording's metadata and the log, not on the wire.
+        """
+        changes: Dict[str, Any] = {}
+        if _has_member(sample, "state"):
+            enum = type(getattr(sample, "state"))
+            if hasattr(enum, "RETIRED"):
+                changes["state"] = enum.RETIRED
+        if _has_member(sample, "state_reason"):
+            changes["state_reason"] = reason
+        if changes and _has_member(sample, "stamp"):
+            changes["stamp"] = _now_time()
+        return dataclasses.replace(sample, **changes) if changes else sample
+
+    def withdraw(self, key: str, *, reason: str) -> None:
+        """Remove an instance: its terminal sample, then the dispose (§2.14, N.5.2).
+
+        `reason` is required and may not be empty. It is carried wherever a
+        carrier exists: the type's own member when it has one, the recording's
+        dispose metadata always, and this layer's log always.
+        """
+        if not isinstance(reason, str) or not reason.strip():
+            raise ValueError("withdraw() needs a non-empty reason=: a removal "
+                             "is a claim, and §2.14 makes it say why")
+        with self._lock:
+            if key not in self._last:
+                raise KeyError(f"{self.topic} holds no instance keyed {key!r} "
+                               f"from this writer (held: "
+                               f"{', '.join(sorted(self._last)) or 'none'})")
+            terminal = self._terminal(self._last.pop(key), reason)
+            # Immediately: nothing of this writer's may come between the
+            # terminal sample and its dispose (N.5.2).
+            self._dw.write(terminal)
+            self._dw.dispose(terminal)
+        self._p._recorded(self.topic, self._lane.fqn, terminal)
+        self._p._recorded_dispose(self.topic, key, reason)
+        log.info("withdrew %s from %s: %s", key, self.topic, reason)
+
+    def _floor(self, now: float) -> int:
+        """Republish every held instance with a fresh stamp, if the floor is due."""
+        if not self.floor_hz or now < self._next_floor:
+            return 0
+        self._next_floor = now + 1.0 / self.floor_hz
+        n = 0
+        with self._lock:
+            for key, sample in list(self._last.items()):
+                fresh = (dataclasses.replace(sample, stamp=_now_time())
+                         if _has_member(sample, "stamp") else sample)
+                self._dw.write(fresh)
+                self._last[key] = fresh
+                n += 1
+        return n
+
+    def _exit(self, reason: str) -> None:
+        if self.on_exit == "withdraw":
+            for key in self.keys():
+                self.withdraw(key, reason=reason)
+            return
+        # "keep", and every volatile or unkeyed lane: the instances stand,
+        # and this writer says it is leaving them, explicitly and now. Measured:
+        # left to entity deletion at process exit, readers learned of a clean
+        # stop only when the lease ran out, ten seconds later; an explicit
+        # unregister reached them at once. With autodispose off an unregister
+        # is NOT_ALIVE_NO_WRITERS, never a dispose.
+        with self._lock:
+            for sample in self._last.values():
+                self._dw.unregister_instance(sample)
+
+    def _flush(self, timeout_s: float) -> bool:
+        return bool(self._dw.wait_for_acks(duration(seconds=timeout_s)))
+
+    def topic_meta(self) -> Dict[str, Any]:
+        """This lane as one `TopicMeta`, through the web layer's builder."""
+        p = self.profile
+        return records.topic(
+            self.type_name, scene=self._p.scene,
+            stream=self.topic.split("/")[2], version=self.topic.split("/")[4],
+            qos_profile=p.name,
+            durability=None if p.registered else p.durability,
+            rate_hz=float(self.floor_hz or 0.0))
+
+
+class Reader:
+    """One lane's reader. Created by `Participant.reader`, never directly."""
+
+    def __init__(self, p: "Participant", lane: _Lane, settle_s: float) -> None:
+        self._p, self._lane, self._settle = p, lane, settle_s
+        self._dr = DataReader(p._dp, p._topic(lane), qos=reader_qos(lane.profile))
+        self._keys: Dict[int, str] = {}
+        #: Per key: "alive", "quiet" (no writers) or "gone" (disposed). A
+        #: transition is an event, emitted once.
+        self._state: Dict[str, str] = {}
+        self._reason: Dict[str, str] = {}
+
+    @property
+    def topic(self) -> str:
+        return self._lane.topic
+
+    def _settle_matches(self) -> int:
+        """Wait until the matched-writer count stops changing for `settle_s`.
+
+        Discovery is asynchronous, so a reader that asked for history the
+        instant it was created would be told it was complete before a single
+        writer had matched.
+        """
+        deadline = time.time() + max(self._settle * 6, 3.0)
+        last, since = -1, time.time()
+        while time.time() < deadline:
+            n = self._dr.get_subscription_matched_status().current_count
+            if n != last:
+                last, since = n, time.time()
+            elif time.time() - since >= self._settle:
+                break
+            time.sleep(0.02)
+        return max(last, 0)
+
+    def _transition(self, key: str, state: Any, out: List[Any]) -> None:
+        """The instance state DDS reports, as at most one event per change.
+
+        DDS reports a disposal or a loss of writers two ways. It may queue an
+        invalid sample, or, when the instance's last valid sample has not
+        been taken yet, put the new state on that valid sample. Under
+        KEEP_LAST(1) the second is the usual case for a withdrawal, whose
+        terminal sample and dispose arrive together. A reader that looked
+        only at invalid samples would lose every such removal, so both are
+        read here, and a transition is emitted once whichever way it came.
+        """
+        prev = self._state.get(key)
+        if state == InstanceState.NotAliveDisposed:
+            if prev != "gone":
+                out.append(Dispose(self.topic, key, self._reason.pop(key, "")))
+            self._state[key] = "gone"
+        elif state == InstanceState.NotAliveNoWriters:
+            if prev == "gone":
+                return          # removed already; its writer leaving says nothing
+            if prev != "quiet":
+                out.append(Liveliness(self.topic, key, False))
+            self._state[key] = "quiet"
+        else:
+            self._state[key] = "alive"
+
+    def _events(self) -> List[Any]:
+        out: List[Any] = []
+        for s in self._dr.take(N=256) or []:
+            info = getattr(s, "sample_info", None)
+            if info is None:
+                continue
+            handle, state = info.instance_handle, info.instance_state
+            if info.valid_data:
+                key = codec.key_of(s)
+                self._keys[handle] = key
+                if self._state.get(key) == "quiet":
+                    out.append(Liveliness(self.topic, key, True))
+                if _has_member(s, "state_reason") and s.state_reason:
+                    self._reason[key] = s.state_reason
+                out.append(Sample(self.topic, key, s))
+                self._state[key] = "alive"
+                self._transition(key, state, out)
+                continue
+            self._transition(self._keys.get(handle, ""), state, out)
+        return out
+
+    def events(self, timeout: Optional[float] = None, poll: float = 0.02,
+               stop: Optional[threading.Event] = None) -> Iterator[Any]:
+        """Latched replay, exactly one `EndOfReplay`, then live.
+
+        `EndOfReplay` means "complete for the writers matched when it fired".
+        The matched set is allowed to settle first, then history is awaited.
+        A latched writer discovered later is just more `Sample`s after the
+        marker, because DDS states nothing more. A VOLATILE lane has nothing
+        to replay, and emits the marker at once with `replayed=0`.
+
+        `timeout` ends the stream after that many seconds without an event,
+        as the web client's `subscribe(timeout)` does; None runs until the
+        caller stops iterating. `stop`, a `threading.Event`, ends it when set,
+        for a program draining readers on threads of its own.
+        """
+        replayed = 0
+        if self._lane.profile.latched:
+            if self._settle_matches():
+                self._dr.wait_for_historical_data(duration(seconds=5))
+            for ev in self._events():
+                replayed += isinstance(ev, Sample)
+                yield ev
+        yield EndOfReplay(self.topic, replayed)
+        quiet_since = time.time()
+        while stop is None or not stop.is_set():
+            evs = self._events()
+            for ev in evs:
+                yield ev
+            if evs:
+                quiet_since = time.time()
+            elif timeout is not None and time.time() - quiet_since >= timeout:
+                return
+            time.sleep(poll)
+
+
+class Participant:
+    """One DDS participant on one scene. See the module docstring."""
+
+    def __init__(self, scene: str, *, domain: Optional[int] = None,
+                 service_id: Optional[str] = None,
+                 authority: Optional[str] = None,
+                 manifest_uri: Optional[str] = None) -> None:
+        problems: List[str] = []
+        if not isinstance(scene, str) or not registry.SEGMENT.match(scene):
+            problems.append(f"scene {scene!r} is not a §3.3.1 segment "
+                            f"({registry.SEGMENT.pattern}); there is no "
+                            f"default scene")
+        source = "domain="
+        if domain is None and os.environ.get(DOMAIN_ENV, "") != "":
+            source, domain = DOMAIN_ENV, os.environ[DOMAIN_ENV]
+        if domain is None:
+            problems.append(f"no domain: pass domain= or set {DOMAIN_ENV}. "
+                            f"DDS's 0 is not a choice anyone made")
+        else:
+            try:
+                domain = int(domain)
+                if not 0 <= domain <= 232:
+                    raise ValueError
+            except (TypeError, ValueError):
+                problems.append(f"{source} {domain!r} is not a DDS domain id "
+                                f"(0..232)")
+        if service_id is not None and (not isinstance(service_id, str)
+                                       or not service_id.strip()):
+            problems.append("service_id= must be a non-empty string when given")
+        if problems:
+            raise ParticipantRefused(problems)
+        self.scene, self.domain = scene, int(domain)
+        self.service_id, self.authority = service_id, authority
+        self.manifest_uri = manifest_uri
+        self._dp = DomainParticipant(self.domain)
+        self._topics: Dict[str, Topic] = {}
+        self._writers: List[Writer] = []
+        self._readers: List[Reader] = []
+        self._announce: Optional[Dict[str, Any]] = None
+        self._announce_w: Optional[DataWriter] = None
+        self._depart_w: Optional[DataWriter] = None
+        self._next_refresh = 0.0
+        self._recorders: List[Any] = []
+        self._closed = False
+
+    # -- endpoints ---------------------------------------------------------
+    def _topic(self, lane: _Lane) -> Topic:
+        # One Topic per name per participant: cyclonedds refuses a second.
+        # Created with default QoS, so a second library's endpoints can share
+        # the topic with their own policies (spatialdds_ros's pattern).
+        t = self._topics.get(lane.topic)
+        if t is None:
+            t = self._topics[lane.topic] = Topic(self._dp, lane.topic, lane.cls)
+        return t
+
+    def writer(self, type_: Union[str, type], *, stream: Optional[str] = None,
+               qos_profile: Union[str, Profile, None] = None,
+               on_exit: Optional[str] = None,
+               floor_hz: Optional[float] = None, validate: bool = True,
+               version: str = "v1", type_name: Optional[str] = None,
+               lifespan_sec: Optional[float] = None) -> Writer:
+        """A writer for a registered type, a well-known topic, or an extension."""
+        self._open()
+        problems: List[str] = []
+        if not self.service_id:
+            problems.append("a writer needs service_id= on the participant: a "
+                            "participant that writes says who it is when it "
+                            "announces")
+        if isinstance(type_, str) and type_ in _OWNED:
+            problems.append(f"{type_} is the participant's own: use "
+                            f"announce(), and close() departs")
+        lane = _Lane(self.scene, type_, type_name=type_name, stream=stream,
+                     qos_profile=qos_profile, version=version,
+                     problems=problems)
+        if lane.profile is not None and lane.fqn:
+            keyed = codec.key_member(lane.fqn) is not None
+            if lane.profile.latched and keyed:
+                if on_exit not in ON_EXIT:
+                    problems.append(
+                        f"{lane.topic} is a latched keyed lane, so its "
+                        f"instances outlive this writer: say what a clean "
+                        f"stop does to them, on_exit='keep' or "
+                        f"on_exit='withdraw' (got {on_exit!r})")
+            elif on_exit is not None:
+                problems.append(
+                    f"{lane.topic} is {lane.profile.durability.lower()}"
+                    f"{'' if keyed else ' and unkeyed'}: nothing outlives its "
+                    f"writer to keep or withdraw, so on_exit= is not accepted")
+            if floor_hz is not None:
+                if floor_hz <= 0:
+                    problems.append(f"floor_hz {floor_hz} must be positive")
+                elif lane.profile.deadline_ms and \
+                        floor_hz < 1000.0 / lane.profile.deadline_ms:
+                    problems.append(
+                        f"floor_hz {floor_hz} cannot keep {lane.profile.name}'s "
+                        f"{lane.profile.deadline_ms} ms deadline "
+                        f"(needs >= {1000.0 / lane.profile.deadline_ms:g} Hz); "
+                        f"a writer does not offer a contract it will not meet")
+        if problems:
+            raise ParticipantRefused(problems)
+        w = Writer(self, lane, on_exit, floor_hz, validate, lifespan_sec)
+        self._writers.append(w)
+        if self._announce is not None:
+            self._publish_announce()      # its topics changed: §3.3 re-announce
+        return w
+
+    def reader(self, type_: Union[str, type], *, stream: Optional[str] = None,
+               qos_profile: Union[str, Profile, None] = None,
+               version: str = "v1", type_name: Optional[str] = None,
+               settle_s: float = 1.0) -> Reader:
+        """A reader for a registered type, a well-known topic, or an extension."""
+        self._open()
+        problems: List[str] = []
+        lane = _Lane(self.scene, type_, type_name=type_name, stream=stream,
+                     qos_profile=qos_profile, version=version,
+                     problems=problems)
+        if problems:
+            raise ParticipantRefused(problems)
+        r = Reader(self, lane, settle_s)
+        self._readers.append(r)
+        return r
+
+    # -- presence ----------------------------------------------------------
+    def announce(self, kind: str, *, coverage: Any, ttl_sec: int = 300,
+                 name: str = "", org: str = "", version: str = "",
+                 hints: Optional[Dict[str, str]] = None,
+                 caps: Optional[Dict[str, Any]] = None,
+                 manifest_uri: Optional[str] = None) -> Dict[str, Any]:
+        """Announce this participant's lanes. Returns the announce's N.1 form.
+
+        Built by the web layer's `records.service_announce`, so there is one
+        builder for both layers. `topics` is every writer opened, never
+        written by hand. The announce is refreshed every `ttl_sec / 3` by
+        `tick()`, rides Lifespan `ttl_sec`, and is re-published when a
+        writer is added.
+        """
+        self._open()
+        problems = []
+        if not self.service_id:
+            problems.append("announce() needs service_id= on the participant")
+        muri = manifest_uri or self.manifest_uri
+        if not (muri or self.authority):
+            problems.append("announce() needs authority= on the participant "
+                            "(or manifest_uri=): a spatialdds:// URI names a "
+                            "DNS authority somebody owns, and this layer will "
+                            "not invent one")
+        if not isinstance(ttl_sec, int) or ttl_sec < 3:
+            problems.append(f"ttl_sec {ttl_sec!r} must be an integer >= 3, so "
+                            f"the refresh at ttl/3 is at least a second apart")
+        if problems:
+            raise ParticipantRefused(problems)
+        self._announce = dict(kind=kind, coverage=coverage, ttl_sec=ttl_sec,
+                              name=name, org=org, version=version, hints=hints,
+                              caps=caps, manifest_uri=muri)
+        if self._announce_w is None:
+            wk = registry.well_known("Announce")
+            dp = registry.well_known("Depart")
+            self._announce_w = DataWriter(
+                self._dp, self._topic(_Lane(self.scene, "Announce", type_name=None,
+                                            stream=None, qos_profile=None,
+                                            version="v1", problems=[])),
+                qos=writer_qos(wk.profile, lifespan_sec=ttl_sec))
+            self._depart_w = DataWriter(
+                self._dp, self._topic(_Lane(self.scene, "Depart", type_name=None,
+                                            stream=None, qos_profile=None,
+                                            version="v1", problems=[])),
+                qos=writer_qos(dp.profile))
+        return self._publish_announce()
+
+    def _announce_sample(self):
+        a = self._announce
+        doc = records.service_announce(
+            self.service_id, a["kind"], coverage=a["coverage"],
+            authority=self.authority or "", scene=self.scene,
+            name=a["name"], org=a["org"], version=a["version"],
+            topics=[w.topic_meta() for w in self._writers
+                    if w._lane.well_known is None],
+            manifest_uri=a["manifest_uri"], ttl_sec=a["ttl_sec"],
+            hints=a["hints"], caps=a["caps"])
+        cls = _types_class(registry.well_known("Announce").fqn)
+        return doc, codec.from_json(cls, doc)
+
+    def _publish_announce(self) -> Dict[str, Any]:
+        doc, sample = self._announce_sample()
+        codec.validate(sample)
+        self._announce_w.write(sample)
+        self._last_announce = sample
+        self._next_refresh = time.time() + self._announce["ttl_sec"] / 3.0
+        self._recorded(registry.well_known("Announce").topic,
+                       registry.well_known("Announce").fqn, sample)
+        return doc
+
+    def _depart(self, reason: str) -> None:
+        if self._announce_w is None:
+            return
+        wk = registry.well_known("Announce")
+        terminal = dataclasses.replace(self._last_announce, stamp=_now_time())
+        self._announce_w.write(terminal)
+        self._announce_w.dispose(terminal)
+        self._recorded(wk.topic, wk.fqn, terminal)
+        self._recorded_dispose(wk.topic, self.service_id, reason)
+        Depart = _types_class(registry.well_known("Depart").fqn)
+        dep = Depart(service_id=self.service_id, stamp=_now_time())
+        self._depart_w.write(dep)
+        self._recorded(registry.well_known("Depart").topic,
+                       registry.well_known("Depart").fqn, dep)
+        log.info("departed %s: %s", self.service_id, reason)
+
+    # -- the program's clock -------------------------------------------------
+    def tick(self, now: Optional[float] = None) -> Dict[str, int]:
+        """Refresh the announce if due, and run every writer's floor."""
+        self._open()
+        now = time.time() if now is None else now
+        out = {"announce": 0, "floor": 0}
+        if self._announce is not None and now >= self._next_refresh:
+            self._publish_announce()
+            out["announce"] = 1
+        for w in self._writers:
+            out["floor"] += w._floor(now)
+        return out
+
+    def loop(self, hz: float) -> Iterator[int]:
+        """Tick at `hz` until SIGINT or SIGTERM. Yields the iteration number.
+
+        The signal handlers are installed only while this iterates, and the
+        previous ones restored after, so a library does not take a program's
+        signals for longer than the program asked.
+        """
+        if hz <= 0:
+            raise ValueError(f"loop(hz={hz}) needs a positive rate")
+        stop = threading.Event()
+        old = {}
+        main = threading.current_thread() is threading.main_thread()
+        if main:
+            for sig in (signal.SIGINT, signal.SIGTERM):
+                old[sig] = signal.signal(sig, lambda *_: stop.set())
+        try:
+            i = 0
+            while not stop.is_set():
+                start = time.time()
+                self.tick(start)
+                yield i
+                i += 1
+                stop.wait(max(0.0, 1.0 / hz - (time.time() - start)))
+        finally:
+            for sig, h in old.items():
+                signal.signal(sig, h)
+
+    # -- the recording tap -----------------------------------------------------
+    def record(self, path: Any) -> Any:
+        """Record everything this participant writes from now on, as typed MCAP.
+
+        Samples, withdrawals with their reasons, and the departure. Finished
+        when the participant closes. Returns the `Recorder`.
+        """
+        self._open()
+        from .record import Recorder
+        r = Recorder(path, scene=self.scene, principal=self.service_id or "")
+        self._recorders.append(r)
+        if self._announce is not None:
+            self._recorded(registry.well_known("Announce").topic,
+                           registry.well_known("Announce").fqn,
+                           self._last_announce)
+        return r
+
+    def _recorded(self, topic: str, fqn: str, sample: Any) -> None:
+        for r in self._recorders:
+            r.sample(topic, fqn, sample)
+
+    def _recorded_dispose(self, topic: str, key: str, reason: str) -> None:
+        for r in self._recorders:
+            r.dispose(topic, key, reason)
+
+    # -- stopping ------------------------------------------------------------
+    def _open(self) -> None:
+        if self._closed:
+            raise RuntimeError("this participant is closed")
+
+    def close(self, reason: str = "the participant stopped",
+              flush_s: float = 2.0) -> None:
+        """Stop cleanly: each writer's on_exit, the announce departs, acks awaited.
+
+        Idempotent. A participant that is never closed (killed, or simply
+        dropped) withdraws nothing: its readers see liveliness end.
+        """
+        if self._closed:
+            return
+        try:
+            for w in self._writers:
+                w._exit(reason)
+            self._depart(reason)
+            for w in self._writers:
+                w._flush(flush_s)
+            for dw in (self._announce_w, self._depart_w):
+                if dw is not None:
+                    dw.wait_for_acks(duration(seconds=flush_s))
+            for r in self._recorders:
+                r.flush()
+        finally:
+            self._closed = True
+            # `__del__` is cyclonedds's own deletion: it drops the entity from
+            # the binding's registry and deletes it, idempotently. (`_delete`
+            # takes the entity handle, and called bare it raises; an earlier
+            # draft of this method swallowed that and deleted nothing.)
+            for e in ([w._dw for w in self._writers]
+                      + [r._dr for r in self._readers]
+                      + [x for x in (self._announce_w, self._depart_w) if x]
+                      + list(self._topics.values()) + [self._dp]):
+                try:
+                    e.__del__()
+                except Exception as err:          # pragma: no cover
+                    log.warning("could not delete %r: %s", e, err)
+
+    def __enter__(self) -> "Participant":
+        return self
+
+    def __exit__(self, *exc) -> None:
+        self.close()
+
+
+def participant(scene: str, **kw: Any) -> Participant:
+    """`sd.participant(scene, domain=…, service_id=…, authority=…)`."""
+    return Participant(scene, **kw)

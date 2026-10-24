@@ -53,13 +53,14 @@ import datetime as _dt
 import hashlib
 from pathlib import Path
 import time as _time
-from typing import Any, Dict, Iterable, List, Optional, Sequence
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from . import canonical, canonjson
 
 __all__ = [
     "circle", "bbox", "earth_fixed", "frame", "stamp", "cov_pos3", "cov_none",
     "geopose", "topic", "asset", "asset_ref", "profile", "capabilities",
+    "entity", "model_pose",
     "service_announce", "service_manifest", "content_manifest",
     "content_announce", "geo_anchor", "cells", "service_uri", "content_uri",
     "MANIFEST_PROFILE",
@@ -75,6 +76,8 @@ COVERAGE = "spatial.disco.CoverageElement"
 FRAME_REF = "spatial.common.FrameRef"
 TOPIC_META = "spatial.disco.TopicMeta"
 GEOPOSE = "spatial.core.GeoPose"
+ENTITY = "spatial.owm.Entity"
+MODEL_POSE = "spatial.owm.ModelPose"
 TIME = "builtin.Time"
 
 _GEOHASH32 = "0123456789bcdefghjkmnpqrstuvwxyz"
@@ -591,6 +594,77 @@ def content_announce(content_id: str, *, coverage: Any,
     elif authority and scene:
         rec["manifest_uri"] = content_uri(authority, scene, content_id)
     _check(CONTENT_ANNOUNCE, rec)
+    return rec
+
+
+def _pose(position: Sequence[float], q: Sequence[float]) -> Dict[str, Any]:
+    t, r = [float(x) for x in position], [float(x) for x in q]
+    if len(t) != 3 or len(r) != 4:
+        raise ValueError(f"a pose is 3 coordinates and a 4-element quaternion "
+                         f"(x, y, z, w); got {len(t)} and {len(r)}")
+    return {"t": t, "q": r}
+
+
+def entity(entity_id: str, *, frame_ref: Dict[str, Any], source_id: str,
+           position: Optional[Sequence[float]] = None,
+           q: Sequence[float] = (0.0, 0.0, 0.0, 1.0),
+           extent: Optional[Tuple[Sequence[float], Sequence[float]]] = None,
+           basis: str = "OBSERVED", layer: str = "FAST",
+           type_uris: Iterable[str] = (),
+           properties: Optional[Dict[str, str]] = None,
+           state: str = "ACTIVE", state_reason: str = "",
+           when: Any = None) -> Dict[str, Any]:
+    """A `spatial.owm.Entity` (provisional `spatial.owm/0.1`): a thing in a frame.
+
+    `frame_ref` and `source_id` are required: a pose with no frame says
+    nowhere, and the world model is built from who claims what. `position`
+    is optional, and `has_pose` says whether it was given, which is the
+    literal guard N.1 asks for rather than a zero pose that claims the origin.
+    `extent` is `(min_xyz, max_xyz)`, the on-bus `Aabb3`, with `has_extent`
+    set the same way.
+    `basis` defaults to OBSERVED, the commonest claim (a thing seen); a
+    declared, authored or derived one should say so.
+
+    A withdrawal is not built here. `Writer.withdraw` writes the terminal
+    state from the instance's last one, so a retirement cannot drift from what
+    was published.
+    """
+    rec = _blank(ENTITY)
+    rec["entity_id"], rec["basis"], rec["layer"] = entity_id, basis, layer
+    rec["type_uris"] = list(type_uris)
+    rec["frame_ref"] = frame_ref
+    if position is not None:
+        rec["has_pose"], rec["pose"] = True, _pose(position, q)
+    if extent is not None:
+        lo, hi = [float(x) for x in extent[0]], [float(x) for x in extent[1]]
+        if len(lo) != 3 or len(hi) != 3:
+            raise ValueError("extent is (min_xyz, max_xyz), three values each")
+        rec["has_extent"] = True
+        rec["extent"] = {"min_xyz": lo, "max_xyz": hi}
+    # `sequence<KV, 32>`: plain key/value pairs, in the order given. Not
+    # `_meta`, which builds a manifest's namespaced MetaKV.
+    rec["properties"] = [{"key": str(k), "value": str(v)}
+                         for k, v in (properties or {}).items()]
+    rec["state"], rec["state_reason"] = state, state_reason
+    rec["source_id"] = source_id
+    rec["stamp"] = stamp(when)
+    _check(ENTITY, rec)
+    return rec
+
+
+def model_pose(entity_id: str, *, position: Sequence[float], source_id: str,
+               q: Sequence[float] = (0.0, 0.0, 0.0, 1.0),
+               when: Any = None) -> Dict[str, Any]:
+    """A `spatial.owm.ModelPose`: the fast lane's update to one entity's pose.
+
+    The pose is in the entity's own frame, which the latched `Entity` states.
+    A late joiner reads that and converges on the next of these.
+    """
+    rec = _blank(MODEL_POSE)
+    rec["entity_id"], rec["source_id"] = entity_id, source_id
+    rec["pose"] = _pose(position, q)
+    rec["stamp"] = stamp(when)
+    _check(MODEL_POSE, rec)
     return rec
 
 

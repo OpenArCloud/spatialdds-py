@@ -837,7 +837,9 @@ def shipped_page(checks: list) -> None:
         if tag != "python":
             continue
         before = [x.strip() for x in lines[max(0, n - 4):n - 1]]
-        if not any(x.startswith("<!-- bar:") for x in before):
+        # A bar runs against an endpoint (this gate); a native block runs on a
+        # DDS domain (gates/native_readme.py). Either is an instrument.
+        if not any(x.startswith(("<!-- bar:", "<!-- native:")) for x in before):
             unmarked.append(n)
     checks.append((f"every python fence on the shipped page has a bar behind "
                    f"it ({len([f for f in fences if f[1] == 'python'])} fences)",

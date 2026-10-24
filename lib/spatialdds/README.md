@@ -6,6 +6,7 @@ reference registry behind one command.
 ```sh
 pip install spatialdds                       # the client: two dependencies
 pip install "spatialdds[server]"             # and the registry
+pip install "spatialdds[dds]"                # and a native DDS participant
 pip install "./lib/spatialdds[server]"       # from a checkout of this repo
 ```
 
@@ -22,6 +23,102 @@ and `spatialdds.SPEC_COMMIT` are the ones that say what the wire looks like.
 The source, the reference gateway, the recordings and every gate behind the
 claims on this page are at [https://github.com/OpenArCloud/spatialdds-web](https://github.com/OpenArCloud/spatialdds-web). Every code block below is executed
 by one of those gates on every run, against an endpoint started for it.
+
+## A native participant, over DDS
+
+The same package speaks SpatialDDS natively, beside `sd.connect`. Install the
+`[dds]` extra (it brings cyclonedds), and a participant is a plain program:
+an entity with an announce, pose updates, and a clean withdrawal on exit.
+
+<!-- native: participant -->
+```python
+import spatialdds as sd
+
+with sd.participant("bare-scene", domain=42, service_id="svc:duck",
+                    authority="registry.example") as p:
+    frame = sd.frame("map/bare-scene", convention="ENU", meters_per_unit=1.0)
+    duck = p.writer("model_entity", qos_profile="MAP_META", on_exit="withdraw")
+    pose = p.writer("model_pose", qos_profile=sd.dds.Profile(
+        "DUCK_POSE", reliability="BEST_EFFORT", durability="VOLATILE"))
+    p.announce("OTHER", coverage=sd.circle(30.2849, -97.7341, 50))
+    duck.write(sd.entity("ent:duck", frame_ref=frame, source_id="svc:duck"))
+    for i in p.loop(hz=5):
+        pose.write(sd.model_pose("ent:duck", position=(i * 0.1, 0, 0),
+                                 source_id="svc:duck"))
+        if i == 9:
+            break
+print("stopped; the duck was withdrawn on the way out")
+```
+
+```console
+stopped; the duck was withdrawn on the way out
+```
+
+Anyone on the domain sees it, through the same four events the web client's
+`subscribe()` yields:
+
+<!-- native: reader -->
+```python
+import spatialdds as sd
+
+with sd.participant("bare-scene", domain=42) as p:
+    for ev in p.reader("model_entity", qos_profile="MAP_META").events(timeout=5):
+        if isinstance(ev, sd.Sample):
+            print("Sample", ev.key, ev.data.state.name)
+        elif isinstance(ev, sd.Dispose):
+            print("Dispose", ev.key, repr(ev.reason))
+        else:
+            print(type(ev).__name__)
+```
+
+```console
+EndOfReplay
+Sample ent:duck ACTIVE
+Sample ent:duck RETIRED
+Dispose ent:duck 'the participant stopped'
+```
+
+What it asks of you, and what it will not guess:
+
+| you say | or it refuses |
+| --- | --- |
+| `scene`, and `domain` (or `SPATIALDDS_DDS_DOMAIN`) | always: there is no default scene, and DDS's domain 0 is not a choice anyone made |
+| `service_id` and `authority` | to write or announce |
+| `qos_profile` | where the §3.3.2 row names none, as `model_entity`'s and `model_pose`'s do; the refusal lists the §3.3.3 profiles that fit, or pass a `sd.dds.Profile(...)` extension |
+| `on_exit="keep"` or `"withdraw"` | on every latched, keyed writer: whether a record outlives its writer is a claim only you can make |
+| `withdraw(key, reason=...)` | with an empty reason |
+
+And what it does without being asked:
+
+- **Writers never autodispose.** A participant that crashes reaches every
+  reader as `Liveliness(alive=False)` once its lease runs out. It is never a
+  `Dispose`, which is only ever somebody's `withdraw()`: a terminal sample,
+  then the dispose, with the reason.
+- **A clean stop departs.** Each writer does what its `on_exit` said. Then the
+  announce sends its terminal sample, its dispose and a `Depart`, and every
+  writer waits for its acknowledgements.
+- **The announce is kept fresh.** `tick()`, which `loop()` calls, refreshes it
+  every `ttl_sec / 3`, and its `topics` are the writers you opened. `floor_hz=`
+  keeps a stationary publisher's records fresh too.
+- **Every sample is validated** against the published JSON Schema before it is
+  written.
+
+`Sample.data` is the typed sample (`sd.dds.types` carries every type in the
+pinned IDL). `sd.dds.to_json(sample)` is its N.1 form, produced by the gateway's
+own codec, so a native sample and a served one cannot disagree.
+
+Without the extra, `import spatialdds` is unchanged, and `sd.participant`
+raises `sd.MissingExtra` naming it. Two modules are pure Python and need
+nothing:
+
+- `sd.frames`: one copy of the ENU↔ECEF arithmetic, with composition that
+  never guesses a position;
+- `sd.Recency`: learned per-key idle thresholds for fast lanes.
+
+`sd.events` holds the four event classes both transports share; `sd.dds` is the
+layer itself. Request and reply (VPS, coverage queries) is documented as a
+convention, not built, until 1.9 settles it:
+[REQUEST-REPLY.md](https://github.com/OpenArCloud/spatialdds-web/blob/main/docs/REQUEST-REPLY.md).
 
 ## Your own registry, in one command
 

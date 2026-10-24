@@ -111,6 +111,10 @@ def gates() -> list[dict]:
                         capture_output=True).returncode != 0:
         no_spec = (f"needs the {tag} tag in the SpatialDDS-spec checkout "
                    f"(git fetch --tags)")
+    demo = ROOT.parent / "SpatialDDS-demo" / "spatialdds_demo" / "plaza.py"
+    no_demo = None if demo.is_file() else (
+        f"needs a SpatialDDS-demo checkout beside this one ({demo}), whose "
+        f"projection the frames are held to until the demo adopts them")
     no_lsof = None if shutil.which("lsof") else (
         "needs lsof to confirm which process is listening on the port")
     no_node = None if shutil.which("node") else (
@@ -257,6 +261,24 @@ def gates() -> list[dict]:
         {"name": "native_registry", "what": "the registry is the spec's text at the pin, and it refuses to guess",
          "cmd": ["gates/native_registry.py"],
          "skip": no_spec},
+        {"name": "native_lifecycle", "what": "a crash is liveliness, a clean stop withdraws what it said, and the floor keeps a still publisher fresh",
+         "cmd": ["gates/native_lifecycle.py"],
+         "skip": no_dds or no_js},
+        {"name": "native_codec", "what": "one JSON dialect: a native sample and a served one cannot disagree",
+         "cmd": ["gates/native_codec.py"],
+         "skip": no_dds or no_js},
+        {"name": "native_roundtrip", "what": "a native session, recorded by its tap and served by the gateway, is what the participant wrote",
+         "cmd": ["gates/native_roundtrip.py"],
+         "skip": no_dds or no_js or no_web},
+        {"name": "native_readme", "what": "the README's native participant runs as printed, and a reader sees what it says",
+         "cmd": ["gates/native_readme.py"],
+         "skip": no_dds or no_js},
+        {"name": "native_pure", "what": "the frame arithmetic closes, its direction is right, and idle follows each key's own cadence",
+         "cmd": ["gates/native_pure.py"],
+         "skip": None},
+        {"name": "native_frames_agree", "what": "the frames agree with the demo's copy of the projection",
+         "cmd": ["gates/native_frames_agree.py"],
+         "skip": no_demo},
         {"name": "short_topics", "what": "a four-segment topic is served at its well-known path, exactly as a scene-scoped one",
          "cmd": ["gates/short_topics.py"],
          "skip": no_web},

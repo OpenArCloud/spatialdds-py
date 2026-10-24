@@ -3,6 +3,9 @@
 #                       python3 tools/generate_types.py
 """Generated SpatialDDS types, spec v1.8. See tools/generate_types.py."""
 
+from .._extra import require_cyclonedds
+require_cyclonedds()
+
 from . import builtin
 from . import spatial
 

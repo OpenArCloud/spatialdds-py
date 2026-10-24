@@ -39,34 +39,11 @@ lift = canonical.lift
 
 
 # ---- events ---------------------------------------------------------------
+# Defined in `spatialdds.events`, a dependency-free leaf, because the native
+# layer yields the same four classes from a DDS reader. A program handles both
+# transports with one `match`.
 
-@dataclass
-class Sample:
-    """One instance, lifted. `data` carries wire values, not canonical JSON."""
-    topic: str
-    key: str
-    data: Dict[str, Any]
-
-
-@dataclass
-class Dispose:
-    topic: str
-    key: str
-    reason: str = ""
-
-
-@dataclass
-class EndOfReplay:
-    """The latched set is complete. Before it you are catching up."""
-    topic: str
-    replayed: int = 0
-
-
-@dataclass
-class Liveliness:
-    topic: str
-    key: str
-    alive: bool = False
+from .events import Dispose, EndOfReplay, Liveliness, Sample  # noqa: E402
 
 
 def _event(raw: Dict[str, Any], fqn: str, lifted: bool):
