@@ -39,7 +39,7 @@ from typing import Any
 from mcap.reader import make_reader
 from mcap.writer import Writer as McapWriter
 
-from . import gateway, webjson, xcdr2
+from . import gateway, mcapmeta, webjson, xcdr2
 
 # Exactly two publishable record kinds, the SSD and SCD successors. The type
 # segment of the resource path decides the type, so this table is also what
@@ -58,8 +58,9 @@ PUBLISHABLE: dict[str, str] = {
 # A dispose has no 1.8 record. `Depart` is a service withdrawal and nothing
 # expresses a content withdrawal, so the journal carries disposes as MCAP
 # metadata records under this name rather than as an invented typed message.
-# Labeled, and recorded as a gap in the candidates entry.
-DISPOSE_RECORD = "spatialdds-web:dispose"
+# Labeled, and recorded as a gap in the candidates entry. Defined in `gateway`
+# since 0.7.0, because the recording loader applies them too.
+DISPOSE_RECORD = mcapmeta.DISPOSE_RECORD
 #: A published content manifest, journalled as a metadata record.
 #:
 #: N.7 manifests are JSON documents and not IDL types, so there is no schema
@@ -71,16 +72,16 @@ DISPOSE_RECORD = "spatialdds-web:dispose"
 #: arrived from `--manifests` on disk and survived by being files; once an
 #: empty registry is the normal way to start, "everything still served after a
 #: restart" has to include them.
-MANIFEST_RECORD = "spatialdds-web:manifest"
+MANIFEST_RECORD = mcapmeta.MANIFEST_RECORD
 #: A manifest withdrawn over `DELETE /spatialdds/resolve` (finding 44).
-MANIFEST_WITHDRAW_RECORD = "spatialdds-web:manifest-withdraw"
+MANIFEST_WITHDRAW_RECORD = mcapmeta.MANIFEST_WITHDRAW_RECORD
 #: Who wrote a journalled sample, and into which scene. A sample is an MCAP
 #: message, which has no room for attribution of its own, so it rides beside
 #: the message as a metadata record keyed by the same sequence number.
 #: Disposes and manifests carry the same two fields in their own records.
 #: A journal written before tenancy has none of these, and replays with an
 #: empty principal: attribution unknown, which is the truth about it.
-WRITTEN_BY_RECORD = "spatialdds-web:written-by"
+WRITTEN_BY_RECORD = mcapmeta.WRITTEN_BY_RECORD
 
 
 class JournalUnwritable(Exception):

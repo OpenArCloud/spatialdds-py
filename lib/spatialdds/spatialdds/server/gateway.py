@@ -35,13 +35,18 @@ from typing import Any, Callable, Iterable
 
 from mcap.reader import make_reader
 
-from . import commands, idlmodel, pin, webjson, xcdr2
+from . import commands, idlmodel, mcapmeta, pin, webjson, xcdr2
 
 PUBLIC = "public-cacheable"
 OPERATOR = "operator-scoped"
 PUBLIC_MAX_AGE = 300
 
 SCHEME = "spatialdds://"
+#: A dispose, carried as MCAP metadata because 1.8 has no record for one (see
+#: `publish`, which journals them). A recording made by the native layer's tap
+#: carries them too, ordered against its messages by `seq`, which shares the
+#: log-time axis, and `build_state` applies them.
+DISPOSE_RECORD = mcapmeta.DISPOSE_RECORD
 # Advertised in the resolver metadata rather than constructed by a client.
 # §7.5.2 resolves through `https_base`, so this path is this endpoint's choice
 # and no client may assume it.
@@ -341,8 +346,37 @@ def build_state(path: Path | None, manifests: Path | None = None,
     topic_first: dict[str, int] = {}
     initial_data: dict[tuple[str, str], dict] = {}
 
+    # Disposes the recording carries as metadata, in log-time order, applied
+    # as the message stream passes them. A recording with none (a capture,
+    # the fountain) is read exactly as before.
+    with open(path, "rb") as f:
+        disposes = sorted(
+            (int(md.metadata["seq"]), md.metadata["topic"],
+             md.metadata["key"], md.metadata.get("reason", ""))
+            for md in make_reader(f).iter_metadata()
+            if md.name == DISPOSE_RECORD)
+
+    def apply_disposes(until: int | None) -> None:
+        while disposes and (until is None or disposes[0][0] < until):
+            _seq, topic, key, reason = disposes.pop(0)
+            events = st.live.get(topic)
+            if events is None:
+                continue
+            last = next((e for e in reversed(events) if e.get("key") == key),
+                        None)
+            # A dispose derived from a RETIRED terminal sample (below) and the
+            # recorded one are the same removal: one event, not two.
+            if last is not None and last["event"] == "dispose":
+                if reason and not last.get("reason"):
+                    last["reason"] = reason
+                continue
+            events.append({"event": "dispose", "topic": topic, "key": key,
+                           "reason": reason or "withdrawn"})
+            st.latched.get(topic, {}).pop(key, None)
+
     with open(path, "rb") as f:
         for sch, ch, msg in make_reader(f).iter_messages():
+            apply_disposes(msg.log_time)
             fqn = sch.name.replace("::", ".")
             seg = split_topic(ch.topic)
             if seg is None:
@@ -386,7 +420,9 @@ def build_state(path: Path | None, manifests: Path | None = None,
                      "reason": data.get("state_reason") or "retired"})
                 st.latched[ch.topic].pop(key, None)
 
-    st.scenes = sorted({r.scene for r in st.resources.values()})
+    apply_disposes(None)
+    # A four-segment topic has no scene, and "" is not a lane.
+    st.scenes = sorted({r.scene for r in st.resources.values() if r.scene})
 
     for topic, res in ((r.topic, r) for r in st.resources.values()):
         if not res.latched:

@@ -319,10 +319,13 @@ def absence_refuses(checks: list) -> None:
     except subprocess.TimeoutExpired:
         out = ("(timed out: the probe did not refuse, so `serve` went on to "
                "serve with types it should not have had)")
-    checks.append(("…and `--publish` then refuses in a sentence naming the "
-                   "files it looked for and where",
+    # The types, not a file list: since 0.7.0 the files are computed from
+    # the IDL's own includes, and a broken install is exactly the case where
+    # that IDL is not there to compute them from.
+    checks.append(("…and `--publish` then refuses in a sentence naming what "
+                   "it looked for (the IDL defining its boot types) and where",
                    "needs the types" in out and "nonexistent-idl-for-this-gate"
-                   in out and "core.idl" in out,
+                   in out and "spatial::core::GeoAnchor" in out,
                    f"{out[-300:]!r}"))
 
 

@@ -28,6 +28,8 @@ every fresh registry forever, and the type source is the spec pin.
 from __future__ import annotations
 
 import hashlib
+import re
+from functools import lru_cache
 from pathlib import Path
 
 from . import idlmodel
@@ -36,17 +38,12 @@ from . import idlmodel
 ARTIFACTS = Path(__file__).resolve().parent.parent / "artifacts"
 IDL_DIR = ARTIFACTS / "idl"
 
-#: Each publishable type with the closure of its own definition, in dependency
-#: order. The same map `tools/author_anchors.py` uses to embed schemas in the
-#: fountain recording, so a journal and a recording carry the same bytes for
-#: the same type. Adding a publishable kind means adding its closure here and
-#: vendoring whatever file it needs.
-CLOSURES: dict[str, list[str]] = {
-    "spatial::core::GeoAnchor": ["types.idl", "core.idl"],
-    "spatial::disco::ContentAnnounce": ["types.idl", "core.idl",
-                                        "discovery.idl"],
-    "spatial::disco::Announce": ["types.idl", "core.idl", "discovery.idl"],
-}
+#: The types a registry that starts empty boots with: the publishable kinds,
+#: and the Announce the fountain seed carries. Which types those are is a
+#: choice and is listed. Which files define them is a fact about the IDL, and
+#: is computed (`closure_for`).
+BOOT_TYPES = ("spatial::core::GeoAnchor", "spatial::disco::ContentAnnounce",
+              "spatial::disco::Announce")
 
 PREAMBLE = """// Flattened for the MCAP schema payload: includes resolved and
 // preprocessor directives removed, so this is a single
@@ -72,6 +69,75 @@ def flatten(idl_dir: Path, files: list[str]) -> str:
     return "\n".join(out)
 
 
+def _files(idl_dir: Path) -> list[str]:
+    return sorted(p.relative_to(idl_dir).as_posix()
+                  for p in idl_dir.rglob("*.idl"))
+
+
+def _includes(idl_dir: Path, name: str, files: list[str]) -> list[str]:
+    text = (idl_dir / name).read_text()
+    return [i for i in re.findall(r'^#include\s+"([^"]+)"', text, re.M)
+            if i in files]
+
+
+def file_closure(name: str, idl_dir: Path | None = None) -> list[str]:
+    """`name` and everything it includes, transitively, includes first."""
+    d = IDL_DIR if idl_dir is None else idl_dir
+    files, out = _files(d), []
+
+    def visit(f: str) -> None:
+        for inc in _includes(d, f, files):
+            if inc not in out:
+                visit(inc)
+        if f not in out:
+            out.append(f)
+    visit(name)
+    return out
+
+
+@lru_cache(maxsize=4)
+def _defining_files(idl_dir: Path) -> dict[str, str]:
+    """Type identity (`spatial.core.GeoAnchor`) -> the file that defines it."""
+    own: dict[str, str] = {}
+    parsed: dict[tuple, set] = {}
+
+    def defined(files: tuple) -> set:
+        if files not in parsed:
+            parsed[files] = set(idlmodel.parse(
+                flatten(idl_dir, list(files))).aggregates)
+        return parsed[files]
+    for f in _files(idl_dir):
+        c = file_closure(f, idl_dir)
+        prior: set = set()
+        for dep in c[:-1]:
+            prior |= defined(tuple(file_closure(dep, idl_dir)))
+        for fqn in defined(tuple(c)) - prior:
+            own.setdefault(fqn, f)
+    return own
+
+
+def closure_for(schema_name: str, idl_dir: Path | None = None) -> list[str]:
+    """The files a type's flattened schema needs, in dependency order.
+
+    Computed from the IDL's own includes, for any type it defines. It used to
+    be a hand map with three entries, which is how a fourth type would have
+    been embedded with the wrong closure.
+    """
+    d = IDL_DIR if idl_dir is None else idl_dir
+    fqn = schema_name.replace("::", ".")
+    f = _defining_files(d).get(fqn)
+    if f is None:
+        raise KeyError(f"no vendored IDL file defines {schema_name}")
+    return file_closure(f, d)
+
+
+def schema_record(schema_name: str,
+                  idl_dir: Path | None = None) -> tuple[str, bytes]:
+    """`(schema name, flattened IDL bytes)` for one type, as a recording embeds it."""
+    d = IDL_DIR if idl_dir is None else idl_dir
+    return schema_name, flatten(d, closure_for(schema_name, d)).encode()
+
+
 def schema_records(idl_dir: Path | None = None) -> list[tuple[str, bytes]]:
     """`(schema name, IDL bytes)` for every publishable type, or [] if absent.
 
@@ -83,12 +149,10 @@ def schema_records(idl_dir: Path | None = None) -> list[tuple[str, bytes]]:
     d = IDL_DIR if idl_dir is None else idl_dir
     if not d.is_dir():
         return []
-    missing = sorted({f for files in CLOSURES.values() for f in files
-                      if not (d / f).is_file()})
-    if missing:
+    try:
+        return [schema_record(name, d) for name in sorted(BOOT_TYPES)]
+    except KeyError:
         return []
-    return [(name, flatten(d, files).encode())
-            for name, files in sorted(CLOSURES.items())]
 
 
 def model_from_records(records: list[tuple[str, bytes]],
@@ -140,7 +204,17 @@ def wire_model(idl_dir: Path | None = None):
 def describe(idl_dir: Path | None = None) -> str:
     """One line for the banner: what the types came from."""
     d = IDL_DIR if idl_dir is None else idl_dir
-    names = sorted({f for files in CLOSURES.values() for f in files})
+    names = sorted({f for n in BOOT_TYPES for f in closure_for(n, d)}) \
+        if schema_records(idl_dir) else []
     return (f"vendored IDL ({', '.join(names)}) under {d}"
             if schema_records(idl_dir) else
             f"none: no IDL found under {d}")
+
+
+def __getattr__(name: str):
+    # `CLOSURES`, for the callers that read the old map: computed, on first
+    # access, from `BOOT_TYPES` and the includes.
+    if name == "CLOSURES":
+        return {n: closure_for(n) for n in BOOT_TYPES}
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+

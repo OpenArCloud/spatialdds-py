@@ -340,13 +340,12 @@ def main(argv: list[str] | None = None) -> int:
         if st.model is None:
             raise SystemExit(
                 f"--publish needs the types, and this endpoint learned none. "
-                f"It looked for the IDL pinned in this package, under "
-                f"{pin.IDL_DIR} -- expected "
-                f"{', '.join(sorted({f for fs in pin.CLOSURES.values() for f in fs}))} "
-                f"-- and found no usable set there. That is a broken install "
-                f"rather than a missing option; reinstall the package, or "
-                f"seed from a recording with --mcap, whose embedded IDL "
-                f"carries its own types.")
+                f"It looked for the IDL pinned in this package that defines "
+                f"{', '.join(pin.BOOT_TYPES)}, under {pin.IDL_DIR}, and found "
+                f"no usable set there. That is a broken install rather than a "
+                f"missing option; reinstall the package, or seed from a "
+                f"recording with --mcap, whose embedded IDL carries its own "
+                f"types.")
         print(f"  publish     ON, operator-scoped, journal "
               f"{'on' if jr else 'OFF (in memory only)'}")
     else:
