@@ -52,7 +52,11 @@ from mcap.writer import Writer as McapWriter                   # noqa: E402
 
 from spatialdds.server import idlmodel, pin, xcdr2                     # noqa: E402
 
-DEFAULT_IDL = ROOT.parent / "SpatialDDS-spec" / "idl" / "v1.8"
+# The package's vendored IDL, which is the pin (webjson/PROVENANCE). It used
+# to be a specification checkout's working tree, which embeds whatever that
+# checkout happens to have checked out -- `main`, past the pin, as often as
+# not -- and `gates/fresh_start.py` requires these bytes to equal the pin's.
+DEFAULT_IDL = ROOT / "lib" / "spatialdds" / "spatialdds" / "artifacts" / "idl"
 # The closure map and the flattening live in `spatialdds.server.pin`, which is
 # also what a registry starting empty boots from. They used to live here, and
 # two copies of "which files define a GeoAnchor" is two answers waiting to
@@ -232,7 +236,7 @@ def main() -> int:
     ap.add_argument("--out", type=Path,
                     default=ROOT / "samples" / "fountain-anchors.mcap")
     ap.add_argument("--idl", type=Path, default=DEFAULT_IDL,
-                    help="a SpatialDDS-spec idl/v1.8 directory")
+                    help="an idl/v1.8 tree (default: the package's vendored pin)")
     a = ap.parse_args()
 
     if not a.idl.is_dir():

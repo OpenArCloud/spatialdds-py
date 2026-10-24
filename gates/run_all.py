@@ -220,6 +220,9 @@ def gates() -> list[dict]:
         {"name": "client_scope", "what": "the client's token goes only to its endpoint, and a publish never guesses a scene",
          "cmd": ["gates/client_scope.py"],
          "skip": no_fountain or no_web or no_requests},
+        {"name": "short_topics", "what": "a four-segment topic is served at its well-known path, exactly as a scene-scoped one",
+         "cmd": ["gates/short_topics.py"],
+         "skip": no_web},
     ]
 
 

@@ -44,6 +44,38 @@ ECMA_PAIRS = [(0.1, "0.1"), (0.1 + 0.2, "0.30000000000000004"),
               (1e21, "1e+21"), (1.0, "1"), (-0.0, "0")]
 
 
+def logical(tables: dict, fqn: str, value):
+    """A vector's `sample` as the decoded values a projector takes.
+
+    `sample` holds "the logical field values" (golden/README.md), with one
+    spelling that is not a value: an octet run is written as its base64, the
+    way the spec's own round-trip gate reads it through the tables' `base64`
+    rule. Until v1.8 no vector carried a non-empty octet run, so feeding
+    `sample` straight to the projector worked by accident; the BlobChunk
+    vector the stamp added (finding 33) is the one that exercised it.
+    """
+    entry = tables.get(fqn)
+    if not isinstance(value, dict) or not entry or entry.get("kind") != "struct":
+        return value
+    out = dict(value)
+    for name, rule in entry.get("fields", []):
+        if name in out:
+            out[name] = _logical_rule(tables, rule, out[name])
+    return out
+
+
+def _logical_rule(tables: dict, rule: dict, v):
+    t = rule.get("t")
+    if t == "base64" and isinstance(v, str):
+        import base64
+        return base64.b64decode(v)
+    if t == "array" and isinstance(v, list):
+        return [_logical_rule(tables, rule["item"], x) for x in v]
+    if t == "ref":
+        return logical(tables, rule["fqn"], v)
+    return v
+
+
 def main() -> int:
     # Both recordings, merged. The golden vectors are the specification's own
     # artifacts and cover types across the whole tree; no single recording
@@ -77,7 +109,7 @@ def main() -> int:
                            False, "type absent from this recording"))
             continue
         try:
-            got = proj.project(fqn, vec["sample"])
+            got = proj.project(fqn, logical(tables, fqn, vec["sample"]))
         except Exception as e:
             checks.append((f"{p.stem}: projects at all", False,
                            f"{type(e).__name__}: {e}"))

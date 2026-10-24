@@ -189,7 +189,7 @@ pypi.org and the only reason the workflow is inert as committed.
 
 Five lines, from a commit whose gates are green:
 
-1. `python3 gates/run_all.py` — 35 gates, 0 failed. A release is cut from a
+1. `python3 gates/run_all.py` — 36 gates, 0 failed. A release is cut from a
    verified commit, which is why the workflow does not re-run them itself.
 2. Bump `__version__` in `lib/spatialdds/spatialdds/__init__.py`, and
    `version` in `lib/spatialdds/pyproject.toml`, to the same number.

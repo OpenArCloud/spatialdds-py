@@ -15,24 +15,30 @@
 # copy, read by both halves of the package and by every gate.
 
 repository = https://github.com/OpenArCloud/SpatialDDS-spec
-artifacts_commit = 9c3e1f27c17681b26e88dbc1e64f9e9c84273805
-# The commit the generated artifacts above were produced at. The
-# normative *text* this gateway implements is pinned separately in
-# docs/EVIDENCE.md, because prose and artifacts move on different
-# commits: 169fabd amended Appendix N without regenerating anything,
-# and 9c3e1f2 regenerated without changing the appendix.
+artifacts_tag = v1.8
+artifacts_commit = 4b5652c6b52a2c10f4f4c5b686be7cf979d8b8fc
+# The tag, and the commit it names, that the generated artifacts above were
+# produced at. 0.7.0 moved the whole package here from 9c3e1f2 at once --
+# artifacts, IDL, the native layer's bindings and its registry -- because one
+# package with two pins would be two type systems in one wheel. Everything
+# vendored is byte-identical at v1.8, v1.8.1 and v1.8.2: those two moved only
+# the conformance runner and the changelog. The normative *text* this gateway
+# implements is pinned separately in docs/EVIDENCE.md, because prose and
+# artifacts have moved on different commits before (169fabd amended
+# Appendix N without regenerating anything; 9c3e1f2 regenerated without
+# changing the appendix).
 source_tree = web-binding/
 
 artifacts_dir = lib/spatialdds/spatialdds/artifacts/
 
 mapping.file = webjson/MAPPING.md
-mapping.sha256 = 52d350b8a0dab7ae141b63ec53f65ec7d7dd4003a0c0f06fd6ba406dcde164d6
+mapping.sha256 = bf358ce6e4f16b55905eb04b95ec365760b7b5c33e5dd2ffd8280f21ce6d78d3
 serializer_tables.file = lib/spatialdds/spatialdds/artifacts/serializer_tables.json
-serializer_tables.sha256 = 7ea2a8a20fd278a413a1664ae08dce8d023bde1fbbe22ac3bb01845b437a4b4f
+serializer_tables.sha256 = 46cd9bdb20376c79629f14276e50c438880c6a4712e9e810cf77ed66c8063392
 schemas.dir = lib/spatialdds/spatialdds/artifacts/schemas/
 schemas.count = 112
-schemas.set_sha256 = a913c32667886033a45739f99052b7573c8f91de6b18b9b9f0f28e9be0818a2b
-golden.count = 8
+schemas.set_sha256 = 97906152283cec93cd6c19e28e73c870b8b73dc4b583a24109acb30bff851ab8
+golden.count = 9
 
 # The IDL itself, vendored at the same commit as the generated artifacts above
 # and for one reason: a registry that starts empty has no recording to read its
@@ -48,7 +54,11 @@ idl.dir = lib/spatialdds/spatialdds/artifacts/idl/
 idl.source_tree = idl/v1.8/
 idl.count = 3
 idl.files = core.idl, discovery.idl, types.idl
-idl.set_sha256 = 9cd570b6fb414c7a0d6e4275a07117cbc14b3ddf61b7dcdb42a0256275ac809c
+# Set digests (schemas, idl) are sha256 over, for each file in name order, the
+# file's name then the sha256 of its bytes. gates/schema_fidelity.py recomputes
+# every digest and count in this file; until 0.7.0 only two of them were, and
+# the idl digest recorded here reproduced by no method (finding 59).
+idl.set_sha256 = 7cb8eb76507955d63a849ddd395f1b75857ec6b67abbf51cbd69bea7ca0e8a78
 
 # The recording. This is the data interface: a typed SpatialDDS 1.8 MCAP,
 # carrying its own IDL in its schema records, which is the only description

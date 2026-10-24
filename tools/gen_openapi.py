@@ -326,6 +326,40 @@ def read_paths() -> dict:
             }}}}
 
 
+def short_paths() -> dict:
+    """N.3's four-segment topics, rooted in the well-known namespace (1.8 stamp)."""
+    wk = gw_http.WELL_KNOWN
+    seg = [{"$ref": f"#/components/parameters/{n}"}
+           for n in ("stream", "type", "version")]
+    note = ("A four-segment topic (`spatialdds/<stream>/<type>/<version>`, no "
+            "scene), such as the discovery announce lane, served exactly as a "
+            "scene-scoped collection is: latched set, `ETag`, `304`, the same "
+            "access classes, and the N.5 stream by upgrading the same path. "
+            "Read-only: a topic with no scene is in no lane. ")
+    ok = {"200": {"description": "As for a scene-scoped topic.",
+                  "headers": ETAG,
+                  "content": {"application/json": {"schema": {}}}},
+          "304": {"description": "Not modified."},
+          **problem(401, "An operator-scoped type, without a token."),
+          **problem(404, "No such topic, or no such instance.")}
+    return {
+        f"{wk}/{{stream}}/{{type}}/{{version}}": {
+            "parameters": seg,
+            "get": {"operationId": "listWellKnownInstances",
+                    "tags": ["read-only"],
+                    "summary": "A four-segment topic's collection",
+                    "description": note + ws_note(None),
+                    "security": [{}, {"bearer": []}], "responses": ok}},
+        f"{wk}/{{stream}}/{{type}}/{{version}}/{{key}}": {
+            "parameters": seg + [{"$ref": "#/components/parameters/key"}],
+            "get": {"operationId": "getWellKnownInstance",
+                    "tags": ["read-only"],
+                    "summary": "One instance of a four-segment topic",
+                    "description": note,
+                    "security": [{}, {"bearer": []}], "responses": ok}},
+    }
+
+
 def well_known() -> dict:
     wk = gw_http.WELL_KNOWN
     obj = {"type": "object", "additionalProperties": True}
@@ -473,6 +507,7 @@ def document() -> dict:
         latched, access = gateway.DURABILITY.get(fqn, (True, gateway.PUBLIC))
         paths.update(write_paths(seg, fqn, latched, access))
     paths.update(read_paths())
+    paths.update(short_paths())
     # The stated limits, on every operation they can refuse, from the same
     # table the gateway refuses from: the rate on everything, the body limit
     # on everything that takes one, the subscription cap on every path that

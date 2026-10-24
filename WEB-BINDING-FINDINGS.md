@@ -1858,3 +1858,66 @@ write first exceeded 100 ms at cycle 5,500, with a 10.08 MB journal after
 second and grows; memory reaches the box's 512 MB at roughly 400,000 writes,
 long after latency has made the point. At sandbox rates (hundreds of writes a
 day) it is months away, and finding 40's compaction is what moves it.
+
+## The v1.8 pin: 0.7.0, 2026-10-24
+
+The whole package moved from `9c3e1f2` to the `v1.8` tag at once, on James's
+ruling that the native SDK must share the package's one pin. Moving it found
+three things.
+
+### 59. Recorded numbers nothing read, and a vector shape a gate never met
+
+**Recorded numbers.** `webjson/PROVENANCE` recorded six digests and counts.
+`gates/schema_fidelity.py` recomputed two of them: the schema set and the
+serializer tables. The other four (the IDL set digest, the IDL count, the
+MAPPING.md digest and the golden count) were prose. The IDL set digest recorded
+for `9c3e1f2` reproduces by no method:
+
+- not sha256 over name and file digest, the schema set's method;
+- not sha256 over the concatenated bytes.
+
+Now every number in the file is recomputed by the gate, and the file states
+the method.
+
+**A vector shape no gate had met.** The stamp's first non-empty octet-run
+vector (`blobchunk_octet_run`) failed `gates/golden_json.py` with `invalid
+literal for int()`. The vector was right. Its `sample` writes the octet run as
+base64, which is how the spec's own round-trip gate reads it through the tables'
+`base64` rule. This gate had fed `sample` straight to the projector, which
+worked only because no earlier vector carried an octet run. The gate now reads
+a `sample` the way the spec's does. A planted wrong expectation fails it.
+
+### 60. Four-segment topics were dropped
+
+§3.3.1 allows four-segment names for well-known topics, and the discovery lanes
+are four-segment (`spatialdds/discovery/announce/v1`). `gateway.split_topic`
+required five segments, so such a topic was counted as `unnamed:` and served
+nowhere.
+
+The spec's v1.8.2 suite measured it (`four_segment_probe.py`): an OpenVPS
+session through this gateway served 0 resources, and the suite reported
+`6 passed, 0 failed, 9 skipped`. A five-segment control of the same payloads
+gave `14/0/1`. The suite records the drop as "the gateway's (its own queue)".
+This is that queue.
+
+**What changed:**
+
+- A four-segment topic is indexed with no scene, and served at
+  `/.well-known/spatialdds/<stream>/<type>/<version>[/<key>]`: latched set,
+  `ETag`, `304`, access class, the N.5 upgrade.
+- Writes to such a topic are refused as a problem document, because a topic
+  with no scene is in no lane.
+- The routes are registered ahead of the scene pattern, which would otherwise
+  read the path as a scene called `.well-known`.
+- `gates/short_topics.py` holds all of it against a five-segment control and an
+  absent arm. Planting the five-segment-only split turns seven of its checks
+  red.
+
+### 61. The fountain recording was authored from a working tree
+
+`tools/author_anchors.py` defaulted `--idl` to a spec checkout's working tree,
+so re-authoring embedded whatever that checkout had checked out. Here that was
+`main`, past the pin. It now defaults to the package's vendored IDL, which is
+the pin, and is what `gates/fresh_start.py` requires the embedded bytes to
+equal.
+

@@ -912,6 +912,18 @@ def surface_section(checks: list) -> None:
     checks.append((f"the README names spec commit {sd.SPEC_COMMIT}, which is "
                    "the module's SPEC_COMMIT",
                    sd.SPEC_COMMIT in text, "the README names another commit"))
+    # The constants against the pin the artifacts were vendored at, so the
+    # package cannot say one revision while carrying another's bytes.
+    prov = dict(line.split("=", 1) for line in
+                (ROOT / "webjson" / "PROVENANCE").read_text().splitlines()
+                if "=" in line and not line.startswith("#"))
+    prov = {k.strip(): v.strip() for k, v in prov.items()}
+    checks.append((f"SPEC_TAG {sd.SPEC_TAG} and SPEC_COMMIT {sd.SPEC_COMMIT} "
+                   "are the tag and commit webjson/PROVENANCE vendored at",
+                   sd.SPEC_TAG == prov.get("artifacts_tag")
+                   and prov.get("artifacts_commit", "").startswith(sd.SPEC_COMMIT)
+                   and len(sd.SPEC_COMMIT) >= 7,
+                   f"{prov.get('artifacts_tag')} {prov.get('artifacts_commit')}"))
     # There used to be two copies of the generated tables -- one under
     # webjson/ for the gateway, one inside the package -- kept honest by a
     # byte-identity check. 0.2.0 removed the second: the server moved into the

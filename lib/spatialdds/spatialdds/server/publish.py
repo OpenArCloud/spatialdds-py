@@ -197,8 +197,15 @@ def resource_for_put(st: gateway.State, scene: str, stream: str,
     if version != "v1":
         raise Rejected(404, "no-such-version", "No such version",
                        f"Version {version!r} is not served.")
+    if not scene:
+        # A four-segment topic is served read-only in the well-known namespace:
+        # it has no scene, so no lane can grant a write to it.
+        raise Rejected(405, "not-publishable", "That topic is not publishable",
+                       "A topic with no scene segment is served read-only; "
+                       "this endpoint's write surface is per scene.",
+                       publishable=sorted(PUBLISHABLE))
     topic = f"spatialdds/{scene}/{stream}/{type_seg}/{version}"
-    res = st.resources.get(f"/{scene}/{stream}/{type_seg}/{version}")
+    res = st.resources.get(gateway.resource_path(scene, stream, type_seg, version))
     if res is None:
         agg = st.model.get(fqn) if st.model else None
         if agg is None:

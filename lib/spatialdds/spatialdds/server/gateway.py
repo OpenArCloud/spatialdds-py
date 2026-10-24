@@ -70,9 +70,28 @@ DURABILITY: dict[str, tuple[bool, str]] = {
 }
 
 
+#: Where N.3 roots a four-segment topic (`spatialdds/<stream>/<type>/<version>`,
+#: no `<domain>`): the well-known namespace, as the 1.8 stamp states it.
+WELL_KNOWN_ROOT = "/.well-known/spatialdds"
+
+
+def resource_path(scene: str, stream: str, type_seg: str, version: str) -> str:
+    """The N.3 path of a topic: domain-scoped, or well-known when it has no scene.
+
+    One function, because the loader, the write surface and the HTTP router
+    all name the same resource and must agree on its path.
+    """
+    root = f"/{scene}" if scene else WELL_KNOWN_ROOT
+    return f"{root}/{stream}/{type_seg}/{version}"
+
+
 @dataclass
 class Resource:
-    """One topic as a web resource, named by its §3.3.1 segments."""
+    """One topic as a web resource, named by its §3.3.1 segments.
+
+    `scene` is "" for a four-segment topic, which has no domain and is served
+    in the well-known namespace rather than under a scene.
+    """
     scene: str
     stream: str
     type_seg: str
@@ -85,7 +104,8 @@ class Resource:
 
     @property
     def path(self) -> str:
-        return f"/{self.scene}/{self.stream}/{self.type_seg}/{self.version}"
+        return resource_path(self.scene, self.stream, self.type_seg,
+                             self.version)
 
 
 @dataclass
@@ -168,11 +188,23 @@ def _wire_model(path: Path) -> tuple[idlmodel.Model, dict[str, tuple[str, bytes]
 
 
 def split_topic(topic: str) -> tuple[str, str, str, str] | None:
-    """`spatialdds/<domain>/<stream>/<type>/<version>` per §3.3.1."""
+    """`(domain, stream, type, version)` for a topic, `domain` "" when it has none.
+
+    §3.3.1's five segments, `spatialdds/<domain>/<stream>/<type>/<version>`,
+    and the four-segment names §3.3.1 also allows for well-known topics --
+    `spatialdds/discovery/announce/v1` among them. Until 0.7.0 this required
+    five, and a four-segment topic was dropped: measured by the spec's
+    conformance suite against this gateway, an OpenVPS session served no
+    resources at all (`web-binding/conformance/four_segment_probe.py`, v1.8.2).
+    """
     parts = topic.split("/")
-    if len(parts) != 5 or parts[0] != "spatialdds":
+    if parts[0] != "spatialdds" or not all(parts[1:]):
         return None
-    return parts[1], parts[2], parts[3], parts[4]
+    if len(parts) == 5:
+        return parts[1], parts[2], parts[3], parts[4]
+    if len(parts) == 4:
+        return "", parts[1], parts[2], parts[3]
+    return None
 
 
 def uri_authority(uri: str) -> str:
@@ -318,7 +350,7 @@ def build_state(path: Path | None, manifests: Path | None = None,
                     st.counts.get(f"unnamed:{ch.topic}", 0) + 1
                 continue
             scene, stream, type_seg, version = seg
-            res = st.resources.get(f"/{scene}/{stream}/{type_seg}/{version}")
+            res = st.resources.get(resource_path(scene, stream, type_seg, version))
             if res is None:
                 agg = model.get(fqn)
                 keys = [m.name for m in (agg.members if agg else [])

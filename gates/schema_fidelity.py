@@ -102,6 +102,30 @@ async def run() -> int:
         checks.append(("the vendored serializer tables match their digest",
                        hashlib.sha256(tb.read_bytes()).hexdigest()
                        == prov.get("serializer_tables.sha256"), ""))
+        # The rest of PROVENANCE's numbers, recomputed rather than trusted.
+        # Until 0.7.0 nothing read them, and the IDL set digest recorded for
+        # 9c3e1f2 reproduced by no method at all (finding 59).
+        idl = sorted((ARTIFACTS / "idl").rglob("*.idl"))
+        agg = hashlib.sha256()
+        for p in idl:
+            agg.update(p.relative_to(ARTIFACTS / "idl").as_posix().encode())
+            agg.update(hashlib.sha256(p.read_bytes()).digest())
+        checks.append((f"the vendored IDL matches its recorded digest and count "
+                       f"({len(idl)} files)",
+                       agg.hexdigest() == prov.get("idl.set_sha256")
+                       and str(len(idl)) == prov.get("idl.count"),
+                       f"{agg.hexdigest()} / {len(idl)}"))
+        mp = ROOT / prov.get("mapping.file", "webjson/MAPPING.md")
+        checks.append(("the vendored MAPPING.md matches its digest",
+                       hashlib.sha256(mp.read_bytes()).hexdigest()
+                       == prov.get("mapping.sha256"), ""))
+        golden = sorted((ROOT / "webjson" / "golden").glob("*.json"))
+        checks.append((f"the golden vector count is the recorded one "
+                       f"({len(golden)})",
+                       str(len(golden)) == prov.get("golden.count"), ""))
+        checks.append(("the schema count is the recorded one",
+                       str(len(local)) == prov.get("schemas.count"),
+                       f"{len(local)}"))
 
         n, inval = 0, []
         hdr = {"Authorization": f"Bearer {TOKEN}"}

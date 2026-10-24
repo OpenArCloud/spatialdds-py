@@ -129,7 +129,7 @@ versions of everything above.
 | [The REST surface as OpenAPI 3.1](lib/spatialdds/spatialdds/artifacts/openapi.yaml) | generated from the gateway's own tables and schemas, gated against drift, served at `/.well-known/spatialdds/openapi` with a reference page at `openapi.html`. The WebSocket streams are described there, not modelled; AsyncAPI is the format for that surface if anyone needs it formally |
 | [Why believe any of this](docs/EVIDENCE.md) | every claim on this page is executed by a gate on every run |
 
-Implements SpatialDDS 1.8 (Appendix N) as of spec `9c3e1f2`. Conformance: 14
+Implements SpatialDDS 1.8 (Appendix N) as of spec `v1.8` (`4b5652c`). Conformance: 14
 checks, 14 passed, against this repository's own gateway in every shape that
 serves data. A registry that holds nothing yet is a shape the suite cannot
 certify, for a reason that is the suite's and not this endpoint's; see

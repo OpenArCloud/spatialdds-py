@@ -678,7 +678,9 @@ async def resolve(request: web.Request) -> web.Response:
 def _resolve(request: web.Request) -> tuple[str, gateway.Resource]:
     st: gateway.State = request.app["state"]
     m = request.match_info
-    path = f"/{m['scene']}/{m['stream']}/{m['type']}/{m['version']}"
+    # The well-known routes carry no `scene`: a four-segment topic (N.3).
+    path = gateway.resource_path(m.get("scene", ""), m["stream"], m["type"],
+                                 m["version"])
     res = st.resource_for(path)
     if res is None:
         raise web.HTTPNotFound(
@@ -1415,6 +1417,15 @@ def make_app(state: gateway.State, base: str, token: str | None,
         web.get(f"{WELL_KNOWN}/openapi.html", openapi_page),
         web.get(gateway.RESOLVE_PATH, resolve),
         web.get(f"{ASSET_PATH}/{{name}}", asset),
+        # N.3, as stamped in 1.8: a four-segment topic is the same kind of
+        # resource rooted in the well-known namespace. Registered before the
+        # scene pattern below, which would otherwise read
+        # `/.well-known/spatialdds/discovery/announce/v1` as an instance of a
+        # scene called `.well-known`. Read-only: no lane can grant a write to a
+        # topic with no scene, so the router's 405 problem document answers.
+        web.get(f"{WELL_KNOWN}/{{stream}}/{{type}}/{{version}}", collection),
+        web.get(f"{WELL_KNOWN}/{{stream}}/{{type}}/{{version}}/{{key}}",
+                instance),
         # The latched-resource pattern: the on-bus topic name with
         # `spatialdds/` removed, collection then instance.
         web.get("/{scene}/{stream}/{type}/{version}", collection),
@@ -1442,6 +1453,9 @@ def make_app(state: gateway.State, base: str, token: str | None,
         web.options(f"{WELL_KNOWN}/resolver", preflight),
         web.options(gateway.RESOLVE_PATH, preflight),
         web.options(f"{ASSET_PATH}/{{name}}", preflight),
+        web.options(f"{WELL_KNOWN}/{{stream}}/{{type}}/{{version}}", preflight),
+        web.options(f"{WELL_KNOWN}/{{stream}}/{{type}}/{{version}}/{{key}}",
+                    preflight),
         web.options("/{scene}/{stream}/{type}/{version}", preflight),
         web.options("/{scene}/{stream}/{type}/{version}/{key}", preflight),
     ])

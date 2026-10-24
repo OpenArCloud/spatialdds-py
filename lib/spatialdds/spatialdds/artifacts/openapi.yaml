@@ -1334,6 +1334,72 @@ paths:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/Problem'
+  /.well-known/spatialdds/{stream}/{type}/{version}:
+    parameters:
+    - &id010
+      $ref: '#/components/parameters/stream'
+    - &id011
+      $ref: '#/components/parameters/type'
+    - &id012
+      $ref: '#/components/parameters/version'
+    get:
+      operationId: listWellKnownInstances
+      tags:
+      - read-only
+      summary: A four-segment topic's collection
+      description: 'A four-segment topic (`spatialdds/<stream>/<type>/<version>`, no scene), such as the discovery announce lane, served exactly as a scene-scoped collection is: latched set, `ETag`, `304`, the same access classes, and the N.5 stream by upgrading the same path. Read-only: a topic with no scene is in no lane. **The same URL is also a WebSocket** (N.5): connect with `wss://` and receive the latched set as `sample` events, exactly one `end_of_replay` carrying the replay count, then live `sample` and `dispose` events (`{event, topic, key, data | reason}`). Not modelled here; see [Appendix N.5](https://spatialdds.org/v1.8/appendix-n/).'
+      security:
+      - {}
+      - bearer: []
+      responses: &id013
+        '200':
+          description: As for a scene-scoped topic.
+          headers: *id002
+          content:
+            application/json:
+              schema: {}
+        '304':
+          description: Not modified.
+        '401':
+          description: An operator-scoped type, without a token.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '404':
+          description: No such topic, or no such instance.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '429':
+          description: '`rate-limited` -- Too many requests: more requests from one client than its rate allows.'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '503':
+          description: '`too-many-subscriptions` -- Too many subscriptions: the endpoint''s WebSocket cap is reached.'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+  /.well-known/spatialdds/{stream}/{type}/{version}/{key}:
+    parameters:
+    - *id010
+    - *id011
+    - *id012
+    - $ref: '#/components/parameters/key'
+    get:
+      operationId: getWellKnownInstance
+      tags:
+      - read-only
+      summary: One instance of a four-segment topic
+      description: 'A four-segment topic (`spatialdds/<stream>/<type>/<version>`, no scene), such as the discovery announce lane, served exactly as a scene-scoped collection is: latched set, `ETag`, `304`, the same access classes, and the N.5 stream by upgrading the same path. Read-only: a topic with no scene is in no lane. '
+      security:
+      - {}
+      - bearer: []
+      responses: *id013
 components:
   securitySchemes:
     bearer:
@@ -5676,6 +5742,7 @@ components:
           - BGR8
           - RGBA8
           - DEPTH16
+          - GRAY8
           - RAW10
           - RAW12
           - RAW16
@@ -5809,6 +5876,7 @@ components:
           - BGR8
           - RGBA8
           - DEPTH16
+          - GRAY8
           - RAW10
           - RAW12
           - RAW16
@@ -5871,6 +5939,7 @@ components:
           - BGR8
           - RGBA8
           - DEPTH16
+          - GRAY8
           - RAW10
           - RAW12
           - RAW16

@@ -13,9 +13,9 @@ can act on.
     for a in svc.topic("geo_anchor").latched():
         print(a["anchor_id"], a["geopose"]["stamp"]["sec"])   # an int, not "17…"
 
-What it implements: Appendix N as of SpatialDDS-spec `9c3e1f2`. Package
-versions move independently of specification versions; `SPEC_COMMIT` is the
-one to check.
+What it implements: Appendix N as of SpatialDDS-spec `v1.8` (`4b5652c`).
+Package versions move independently of specification versions; `SPEC_TAG`
+and `SPEC_COMMIT` are the ones to check.
 """
 from __future__ import annotations
 
@@ -27,7 +27,7 @@ __all__ = [
     "Sample", "Dispose", "EndOfReplay", "Liveliness",
     "SpatialDDSError", "Unreachable", "Problem", "Unauthorized", "SurfaceOff",
     "IntegrityError", "UnverifiableIntegrity",
-    "lift", "SPEC_COMMIT", "APPENDIX_N", "__version__",
+    "lift", "SPEC_TAG", "SPEC_COMMIT", "APPENDIX_N", "__version__",
     # The record builders, re-exported so that `sd.circle(...)` reads the way
     # it does in the documentation. They live in `spatialdds.records`.
     "records", "circle", "bbox", "earth_fixed", "frame", "stamp", "geopose",
@@ -41,8 +41,12 @@ __version__ = "0.6.0"
 #: The SpatialDDS-spec commit whose Appendix N and generated artifacts this
 #: package implements. Package versions and specification versions move
 #: independently; this is the one that says what the wire looks like.
-SPEC_COMMIT = "9c3e1f2"
-APPENDIX_N = f"Appendix N as of spec {SPEC_COMMIT}"
+#: The spec tag every vendored artifact, the IDL and the native layer's
+#: bindings and registry come from, and the commit it names. One pin for the
+#: whole package: two would be two type systems in one wheel.
+SPEC_TAG = "v1.8"
+SPEC_COMMIT = "4b5652c"
+APPENDIX_N = f"Appendix N as of spec {SPEC_TAG} ({SPEC_COMMIT})"
 
 # Everything else lives in `client` and is fetched on first access (PEP 562).
 # This module stays free of third-party imports on purpose: `import

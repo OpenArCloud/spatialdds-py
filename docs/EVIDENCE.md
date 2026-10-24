@@ -141,10 +141,31 @@ rather than the endpoint's 300, and a fault injection confirms `max-age` follows
 a changed `ttl_sec`. See [`RESOLUTION.md`](RESOLUTION.md).
 
 **The normative text this endpoint implements.** `webjson/PROVENANCE` pins the
-commit the *generated artifacts* come from, now `9c3e1f2` — the 1.8 revision's
-second commit. Text and artifacts move on different commits and the pins say so
-separately: `169fabd` amended Appendix N without regenerating anything, and
-`9c3e1f2` regenerated without amending the appendix.
+tag the *generated artifacts* come from, now `v1.8` (`4b5652c`, the stamp), and
+0.7.0 moved the whole package there at once: artifacts, IDL, and the native
+layer's bindings and registry. Everything vendored is byte-identical at `v1.8`,
+`v1.8.1` and `v1.8.2`, which moved only the conformance runner. Text and
+artifacts have moved on different commits before (`169fabd` amended Appendix N
+without regenerating anything, and `9c3e1f2` regenerated without amending the
+appendix), so the pins are still stated separately.
+
+From `9c3e1f2` to `v1.8` the vendored set changed in five places:
+
+- **`PixFormat.GRAY8`**: one appended enumerator, reaching three vision schemas
+  and the serializer tables.
+- **A comment block in `types.idl`**: it changes no type, but it does change
+  the flattened bytes every recording embeds, so the fountain recording was
+  re-authored. Its messages are byte-identical.
+- **`MAPPING.md`**: it gained the lift direction, the three non-identity rules
+  run backwards.
+- **A BlobChunk golden vector**: the first non-empty octet run. It found that
+  `gates/golden_json.py` had never handled an octet run in a vector's `sample`
+  (finding 59).
+- **One normative paragraph in N.3**: a four-segment topic is a resource
+  rooted in the well-known namespace. Until 0.7.0 this gateway dropped such
+  topics, and the spec's own suite measured it (finding 60).
+  `gates/short_topics.py` now serves one and checks it like a scene-scoped
+  collection.
 
 The revision added two members this repository had asked for — `297c433` gave
 `GeoAnchor` a `manifest_uri` (1.9 candidates entry 2) and `9c3e1f2` gave

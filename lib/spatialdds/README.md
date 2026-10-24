@@ -15,9 +15,9 @@ package is the step after that, when a program wants native values instead of
 canonical JSON, bytes it can trust, refusals it can act on, and records it did
 not have to assemble member by member.
 
-**Implements Appendix N as of SpatialDDS-spec `9c3e1f2`.** Package versions and
-specification versions move independently; `spatialdds.SPEC_COMMIT` is the one
-that says what the wire looks like.
+**Implements Appendix N as of SpatialDDS-spec `v1.8` (`4b5652c`).** Package
+versions and specification versions move independently; `spatialdds.SPEC_TAG`
+and `spatialdds.SPEC_COMMIT` are the ones that say what the wire looks like.
 
 The source, the reference gateway, the recordings and every gate behind the
 claims on this page are at [https://github.com/OpenArCloud/spatialdds-web](https://github.com/OpenArCloud/spatialdds-web). Every code block below is executed
@@ -289,7 +289,7 @@ call goes away and the bar is one line.
 | `sd.asset(path_or_bytes, media_type=)` / `sd.asset_ref(url, hash=, media_type=)` | an asset hashed from its bytes, or a reference to one hosted elsewhere |
 | `sd.records` | the builders, listed above |
 | `sd.lift(fqn, doc)` | the lift on its own, for JSON you already have |
-| `sd.SPEC_COMMIT`, `sd.APPENDIX_N`, `sd.__version__` | what this speaks |
+| `sd.SPEC_TAG`, `sd.SPEC_COMMIT`, `sd.APPENDIX_N`, `sd.__version__` | what this speaks |
 
 `ep.near()` picks a geohash precision whose cell covers the radius, encodes the
 centre and eight points around the query circle so the covering cells are found
