@@ -46,7 +46,7 @@ FIVE = "spatialdds/gate-scene/discovery/announce/v1"
 WK = gateway.WELL_KNOWN_ROOT
 
 
-def author(path: Path) -> str:
+def author(path: Path, topics: tuple = (FOUR, FIVE)) -> str:
     """A recording with one Announce on each topic. Returns its service_id."""
     model, idl = pin.wire_model()
     doc = sd.service_announce(
@@ -59,7 +59,7 @@ def author(path: Path) -> str:
         w = McapWriter(f)
         w.start(profile="spatialdds", library="gates/short_topics")
         sid = w.register_schema(name=name, encoding="omgidl", data=data)
-        for i, topic in enumerate((FOUR, FIVE)):
+        for i, topic in enumerate(topics):
             cid = w.register_channel(topic=topic, message_encoding="cdr",
                                      schema_id=sid)
             w.add_message(channel_id=cid, log_time=i + 1, publish_time=i + 1,
@@ -159,6 +159,20 @@ async def run() -> int:
                 checks.append(("the well-known routes that were there before "
                                "still answer (schemas index)",
                                r.status == 200, f"{r.status}"))
+        # A well-known announce has no scene segment, so the scene it
+        # belongs to is the one its own manifest_uri names: alone on the
+        # four-segment topic, it is still its scene's declared service.
+        only = Path(tmp) / "only-four.mcap"
+        author(only, (FOUR,))
+        st4 = gateway.build_state(only, None)
+        decl = gateway.declared_services(st4, "gate-scene")
+        checks.append(("an announce published only on the well-known topic is "
+                       "its scene's declared service, by its manifest_uri",
+                       [d.get("service_id") for d in decl] == [sid]
+                       and gateway.declared_coverage(st4, "gate-scene"),
+                       f"{decl}"))
+        checks.append(("…and the empty scene is not a lane",
+                       "" not in st4.scenes, f"{st4.scenes}"))
     return report("four-segment topics", checks,
                   "a four-segment topic is served at its well-known path, "
                   "exactly as a scene-scoped one")

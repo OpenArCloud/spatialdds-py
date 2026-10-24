@@ -593,6 +593,28 @@ def coverage_bbox(cov: dict) -> tuple[float, float, float, float] | None:
     return None
 
 
+def _scene_announces(st: State, scene: str) -> list:
+    """The `Announce` instances in force for a scene, wherever they were published.
+
+    On a scene's own topic (`spatialdds/<scene>/discovery/announce/v1`, the
+    web binding's convention), or on the spec's well-known four-segment
+    `spatialdds/discovery/announce/v1`. That topic has no scene segment, so an
+    announce there belongs to the scene its own `manifest_uri` names. Without
+    that rule a native participant's announce was served at its well-known
+    path and invisible to its scene's search results.
+    """
+    out = []
+    for _path, res in sorted(st.resources.items()):
+        if res.fqn != "spatial.disco.Announce":
+            continue
+        for inst in st.latched.get(res.topic, {}).values():
+            if res.scene == scene or (
+                    not res.scene
+                    and uri_scene(inst.data.get("manifest_uri", "")) == scene):
+                out.append(inst)
+    return out
+
+
 def declared_coverage(st: State, scene: str) -> list[dict] | None:
     """The coverage a recorded `Announce` declares for this scene, if any.
 
@@ -601,13 +623,10 @@ def declared_coverage(st: State, scene: str) -> list[dict] | None:
     happens to serve is an inference about the same thing. When the producer
     has spoken, serve what it said.
     """
-    for res in st.resources.values():
-        if res.scene != scene or res.fqn != "spatial.disco.Announce":
-            continue
-        for inst in st.latched.get(res.topic, {}).values():
-            cov = inst.data.get("coverage") or []
-            if cov:
-                return cov
+    for inst in _scene_announces(st, scene):
+        cov = inst.data.get("coverage") or []
+        if cov:
+            return cov
     return None
 
 
@@ -619,12 +638,7 @@ def declared_services(st: State, scene: str) -> list[dict]:
     describes is a real registry entry, and returning only the first would
     make it invisible to search while serving it perfectly over GET.
     """
-    out = []
-    for _path, res in sorted(st.resources.items()):
-        if res.scene != scene or res.fqn != "spatial.disco.Announce":
-            continue
-        out.extend(st.latched.get(res.topic, {}).values())
-    return [i.data for i in out]
+    return [i.data for i in _scene_announces(st, scene)]
 
 
 def declared_service(st: State, scene: str) -> dict | None:

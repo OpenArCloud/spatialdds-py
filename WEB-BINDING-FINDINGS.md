@@ -2018,3 +2018,34 @@ trip it.
   split planted, `gates/short_topics.py` raised on the refused WebSocket
   handshake instead of reporting it. A refused upgrade is now a reported
   result.
+
+### 65. The vendored retail recording is not a 1.8 recording
+
+The v1.8.2 conformance suite added a check that every *streamed* payload
+validates against its published schema. Against this repository's retail
+recording (`samples/queuing-retail-sample.mcap`, vendored from
+spatialdds-scenescape) it fails with `'det_id' is a required property`. The
+recording's `Detection2D` has no `det_id`, which every 1.8 IDL revision in the
+pin history carries (424a8b3, 9c3e1f2, v1.8). The recording's embedded IDL
+predates the 1.8 types; PROVENANCE already calls it "a vendored pre-revision
+artifact".
+
+The 0.6.0 gateway gives the identical failure under the same suite, so it is
+the recording and not 0.7.0. The fix is a re-vendor from the sidecar's current
+corpora at its corrected pin, which is the sidecar's call (its own pin is filed
+as behind). Until then, the retail row in docs/EVIDENCE.md says so.
+
+### 66. A well-known announce was invisible to its scene's search results
+
+With four-segment topics served (finding 60), a native participant's
+`Announce` on the spec's well-known `spatialdds/discovery/announce/v1` was
+served at its well-known path. But search, which builds one manifest per
+scene, linked a scene's announces by the topic's scene segment, and a
+four-segment topic has none. So the participant's declared identity and
+coverage never reached search; the gateway's synthesized ones did. Measured by
+the conformance run over a recorded native session.
+
+An announce on a scene-less topic now belongs to the scene its own
+`manifest_uri` names (`gateway._scene_announces`). `gates/short_topics.py`
+holds that with a recording carrying the announce only on the well-known topic.
+A planted scene-only rule fails it.

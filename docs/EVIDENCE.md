@@ -210,12 +210,27 @@ closed by SpatialDDS-spec `c8743ef`, which gave the suite a resolver check and a
 `--connect` option for an endpoint whose advertised origin differs from the
 address it is reached at. Both shapes now run, and both pass:
 
+Re-run at 0.7.0 with the suite from SpatialDDS-spec `v1.8.2`, which added the
+streamed-payload and four-segment probes. Every request is kept on loopback by
+`--connect`:
+
 | shape | run | result |
 |---|---|---|
-| serving the fountain, as the deploy does | `--endpoint https://demo.spatialdds.org --connect http://127.0.0.1:PORT` | **14 checks, 14 passed, 0 failed, 0 skipped** |
-| the same, publish surface **on** | plus `--publish` on the endpoint | **14 checks, 14 passed, 0 failed, 0 skipped** |
-| serving the retail recording | the same connect form | 14 checks, 13 passed, 0 failed, 1 skipped |
-| **an empty registry** | `python -m spatialdds.serve --authority … --publish` | 14 checks, 6 passed, **5 failed**, 3 skipped |
+| serving the fountain, as the deploy does | `--endpoint https://demo.spatialdds.org --connect http://127.0.0.1:PORT` | **15 checks, 15 passed, 0 failed, 0 skipped** |
+| the same, publish surface **on** | plus `--publish` on the endpoint | **15 checks, 15 passed, 0 failed, 0 skipped** |
+| **a native participant's session**, recorded by its tap (`p.record()`) and served with `--mcap` | `--endpoint https://registry.example --connect …` | **15 checks, 14 passed, 0 failed, 1 skipped** (§8.2: no anchors in the session) |
+| serving the retail recording | the same connect form | 15 checks, 13 passed, **1 failed**, 1 skipped |
+| an empty registry | `python -m spatialdds.serve --authority … --publish` | 15 checks, 6 passed, 0 failed, 9 skipped |
+
+**The retail row's failure is the recording's, and it is new only because the
+check is.** The v1.8.2 suite validates every streamed payload, and the vendored
+retail recording's `Detection2D` carries no `det_id`, a member 1.8 requires.
+Its embedded IDL predates the 1.8 types. The 0.6.0 gateway gives the identical
+failure under the same suite, so this is not 0.7.0's doing (finding 65).
+
+**The empty registry now reports honestly.** It used to be "5 failed" under
+the old suite. The suite reports its data-dependent checks as skipped now, as
+finding 39 asked, so the empty registry is 6 passed and 9 skipped.
 
 That last row is new in 0.2.0 and it is the suite's gap rather than this
 endpoint's. An empty registry is now the normal way to start one: it serves a
