@@ -439,18 +439,48 @@ def capabilities(*, supported: Iterable[Dict[str, Any]] = (),
             "features": list(features)}
 
 
-def topic(type_name: str, *, scene: str, stream: str, version: str = "v1",
-          durability: str = "TRANSIENT_LOCAL", qos_profile: str = "",
-          rate_hz: float = 0.0, max_chunk_bytes: int = 0) -> Dict[str, Any]:
+def topic(type_name: str, *, scene: str, stream: Optional[str] = None,
+          version: str = "v1", durability: Optional[str] = None,
+          qos_profile: str = "", rate_hz: float = 0.0,
+          max_chunk_bytes: int = 0) -> Dict[str, Any]:
     """One `TopicMeta`, with the §3.3.1 topic name built from its segments.
 
-    `durability` defaults to TRANSIENT_LOCAL because the things a registry
-    holds are definitions: a late joiner has to receive them or discovery does
-    not work. It is a member rather than an assumption as of the 1.8 revision
-    (spec 9c3e1f2), which is why it can be stated here at all.
+    The name comes from `spatialdds.dds.registry.topic_name`, the one function
+    the native layer names its topics with. So a registered type whose §3.3.2
+    row gives a template (`model_entity` -> `spatialdds/<scene>/world/entity/v1`)
+    gets that name, and `stream` may then be omitted.
+
+    `durability` is derived, never guessed:
+
+    * a registered §3.3.3 `qos_profile` decides it, and an explicit
+      `durability` that contradicts the profile is refused;
+    * with no profile, TRANSIENT_LOCAL, because the things a registry holds
+      are definitions a late joiner has to receive;
+    * an extension profile this package cannot read leaves it empty, which the
+      spec says means absent.
+
+    It is a member rather than an assumption as of the 1.8 revision (spec
+    9c3e1f2). Until 0.7.0 the default was TRANSIENT_LOCAL whatever the profile
+    said, so a `POSE_RT` row claimed a durability its profile contradicts
+    (docs/NATIVE-SDK-CENSUS.md, filed against this repository).
     """
+    from .dds import registry
+    try:
+        name = registry.topic_name(scene, stream, type_name, version)
+    except registry.RegistryError as e:
+        raise ValueError(str(e)) from None
+    derived = None
+    if qos_profile:
+        known = registry.profiles().get(qos_profile)
+        derived = known.durability if known is not None else ""
+    if durability is None:
+        durability = "TRANSIENT_LOCAL" if derived is None else derived
+    elif derived and durability != derived:
+        raise ValueError(
+            f"durability {durability!r} contradicts {qos_profile}, which is "
+            f"{derived} (§3.3.3)")
     tm = _blank(TOPIC_META)
-    tm["name"] = f"spatialdds/{scene}/{stream}/{type_name}/{version}"
+    tm["name"] = name
     tm["type"], tm["version"] = type_name, version
     tm["durability"], tm["qos_profile"] = durability, qos_profile
     tm["target_rate_hz"] = float(rate_hz)

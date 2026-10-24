@@ -97,6 +97,20 @@ def gates() -> list[dict]:
                         capture_output=True).returncode != 0:
         no_idlc = ("needs the cyclonedds-python image, which carries idlc "
                    "11.0.1 (the toolchain the generated headers record)")
+    # The registry gate regenerates from the spec text at the pinned tag.
+    spec = ROOT.parent / "SpatialDDS-spec"
+    tag = next((line.split("=", 1)[1].strip() for line in
+                (ROOT / "webjson" / "PROVENANCE").read_text().splitlines()
+                if line.startswith("artifacts_tag")), "")
+    no_spec = None
+    if not (spec / ".git").exists():
+        no_spec = (f"needs a SpatialDDS-spec checkout at {spec}, to regenerate "
+                   f"the registry from the spec text at the pin")
+    elif subprocess.run(["git", "-C", str(spec), "rev-parse", "--verify",
+                         "-q", f"{tag}^{{commit}}"],
+                        capture_output=True).returncode != 0:
+        no_spec = (f"needs the {tag} tag in the SpatialDDS-spec checkout "
+                   f"(git fetch --tags)")
     no_lsof = None if shutil.which("lsof") else (
         "needs lsof to confirm which process is listening on the port")
     no_node = None if shutil.which("node") else (
@@ -240,6 +254,9 @@ def gates() -> list[dict]:
         {"name": "native_types_drift", "what": "the native bindings are regenerated from the pin without a diff",
          "cmd": ["gates/native_types_drift.py"],
          "skip": no_idlc},
+        {"name": "native_registry", "what": "the registry is the spec's text at the pin, and it refuses to guess",
+         "cmd": ["gates/native_registry.py"],
+         "skip": no_spec},
         {"name": "short_topics", "what": "a four-segment topic is served at its well-known path, exactly as a scene-scoped one",
          "cmd": ["gates/short_topics.py"],
          "skip": no_web},

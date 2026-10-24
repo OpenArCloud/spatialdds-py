@@ -1,0 +1,561 @@
+{
+ "generated_by": "tools/gen_registry.py",
+ "profiles": {
+  "ANCHOR_DELTA": {
+   "deadline_ms": null,
+   "durability": "VOLATILE",
+   "history": {
+    "kind": "KEEP_ALL"
+   },
+   "ordering": "Ordered",
+   "reliability": "RELIABLE",
+   "use": "Anchor delta streams; snapshots via manifests"
+  },
+  "DESC_BATCH": {
+   "deadline_ms": null,
+   "durability": "VOLATILE",
+   "history": {
+    "kind": "KEEP_ALL"
+   },
+   "ordering": "Ordered",
+   "reliability": "RELIABLE",
+   "use": "Descriptor or feature batches"
+  },
+  "DET_RT": {
+   "deadline_ms": 100,
+   "durability": "VOLATILE",
+   "history": {
+    "depth": 1,
+    "kind": "KEEP_LAST"
+   },
+   "ordering": "Ordered",
+   "reliability": "BEST_EFFORT",
+   "use": "Detection sets (2D/3D)"
+  },
+  "EVENT_RT": {
+   "deadline_ms": null,
+   "durability": "VOLATILE",
+   "history": {
+    "depth": 64,
+    "kind": "KEEP_LAST"
+   },
+   "ordering": "Ordered",
+   "reliability": "RELIABLE",
+   "use": "Spatial events and alerts"
+  },
+  "GEOM_TILE": {
+   "deadline_ms": null,
+   "durability": "TRANSIENT_LOCAL",
+   "history": {
+    "depth": 1,
+    "kind": "KEEP_LAST"
+   },
+   "ordering": "Ordered",
+   "reliability": "RELIABLE",
+   "use": "3D geometry, large tile data"
+  },
+  "IMU_RT": {
+   "deadline_ms": 10,
+   "durability": "VOLATILE",
+   "history": {
+    "depth": 1,
+    "kind": "KEEP_LAST"
+   },
+   "ordering": "Ordered",
+   "reliability": "BEST_EFFORT",
+   "use": "IMU samples"
+  },
+  "LIDAR_RT": {
+   "deadline_ms": 100,
+   "durability": "VOLATILE",
+   "history": {
+    "depth": 1,
+    "kind": "KEEP_LAST"
+   },
+   "ordering": "Ordered",
+   "reliability": "BEST_EFFORT",
+   "use": "Lidar frames"
+  },
+  "MAP_META": {
+   "deadline_ms": null,
+   "durability": "TRANSIENT_LOCAL",
+   "history": {
+    "depth": 1,
+    "kind": "KEEP_LAST"
+   },
+   "ordering": "Ordered",
+   "reliability": "RELIABLE",
+   "use": "Map descriptors, alignments, events"
+  },
+  "POSE_RT": {
+   "deadline_ms": 33,
+   "durability": "VOLATILE",
+   "history": {
+    "depth": 1,
+    "kind": "KEEP_LAST"
+   },
+   "ordering": "Ordered",
+   "reliability": "BEST_EFFORT",
+   "use": "Live pose streams"
+  },
+  "RADAR_RT": {
+   "deadline_ms": 100,
+   "durability": "VOLATILE",
+   "history": {
+    "depth": 1,
+    "kind": "KEEP_LAST"
+   },
+   "ordering": "Ordered",
+   "reliability": "BEST_EFFORT",
+   "use": "Real-time radar data (detections or tensors)"
+  },
+  "RADIO_SCAN_RT": {
+   "deadline_ms": null,
+   "durability": "VOLATILE",
+   "history": {
+    "depth": 1,
+    "kind": "KEEP_LAST"
+   },
+   "ordering": "Ordered",
+   "reliability": "BEST_EFFORT",
+   "use": "Radio fingerprint scans (WiFi/BLE/UWB)"
+  },
+  "RF_BEAM_RT": {
+   "deadline_ms": 20,
+   "durability": "VOLATILE",
+   "history": {
+    "depth": 1,
+    "kind": "KEEP_LAST"
+   },
+   "ordering": "Ordered",
+   "reliability": "BEST_EFFORT",
+   "use": "Real-time beam sweep data"
+  },
+  "SEG_MASK_RT": {
+   "deadline_ms": 33,
+   "durability": "VOLATILE",
+   "history": {
+    "depth": 1,
+    "kind": "KEEP_LAST"
+   },
+   "ordering": "Ordered",
+   "reliability": "BEST_EFFORT",
+   "use": "Live segmentation masks"
+  },
+  "SENSOR_META": {
+   "deadline_ms": null,
+   "durability": "TRANSIENT_LOCAL",
+   "history": {
+    "depth": 1,
+    "kind": "KEEP_LAST"
+   },
+   "ordering": "Ordered",
+   "reliability": "RELIABLE",
+   "use": "Sensor/stream metadata"
+  },
+  "VIDEO_ARCHIVE": {
+   "deadline_ms": null,
+   "durability": "VOLATILE",
+   "history": {
+    "kind": "KEEP_ALL"
+   },
+   "ordering": "Ordered",
+   "reliability": "RELIABLE",
+   "use": "Replay or stored media"
+  },
+  "VIDEO_LIVE": {
+   "deadline_ms": 33,
+   "durability": "VOLATILE",
+   "history": {
+    "depth": 1,
+    "kind": "KEEP_LAST"
+   },
+   "ordering": "Ordered",
+   "reliability": "BEST_EFFORT",
+   "use": "Live video feeds"
+  },
+  "VPS_REQ": {
+   "deadline_ms": null,
+   "durability": "VOLATILE",
+   "history": {
+    "kind": "KEEP_ALL"
+   },
+   "ordering": "Ordered",
+   "reliability": "RELIABLE",
+   "use": "VPS localization requests"
+  },
+  "VPS_RESP": {
+   "deadline_ms": null,
+   "durability": "VOLATILE",
+   "history": {
+    "kind": "KEEP_ALL"
+   },
+   "ordering": "Ordered",
+   "reliability": "RELIABLE",
+   "use": "VPS localization responses"
+  },
+  "ZONE_META": {
+   "deadline_ms": null,
+   "durability": "TRANSIENT_LOCAL",
+   "history": {
+    "depth": 1,
+    "kind": "KEEP_LAST"
+   },
+   "ordering": "Ordered",
+   "reliability": "RELIABLE",
+   "use": "Zone definitions, zone state"
+  }
+ },
+ "spec": {
+  "commit": "4b5652c6b52a2c10f4f4c5b686be7cf979d8b8fc",
+  "source": "sections/v1.8/02-idl-profiles.md",
+  "source_sha256": "e3d4a724e36daa690e7a1158e2f65cc97d214343b48a545d53159d2b98bec0a7",
+  "tag": "v1.8"
+ },
+ "types": {
+  "anchor_delta": {
+   "idl": "spatial::anchors::AnchorDelta",
+   "profile": "ANCHOR_DELTA",
+   "provisional": false,
+   "spelled_qos": {},
+   "topic_template": null
+  },
+  "crossing_line": {
+   "idl": "spatial::events::CrossingLine",
+   "profile": "ZONE_META",
+   "provisional": false,
+   "spelled_qos": {},
+   "topic_template": null
+  },
+  "desc_array": {
+   "idl": "spatial::slam_frontend::KeyframeFeatures",
+   "profile": "DESC_BATCH",
+   "provisional": false,
+   "spelled_qos": {},
+   "topic_template": null
+  },
+  "detection2d": {
+   "idl": "spatial::semantics::Detection2DSet",
+   "profile": "DET_RT",
+   "provisional": false,
+   "spelled_qos": {},
+   "topic_template": null
+  },
+  "detection3d": {
+   "idl": "spatial::semantics::Detection3DSet",
+   "profile": "DET_RT",
+   "provisional": false,
+   "spelled_qos": {},
+   "topic_template": null
+  },
+  "entity_binding": {
+   "idl": "spatial::core::EntityBinding",
+   "profile": null,
+   "provisional": false,
+   "spelled_qos": {},
+   "topic_template": null
+  },
+  "framed_pose": {
+   "idl": "spatial::core::FramedPose",
+   "profile": "POSE_RT",
+   "provisional": false,
+   "spelled_qos": {},
+   "topic_template": null
+  },
+  "fused_track": {
+   "idl": "spatial::semantics::FusedTrackSet",
+   "profile": "DET_RT",
+   "provisional": false,
+   "spelled_qos": {},
+   "topic_template": null
+  },
+  "geometry_tile": {
+   "idl": "spatial::core::TileMeta",
+   "profile": "GEOM_TILE",
+   "provisional": false,
+   "spelled_qos": {},
+   "topic_template": null
+  },
+  "geopose": {
+   "idl": "spatial::core::GeoPose",
+   "profile": "POSE_RT",
+   "provisional": false,
+   "spelled_qos": {},
+   "topic_template": null
+  },
+  "imu_sample": {
+   "idl": "spatial::vio::ImuSample",
+   "profile": "IMU_RT",
+   "provisional": false,
+   "spelled_qos": {},
+   "topic_template": null
+  },
+  "lidar_frame": {
+   "idl": "spatial::sensing::lidar::LidarFrame",
+   "profile": "LIDAR_RT",
+   "provisional": false,
+   "spelled_qos": {},
+   "topic_template": null
+  },
+  "lidar_meta": {
+   "idl": "spatial::sensing::lidar::LidarMeta",
+   "profile": "SENSOR_META",
+   "provisional": false,
+   "spelled_qos": {},
+   "topic_template": null
+  },
+  "map_alignment": {
+   "idl": "spatial::mapping::MapAlignment",
+   "profile": "MAP_META",
+   "provisional": false,
+   "spelled_qos": {},
+   "topic_template": null
+  },
+  "map_event": {
+   "idl": "spatial::mapping::MapEvent",
+   "profile": "MAP_META",
+   "provisional": false,
+   "spelled_qos": {},
+   "topic_template": null
+  },
+  "map_meta": {
+   "idl": "spatial::mapping::MapMeta",
+   "profile": "MAP_META",
+   "provisional": false,
+   "spelled_qos": {},
+   "topic_template": null
+  },
+  "model_command": {
+   "idl": "spatial::owm::ModelCommand",
+   "profile": null,
+   "provisional": true,
+   "spelled_qos": {
+    "durability": "VOLATILE",
+    "history": {
+     "depth": 1,
+     "kind": "KEEP_LAST"
+    }
+   },
+   "topic_template": "spatialdds/<scene>/world/model_command/v1"
+  },
+  "model_entity": {
+   "idl": "spatial::owm::Entity",
+   "profile": null,
+   "provisional": true,
+   "spelled_qos": {
+    "durability": "TRANSIENT_LOCAL",
+    "history": {
+     "depth": 1,
+     "kind": "KEEP_LAST"
+    },
+    "reliability": "RELIABLE"
+   },
+   "topic_template": "spatialdds/<scene>/world/entity/v1"
+  },
+  "model_pose": {
+   "idl": "spatial::owm::ModelPose",
+   "profile": null,
+   "provisional": true,
+   "spelled_qos": {
+    "durability": "VOLATILE",
+    "history": {
+     "depth": 1,
+     "kind": "KEEP_LAST"
+    }
+   },
+   "topic_template": "spatialdds/<scene>/world/model_pose/v1"
+  },
+  "navsat_status": {
+   "idl": "spatial::core::NavSatStatus",
+   "profile": null,
+   "provisional": false,
+   "spelled_qos": {},
+   "topic_template": null
+  },
+  "planned_trajectory": {
+   "idl": "spatial::core::PlannedTrajectory",
+   "profile": "EVENT_RT",
+   "provisional": false,
+   "spelled_qos": {},
+   "topic_template": null
+  },
+  "rad_sensor_meta": {
+   "idl": "spatial::sensing::rad::RadSensorMeta",
+   "profile": "SENSOR_META",
+   "provisional": false,
+   "spelled_qos": {},
+   "topic_template": null
+  },
+  "radar_detection": {
+   "idl": "spatial::sensing::rad::RadDetectionSet",
+   "profile": "RADAR_RT",
+   "provisional": false,
+   "spelled_qos": {},
+   "topic_template": null
+  },
+  "radar_tensor": {
+   "idl": "spatial::sensing::rad::RadTensorFrame",
+   "profile": "RADAR_RT",
+   "provisional": false,
+   "spelled_qos": {},
+   "topic_template": null
+  },
+  "radar_tensor_meta": {
+   "idl": "spatial::sensing::rad::RadTensorMeta",
+   "profile": "SENSOR_META",
+   "provisional": false,
+   "spelled_qos": {},
+   "topic_template": null
+  },
+  "radio_scan": {
+   "idl": "spatial::sensing::radio::RadioScan",
+   "profile": "RADIO_SCAN_RT",
+   "provisional": true,
+   "spelled_qos": {},
+   "topic_template": null
+  },
+  "radio_sensor_meta": {
+   "idl": "spatial::sensing::radio::RadioSensorMeta",
+   "profile": "SENSOR_META",
+   "provisional": true,
+   "spelled_qos": {},
+   "topic_template": null
+  },
+  "rf_beam": {
+   "idl": "spatial::sensing::rf_beam::RfBeamFrame",
+   "profile": "RF_BEAM_RT",
+   "provisional": true,
+   "spelled_qos": {},
+   "topic_template": null
+  },
+  "rf_beam_meta": {
+   "idl": "spatial::sensing::rf_beam::RfBeamMeta",
+   "profile": "SENSOR_META",
+   "provisional": true,
+   "spelled_qos": {},
+   "topic_template": null
+  },
+  "seg_mask": {
+   "idl": "spatial::sensing::vision::VisionFrame",
+   "profile": "SEG_MASK_RT",
+   "provisional": false,
+   "spelled_qos": {},
+   "topic_template": null
+  },
+  "spatial_event": {
+   "idl": "spatial::events::SpatialEvent",
+   "profile": "EVENT_RT",
+   "provisional": false,
+   "spelled_qos": {},
+   "topic_template": null
+  },
+  "spatial_zone": {
+   "idl": "spatial::events::SpatialZone",
+   "profile": "ZONE_META",
+   "provisional": false,
+   "spelled_qos": {},
+   "topic_template": null
+  },
+  "video_frame": {
+   "idl": "spatial::sensing::vision::VisionFrame",
+   "profile": "VIDEO_LIVE",
+   "provisional": false,
+   "spelled_qos": {},
+   "topic_template": null
+  },
+  "video_meta": {
+   "idl": "spatial::sensing::vision::VisionMeta",
+   "profile": "SENSOR_META",
+   "provisional": false,
+   "spelled_qos": {},
+   "topic_template": null
+  },
+  "vps_query": {
+   "idl": "spatial::argeo::VpsRequest",
+   "profile": "VPS_REQ",
+   "provisional": false,
+   "spelled_qos": {},
+   "topic_template": null
+  },
+  "vps_response": {
+   "idl": "spatial::argeo::VpsResponse",
+   "profile": "VPS_RESP",
+   "provisional": false,
+   "spelled_qos": {},
+   "topic_template": null
+  },
+  "zone_state": {
+   "idl": "spatial::events::ZoneState",
+   "profile": "ZONE_META",
+   "provisional": false,
+   "spelled_qos": {},
+   "topic_template": null
+  }
+ },
+ "well_known": {
+  "Announce": {
+   "idl": "spatial::disco::Announce",
+   "qos": {
+    "deadline_ms": null,
+    "durability": "TRANSIENT_LOCAL",
+    "history": {
+     "depth": 1,
+     "kind": "KEEP_LAST"
+    },
+    "reliability": "RELIABLE"
+   },
+   "topic": "spatialdds/discovery/announce/v1"
+  },
+  "ContentAnnounce": {
+   "idl": "spatial::disco::ContentAnnounce",
+   "qos": {
+    "deadline_ms": null,
+    "durability": "TRANSIENT_LOCAL",
+    "history": {
+     "depth": 1,
+     "kind": "KEEP_LAST"
+    },
+    "reliability": "RELIABLE"
+   },
+   "topic": "spatialdds/discovery/content/v1"
+  },
+  "CoverageHint": {
+   "idl": "spatial::disco::CoverageHint",
+   "qos": {
+    "deadline_ms": null,
+    "durability": "VOLATILE",
+    "history": {
+     "depth": 1,
+     "kind": "KEEP_LAST"
+    },
+    "reliability": "BEST_EFFORT"
+   },
+   "topic": "spatialdds/discovery/coverage_hint/v1"
+  },
+  "CoverageQuery": {
+   "idl": "spatial::disco::CoverageQuery",
+   "qos": {
+    "deadline_ms": null,
+    "durability": "VOLATILE",
+    "history": {
+     "kind": "KEEP_ALL"
+    },
+    "reliability": "RELIABLE"
+   },
+   "topic": "spatialdds/discovery/query/v1"
+  },
+  "Depart": {
+   "idl": "spatial::disco::Depart",
+   "qos": {
+    "deadline_ms": null,
+    "durability": "VOLATILE",
+    "history": {
+     "depth": 1,
+     "kind": "KEEP_LAST"
+    },
+    "reliability": "RELIABLE"
+   },
+   "topic": "spatialdds/discovery/depart/v1"
+  }
+ }
+}

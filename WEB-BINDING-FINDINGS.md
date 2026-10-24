@@ -1921,3 +1921,25 @@ so re-authoring embedded whatever that checkout had checked out. Here that was
 the pin, and is what `gates/fresh_start.py` requires the embedded bytes to
 equal.
 
+
+### 62. A TopicMeta's durability was a default, not a derivation
+
+`records.topic()` defaulted `durability` to `TRANSIENT_LOCAL` whatever
+`qos_profile` said. So `sd.topic("geopose", qos_profile="POSE_RT")` claimed a
+latched lane on a profile §3.3.3 makes volatile. That is a claim nobody made,
+in the member 1.8 added precisely so a gateway would not have to guess. It also
+built the name from its segments even for a type whose §3.3.2 row gives a
+template. `model_entity` became `…/world/model_entity/v1` where the registry
+says `…/world/entity/v1`.
+
+Found by the native-SDK census (docs/NATIVE-SDK-CENSUS.md, filed against this
+repository). It now takes both from the generated registry:
+
+- A registered profile decides durability, and a contradicting explicit value
+  is refused.
+- An extension profile leaves it empty, which the spec defines as absent.
+- No profile keeps the old default, which every existing caller relies on.
+- The name comes from `spatialdds.dds.registry.topic_name`, the function the
+  native layer uses.
+
+`gates/native_registry.py` holds all four.

@@ -60,6 +60,9 @@ include = ["spatialdds", "spatialdds.*"]
 #
 # * `artifacts/serializer_tables.json` -- what the lift reads, in both
 #   directions. A client has no recording to learn the types from.
+# * `artifacts/registry.json` -- §3.3.2's types, §3.3.3's QoS profiles and the
+#   well-known topics, generated from the spec text at the pin by
+#   `tools/gen_registry.py`; `gates/native_registry.py` guards the drift.
 # * `artifacts/schemas/*.json` -- the 112 generated JSON Schemas. The endpoint
 #   publishes them and validates against them, and §8.4's third-party reader
 #   has nothing else to go on.
@@ -75,6 +78,7 @@ include = ["spatialdds", "spatialdds.*"]
 #   at /.well-known/spatialdds/openapi; `gates/openapi.py` guards the drift.
 spatialdds = [
   "artifacts/serializer_tables.json",
+  "artifacts/registry.json",
   "artifacts/openapi.yaml",
   "artifacts/openapi.html",
   "artifacts/schemas/*.json",
