@@ -103,6 +103,15 @@ def build_parser(ap: argparse.ArgumentParser) -> argparse.ArgumentParser:
                     help="a token table: per-principal tokens, each scoped "
                          "to scenes (python -m spatialdds.tokens manages it). "
                          "Replaces --token; reloaded on SIGHUP")
+    ap.add_argument("--max-body", type=int, default=256 * 1024,
+                    help="largest request body accepted, in bytes "
+                         "(413 problem document beyond it)")
+    ap.add_argument("--max-ws", type=int, default=256,
+                    help="concurrent WebSocket subscriptions (503 beyond)")
+    ap.add_argument("--rate", type=float, default=20.0,
+                    help="requests per second per client IP, burst 3x "
+                         "(429 beyond); the client is X-Forwarded-For from "
+                         "a loopback proxy, else the peer")
     return ap
 
 
@@ -180,6 +189,7 @@ def main(argv: list[str] | None = None) -> int:
             "table of per-scene principals; --token is the single-operator "
             "shape it replaces. Pass one.")
     from .server import tenancy
+    from .server.limits import HANDLER_ARGS, Limits
     table = tenancy.TokenTable.load(a.tokens) if a.tokens is not None \
         else None
     if table is not None and not table:
@@ -354,10 +364,15 @@ def main(argv: list[str] | None = None) -> int:
         app = gw_http.make_app(st, base, token, a.publish, jr,
                                a.assets if a.assets
                                and a.assets.is_dir() else None,
-                               command_registry=cmd_registry, tokens=table)
+                               command_registry=cmd_registry, tokens=table,
+                               limits=Limits(max_body=a.max_body,
+                                             max_ws=a.max_ws,
+                                             rate_per_s=a.rate,
+                                             burst=int(a.rate * 3)))
         if table is not None:
             app.on_startup.append(_reload_on_hup(table))
-        web.run_app(app, host=a.host, port=a.port, print=None)
+        web.run_app(app, host=a.host, port=a.port, print=None,
+                    **HANDLER_ARGS)
     except OSError as e:
         # An already-bound port is the one failure where everything downstream
         # still looks healthy: a client connects, a readiness probe succeeds,

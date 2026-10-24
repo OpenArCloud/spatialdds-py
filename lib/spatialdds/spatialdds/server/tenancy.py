@@ -61,6 +61,23 @@ from typing import Iterable, Optional
 #: The grant that covers every scene that exists.
 ALL = "*"
 
+#: Every refusal the write rule can produce: slug -> (status, title, when).
+#: `check_write` raises from this table and `tools/gen_openapi.py` documents
+#: every write path from it, so the published OpenAPI cannot describe a rule
+#: the gateway does not enforce, or miss one it does.
+WRITE_REFUSALS: dict[str, tuple[int, str, str]] = {
+    "operator-scoped": (401, "Operator-scoped resource",
+                        "no bearer token, or one this endpoint did not issue"),
+    "not-your-lane": (403, "Not your lane",
+                      "a valid token writing a scene outside its grant"),
+    "scene-creation-not-granted": (403, "No such scene",
+                                   "a scene that exists nowhere, from a "
+                                   "principal that may not create scenes"),
+    "quota-exceeded": (403, "Record quota reached",
+                       "a new record in a scene already holding the "
+                       "principal's `max_records`"),
+}
+
 #: Virtual authorities (designed, not built): authority -> scenes it answers
 #: for, selected by the request's Host header. Empty means one authority, the
 #: endpoint's own, over every scene -- which is the only shape served today.
@@ -82,6 +99,11 @@ class Principal:
     provider: str
     scenes: frozenset[str]
     may_create_scenes: bool = False
+    #: Records (instances plus manifests) a scene may hold before this
+    #: principal's new ones are refused; None is no limit. Counted over the
+    #: whole scene, seed included, because a lane is the unit of ownership.
+    #: Replacing an existing record is never refused by it.
+    max_records: Optional[int] = None
 
     def grants(self, scene: str) -> bool:
         return ALL in self.scenes or scene in self.scenes
@@ -90,7 +112,9 @@ class Principal:
         return {"name": self.name, "provider": self.provider,
                 "token_sha256": token_sha256,
                 "scenes": sorted(self.scenes),
-                "may_create_scenes": self.may_create_scenes}
+                "may_create_scenes": self.may_create_scenes,
+                **({"max_records": self.max_records}
+                   if self.max_records is not None else {})}
 
 
 @dataclass
@@ -133,9 +157,14 @@ class TokenTable:
                 raise ValueError(f"principal {r.get('name')!r}: scenes must be "
                                  f"a non-empty list (use [\"*\"] for every "
                                  f"existing scene)")
+            mr = r.get("max_records")
+            if mr is not None and (not isinstance(mr, int) or mr < 0):
+                raise ValueError(f"principal {r.get('name')!r}: max_records "
+                                 f"must be a non-negative integer")
             rows.append((h, Principal(str(r["name"]), str(r.get("provider", "")),
                                       frozenset(map(str, scenes)),
-                                      bool(r.get("may_create_scenes", False)))))
+                                      bool(r.get("may_create_scenes", False)),
+                                      mr)))
         names = [p.name for _h, p in rows]
         dup = sorted({n for n in names if names.count(n) > 1})
         if dup:
@@ -209,12 +238,14 @@ def check_write(p: Principal, scene: str, served: Iterable[str],
     """None if `p` may write `scene`, else (status, slug, title, detail)."""
     if not p.grants(scene):
         lanes = ", ".join(sorted(p.scenes)) or "none"
-        return (403, "not-your-lane", "Not your lane",
+        status, title, _when = WRITE_REFUSALS["not-your-lane"]
+        return (status, "not-your-lane", title,
                 f"The token for {p.name!r} may write the scene(s) {lanes}, and "
                 f"this write is to scene {scene!r}. Reads of every scene stay "
                 f"open; writes are per lane.")
     if not scene_exists(scene, served, table) and not p.may_create_scenes:
-        return (403, "scene-creation-not-granted", "No such scene",
+        status, title, _when = WRITE_REFUSALS["scene-creation-not-granted"]
+        return (status, "scene-creation-not-granted", title,
                 f"Scene {scene!r} does not exist on this endpoint, and the "
                 f"token for {p.name!r} may not create scenes. Check the "
                 f"scene name; an operator grants new lanes.")

@@ -53,6 +53,13 @@ def gates() -> list[dict]:
     no_mcap = None if MCAP.is_file() else (
         f"needs {MCAP.relative_to(ROOT)}, which is vendored in this "
         f"repository; see webjson/PROVENANCE")
+    try:
+        import yaml                    # noqa: F401
+        import openapi_spec_validator  # noqa: F401
+        no_openapi = None
+    except ImportError:
+        no_openapi = ("needs PyYAML and openapi-spec-validator: pip install "
+                      "pyyaml openapi-spec-validator")
     no_web = None if web else "needs aiohttp and websockets: pip install aiohttp websockets"
     no_js = None if have_js else "needs jsonschema: pip install jsonschema"
     # The client package's own dependency, not the gateway's. A checkout that
@@ -195,6 +202,18 @@ def gates() -> list[dict]:
         # Multi-tenancy: tokens scoped to scenes. The lanes gate is the
         # deployed sandbox's shape in process; the client gate is findings 45
         # and 46, the credential and the scene a client must never guess.
+        {"name": "openapi", "what": "the OpenAPI document is generated, current, valid, complete, and served",
+         "cmd": ["gates/openapi.py"],
+         "skip": no_web or no_openapi},
+        {"name": "limits", "what": "every limit refuses one past its boundary with a problem document naming it",
+         "cmd": ["gates/limits.py"],
+         "skip": no_fountain or no_web},
+        {"name": "fuzz", "what": "every hostile request is a problem document, never a 500, never a hang",
+         "cmd": ["gates/fuzz.py"],
+         "skip": no_fountain or no_web or no_js},
+        {"name": "security", "what": "names cannot escape, strings cannot inject, refusals are documents, token checks take constant work",
+         "cmd": ["gates/security.py"],
+         "skip": no_fountain or no_web},
         {"name": "tenancy", "what": "writes are per lane, refused across lanes, and each lane persists and resets alone",
          "cmd": ["gates/tenancy.py"],
          "skip": no_fountain or no_web or no_js},

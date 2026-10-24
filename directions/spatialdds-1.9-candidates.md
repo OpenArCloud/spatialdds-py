@@ -532,3 +532,34 @@ including that the advertisement and the behaviour agree. The demo repo's web
 bridge is the first external consumer and is blocked on this surface landing;
 its census records the whole measurement
 (`SpatialDDS-demo/docs/bridge-1.8-census.md`, finding 4).
+
+## 8. A well-known path for the REST surface's OpenAPI document
+
+**The question for 1.9:** whether Appendix N.2 blesses
+`/.well-known/spatialdds/openapi` (OpenAPI 3.1, YAML) beside `schemas`, with
+spatialdds-web as the reference implementation.
+
+**What exists (2026-10-24).** `tools/gen_openapi.py` generates the document
+from the gateway's own type tables, the published JSON Schemas and the write
+rule; `gates/openapi.py` fails on drift and checks every registered route is
+documented and every documented operation is a route. The gateway serves it
+with its own base as the server, plus a script-free reference page at
+`openapi.html`. The WebSocket streams (N.5) are described in prose on each
+collection path, not modelled; AsyncAPI would be the formal home.
+
+**Measured, for whoever writes the text.**
+
+* **The published schemas are one model.** Over the 112 files, every `$defs`
+  copy of a type equals the type's own file except for `title`. A generator can
+  hoist them into one `components.schemas` with no choice to make; normative
+  text could say so, and a schema generator could be held to it.
+* **`const` alone is not enough for today's tooling.** The schemas tag union
+  branches with `{"const": "COV_POS3"}`, which is correct 2020-12 and correct
+  OpenAPI 3.1. openapi-generator 7.10.0's Python client ignores `const`, so a
+  GeoAnchor's `cov` matched all five `CovMatrix` branches and the read flow
+  failed. A one-value `enum` beside each `const` fixed it. Not a spec defect;
+  worth one line wherever the binding talks about generated clients, and an
+  argument for the schema generator emitting the `enum` twin itself.
+* **The scene rule and the write refusals are documentable from one table**
+  (`tenancy.WRITE_REFUSALS`, `limits.REFUSALS`), which is what keeps a
+  generated document honest about writes.

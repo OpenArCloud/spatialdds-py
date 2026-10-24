@@ -1741,3 +1741,120 @@ client token unscoped → the asset-host check; P6 `default` scene restored → 
 `client_scope` checks. One misfire of the instrument, not the plant: P4
 replaced a line with nothing, and a presence check for the empty string always
 succeeds, so it was re-run with an absence check on the removed line.
+
+## Hardening: OpenAPI, limits, fuzzing, torture, 2026-10-24
+
+Built to the OpenAPI and endpoint hardening directive. New gates: `openapi`,
+`limits`, `fuzz`, `security`; torture runs under `tools/torture/` (a Docker
+container shaped like the box). Every defect below was found by one of them,
+not by reading, and each gate was shown red against a planted fault.
+
+### 49. A long request target was refused by the HTTP parser, as plain text, with a traceback
+
+`gates/fuzz.py`'s hostile-URI pass: a 20,000-character `uri=` exceeded
+aiohttp's default 8,190-byte request line, so the parser refused it before any
+handler or middleware ran -- a plain-text 400 and `Error handling request` with
+a traceback in the log. Fixed in layers: the parser's line and field limits
+raised to 64 KiB (`limits.HANDLER_ARGS`, passed by `serve` and the gate harness
+alike), the application refusing anything over 16 KiB as a `414 uri-too-long`
+problem document, and, deployed, Caddy's `max_header_size` between the two so
+nothing past it reaches the process. The first attempt passed the limits as
+`handler_args=` to `AppRunner`, which aiohttp silently ignores ("falling back
+to filtered kwargs"); measured, then passed as keywords.
+
+### 50. An over-limit body with no declared length became "not JSON"
+
+`gates/limits.py`: a chunked body over the limit raised aiohttp's
+`HTTPRequestEntityTooLarge` inside `request.json()`, and every handler's
+`except Exception` turned it into `400 not-json`. The four read sites now let
+it through to the middleware, which answers the same `413 body-too-large`
+document as the declared-length check.
+
+### 51. The router's own 404 and 405 were plain text
+
+`gates/security.py`: every refusal this endpoint makes is an N.8 document
+except the ones the framework makes for an unmatched path or method. The
+limit middleware now rewraps them; a handler's own problem document passes
+through untouched.
+
+### 52. A NUL in an asset name was a 500
+
+`gates/security.py`, which first passed because its leak check only flagged a
+200 -- the log showed `ValueError: embedded null character` from `realpath`.
+The check now fails on any 5xx or logged traceback, and `asset_path` refuses
+control characters before resolving anything. Instance keys with control
+characters are refused too (`400 bad-key`); `..` in a key stays two dots, a
+name and never a path.
+
+### 53. A full disk was a 500, and the registry disagreed with its journal
+
+Found by reading the write path while building the disk-full torture, and
+fixed before that torture first ran, so the old behaviour is inferred from the
+code rather than measured: every handler changed state, then journalled, so
+`ENOSPC` would raise after the change -- a 500, and a registry serving what its
+journal would not replay. What is measured is the fix. Every write now journals first and applies only on success; a journal
+that cannot be written undoes its entry and the client gets `503
+journal-unwritable` with `Retry-After`. `tools/torture/disk_full.py`, on a
+1 MB tmpfs: 76 manifests accepted, then 503 problem documents, reads
+byte-unchanged, the journal a valid MCAP, a SIGKILL restart serving the same
+bytes, and removing the filler file the whole recovery (next write 201, no
+restart, no operator step). Zero tracebacks.
+
+### 54. A JSON body was accepted under any content type
+
+`gates/fuzz.py`. A body sent as `text/plain` was parsed and accepted. Writes
+now require `application/json` (or `+json`) and refuse anything else with
+`415 unsupported-media-type`.
+
+### 55. Torn writes: none
+
+`tools/torture/torn_write.py`: 300 SIGKILLs during a publish stream. After
+every one the journal parsed as a complete MCAP, the service restarted on it,
+every acknowledged write was journalled and served, and nothing unsent was
+there; 24 kills left the single in-flight write accepted but unacknowledged,
+which is the most a client can be unsure of. The temp-and-rename write is what
+earns it. (Instrument misfire, ledgered: the first version counted
+unacknowledged writes cumulatively across kills and failed at iteration 3 on a
+rule it had stated per kill.)
+
+### 56. Per-IP rate limiting cannot live in the deployed Caddy
+
+Ruled for the TLS front; Ubuntu's Caddy 2.6.2 has no rate-limit directive
+without a third-party build. It lives in the gateway (`limits.Limits`), keyed
+on the address a loopback proxy appends to `X-Forwarded-For` -- the rightmost,
+so a client-supplied prefix cannot choose its bucket -- and not applied to a
+loopback peer with nothing forwarded, which is the operator on the box.
+
+### 57. A copied checkout installed stale code
+
+`tools/torture/run.sh` copies the tree into the container, and `cp -r` gives
+every file the same timestamp; setuptools' `build_py` then sees no newer source
+than the ignored `lib/spatialdds/build/` left from an old build and installs the
+stale copies. Found when the container's `serve` lacked `--rate`. The wrapper
+deletes `build/` and `*.egg-info` first. Anything else that installs from a
+copied tree has the same exposure.
+
+### 58. Finding 40, priced: compaction stops being optional at about 10 MB
+
+`tools/torture/soak.py`, in a 512 MB container, 6,000 publish/update/withdraw
+cycles (18,000 journalled writes; the served state stays at the seed, since
+everything published is withdrawn). Sampled:
+
+| cycle | writes | journal | RSS | mean write |
+| ---: | ---: | ---: | ---: | ---: |
+| 0 | 0 | 0 | 44.1 MB | — |
+| 1,000 | 3,000 | 1.83 MB | 46.5 MB | 16.5 ms |
+| 2,000 | 6,000 | 3.66 MB | 49.7 MB | 33.4 ms |
+| 3,000 | 9,000 | 5.49 MB | 53.5 MB | 51.5 ms |
+| 4,000 | 12,000 | 7.33 MB | 57.0 MB | 67.4 ms |
+| 5,000 | 15,000 | 9.16 MB | 59.6 MB | 84.7 ms |
+| 6,000 | 18,000 | 10.99 MB | 63.6 MB | 101.3 ms |
+
+Zero non-2xx, zero tracebacks, 929 s. Both curves are linear in **history**, not
+state: ~610 bytes of journal and ~1.1 KB of RSS per write, and ~9.2 ms of write
+latency per journalled MB (the whole file is rewritten every time). The mean
+write first exceeded 100 ms at cycle 5,500, with a 10.08 MB journal after
+16,500 writes. That is the threshold filed: past it a write costs a tenth of a
+second and grows; memory reaches the box's 512 MB at roughly 400,000 writes,
+long after latency has made the point. At sandbox rates (hundreds of writes a
+day) it is months away, and finding 40's compaction is what moves it.

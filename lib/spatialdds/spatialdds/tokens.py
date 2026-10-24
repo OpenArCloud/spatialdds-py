@@ -36,6 +36,10 @@ def main(argv: list[str] | None = None) -> int:
                         "or '*' for every scene that exists")
     a.add_argument("--may-create-scenes", action="store_true",
                    help="may write scenes that do not exist yet")
+    a.add_argument("--max-records", type=int, default=None,
+                   help="records (instances plus manifests) a granted scene "
+                        "may hold before this principal's new ones are "
+                        "refused; unset is no limit")
     sub.add_parser("list", help="principals and their grants (no tokens)")
     r = sub.add_parser("revoke", help="remove a principal; its token stops "
                                       "working at the next reload")
@@ -51,7 +55,8 @@ def main(argv: list[str] | None = None) -> int:
         for p in table.principals():
             print(f"{p.name:16s} {p.provider:28s} "
                   f"{','.join(sorted(p.scenes)):32s} "
-                  f"{'may create scenes' if p.may_create_scenes else ''}")
+                  f"{'may create scenes ' if p.may_create_scenes else ''}"
+                  f"{f'max {p.max_records} records' if p.max_records is not None else ''}")
         return 0
     if args.cmd == "revoke":
         before = len(table.rows)
@@ -70,7 +75,7 @@ def main(argv: list[str] | None = None) -> int:
     token = tenancy.issue()
     table.rows.append((tenancy.digest(token), tenancy.Principal(
         args.name, args.provider, frozenset(args.scene),
-        args.may_create_scenes)))
+        args.may_create_scenes, args.max_records)))
     table.save()
     print(f"issued {args.name} for {', '.join(sorted(args.scene))}; the token "
           f"follows and is not stored. Reload the registry to apply.",

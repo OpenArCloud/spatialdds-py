@@ -115,7 +115,10 @@ class Gateway:
                                command_registry=self.commands,
                                live_subscriptions=self.live,
                                tokens=self.tokens)
-        self._runner = web.AppRunner(app)
+        # The parser limits `serve` runs with, so a gate sees what a deployed
+        # endpoint does with a long request target.
+        from spatialdds.server.limits import HANDLER_ARGS
+        self._runner = web.AppRunner(app, **HANDLER_ARGS)
         await self._runner.setup()
         site = web.TCPSite(self._runner, "127.0.0.1", 0)
         await site.start()

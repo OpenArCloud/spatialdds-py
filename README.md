@@ -126,6 +126,7 @@ versions of everything above.
 | [Publish and retrieve, step by step](docs/WALKTHROUGH.md) | every record shown in full on the wire |
 | [The client library](lib/spatialdds/README.md) | the full API, the lift, errors, integrity |
 | [What's on the wire](docs/WIRE.md) | paths, formats, the binding itself |
+| [The REST surface as OpenAPI 3.1](lib/spatialdds/spatialdds/artifacts/openapi.yaml) | generated from the gateway's own tables and schemas, gated against drift, served at `/.well-known/spatialdds/openapi` with a reference page at `openapi.html`. The WebSocket streams are described there, not modelled; AsyncAPI is the format for that surface if anyone needs it formally |
 | [Why believe any of this](docs/EVIDENCE.md) | every claim on this page is executed by a gate on every run |
 
 Implements SpatialDDS 1.8 (Appendix N) as of spec `9c3e1f2`. Conformance: 14

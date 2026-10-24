@@ -186,6 +186,27 @@ in `publish.check_authority` is for a programmatic caller and is unreachable
 over HTTP; `gates/publish_reject.py` checks it where it lives and checks why
 the HTTP path cannot reach it.
 
+## Limits, stated and enforced
+
+Every limit refuses with a problem document that names it and its number.
+
+| limit | default (`serve` flag) | refusal |
+| --- | --- | --- |
+| request body | 256 KiB (`--max-body`) | `413 body-too-large` |
+| request target, path and query | 16 KiB | `414 uri-too-long` |
+| body content type | `application/json` | `415 unsupported-media-type` |
+| records per scene, per principal | the token table's `max_records` | `403 quota-exceeded` |
+| concurrent WebSocket subscriptions | 256 (`--max-ws`) | `503 too-many-subscriptions` |
+| requests per client IP | 20/s, burst 60 (`--rate`) | `429 rate-limited`, `Retry-After` |
+| the journal cannot be written (disk full) | — | `503 journal-unwritable`, `Retry-After`; reads unaffected |
+
+Deployed behind Caddy, the TLS front's own limits sit above these (body 1 MB,
+headers 32 KB), so this endpoint's documents are what a client sees. The
+client IP is the rightmost `X-Forwarded-For` entry when the peer is the local
+proxy, and the peer otherwise; per-IP limiting lives here rather than in Caddy
+because the Caddy the deploy installs has no rate-limit directive (finding 56).
+`gates/limits.py` tests each at its boundary, both sides.
+
 ## Validation at the door
 
 Nothing is stored before a body has passed, in this order: the vendored
@@ -279,7 +300,9 @@ terminates exactly as before, which every existing WebSocket gate depends on and
 ## Gates
 
 `golden_publish`, `publish_reject`, `journal_replay`, `publish_live`,
-`publish_offswitch`, `publish_duck`, `publish_anchor`, `tenancy`. The walkthrough in
+`publish_offswitch`, `publish_duck`, `publish_anchor`, `tenancy`, `limits`,
+`fuzz`, `security`; and `tools/torture/` for disk-full, torn writes and the
+soak, which need a container rather than a gate's minutes. The walkthrough in
 [WALKTHROUGH.md](WALKTHROUGH.md) is walked command by command by
 `gates/quickstart.py`, including its step 8, which prints the three published
 documents in full -- the VPS manifest, the duck's manifest, and the announce

@@ -83,6 +83,10 @@ MANIFEST_WITHDRAW_RECORD = "spatialdds-web:manifest-withdraw"
 WRITTEN_BY_RECORD = "spatialdds-web:written-by"
 
 
+class JournalUnwritable(Exception):
+    """The journal could not be written; nothing was accepted."""
+
+
 class Rejected(Exception):
     """A refusal with the problem+json a caller should receive."""
 
@@ -349,7 +353,20 @@ class Journal:
         self._flush()
 
     def _flush(self) -> None:
-        write_entries(self.path, self.entries, self.state.idl)
+        """Write the journal, or undo the entry that would not fit.
+
+        Called by every `record_*` *before* the state changes, so a write the
+        disk refuses (full, read-only, gone) is refused to the client as well
+        and the registry never holds what its journal does not. The temp file
+        is removed on failure, and the previous journal is untouched because
+        it is only ever replaced by rename.
+        """
+        try:
+            write_entries(self.path, self.entries, self.state.idl)
+        except OSError as e:
+            self.entries.pop()
+            self.seq -= 1
+            raise JournalUnwritable(f"{type(e).__name__}: {e}") from e
 
 
 def _topic_scene(topic: str) -> str:

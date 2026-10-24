@@ -36,7 +36,7 @@ from typing import Any
 
 from aiohttp import WSMsgType, web
 
-from . import commands, gateway, publish, tenancy, webjson
+from . import commands, gateway, limits as limits_, publish, tenancy, webjson
 
 WELL_KNOWN = "/.well-known/spatialdds"
 
@@ -162,6 +162,134 @@ def _cache_headers(access: str, doc_ttl: int | None = None,
         headers["Vary"] = "Origin, Authorization"
         headers["Access-Control-Expose-Headers"] = EXPOSE_HEADERS
     return headers
+
+
+def _limit_problem(slug: str, detail: str, request: web.Request,
+                   **extra) -> web.Response:
+    status, title, _when = limits_.REFUSALS[slug]
+    return _problem(status, slug, title, detail,
+                    instance=str(request.rel_url), **extra)
+
+
+@web.middleware
+async def _limited(request: web.Request, handler) -> web.StreamResponse:
+    """The per-client rate and the body limit, as problem documents.
+
+    The body limit is checked on the declared length before anything is read,
+    and again by aiohttp's own `client_max_size` for a body that declares
+    none; both answers are the same N.8 document naming the limit.
+    """
+    lim: limits_.Limits = request.app["limits"]
+    peer = request.remote
+    who = lim.client(peer, request.headers.get("X-Forwarded-For"))
+    wait = lim.take(who) if who is not None else 0.0
+    if wait > 0:
+        r = _limit_problem(
+            "rate-limited",
+            f"More than {lim.rate_per_s:g} requests per second (burst "
+            f"{lim.burst}) from one client. Retry after {wait:.1f} s.",
+            request, limit_per_s=lim.rate_per_s, burst=lim.burst)
+        r.headers["Retry-After"] = str(max(1, int(wait + 0.999)))
+        return r
+    if len(request.raw_path) > lim.max_url:
+        return _limit_problem(
+            "uri-too-long",
+            f"This endpoint accepts a path and query up to {lim.max_url} "
+            f"bytes; this one is {len(request.raw_path)}.", request,
+            limit_bytes=lim.max_url)
+    length = request.content_length
+    if length is not None and length > lim.max_body:
+        return _limit_problem(
+            "body-too-large",
+            f"This endpoint accepts request bodies up to {lim.max_body} "
+            f"bytes; this one declares {length}.", request,
+            limit_bytes=lim.max_body)
+    # A write's body is N.1 canonical JSON, and says so. A JSON-looking body
+    # under another type is refused rather than guessed at: a client that
+    # mislabels its body has a bug the endpoint should name, not absorb.
+    if request.method in ("PUT", "POST") and request.can_read_body:
+        ctype = request.content_type
+        if not (ctype == "application/json" or ctype.endswith("+json")):
+            return _limit_problem(
+                "unsupported-media-type",
+                f"A request body here is JSON, sent as application/json; "
+                f"this one is {ctype or 'untyped'}.", request,
+                content_type=ctype)
+    try:
+        return await handler(request)
+    except web.HTTPRequestEntityTooLarge:
+        return _limit_problem(
+            "body-too-large",
+            f"This endpoint accepts request bodies up to {lim.max_body} "
+            f"bytes.", request, limit_bytes=lim.max_body)
+    except web.HTTPException as e:
+        # The router's own 404 and 405 are plain text. Every refusal this
+        # endpoint makes is an N.8 document, the router's included; a handler
+        # that already raised one is passed through untouched.
+        if e.content_type == PROBLEM or e.status < 400:
+            raise
+        return _problem(e.status, "no-route" if e.status in (404, 405)
+                        else "http-error", e.reason,
+                        f"{request.method} {request.path} is not a route this "
+                        f"endpoint serves." if e.status in (404, 405)
+                        else e.text or e.reason,
+                        instance=str(request.rel_url))
+
+
+def _bad_key(key: str) -> bool:
+    """A key with a control character (NUL, CR, LF, ...) or none at all.
+
+    A key is a record's own `@key` member and one URL segment; it is never a
+    filesystem path, so `..` is just two dots, but a control character in it
+    is never a name anyone meant and would reach the journal and every log.
+    """
+    return not key or any(ord(c) < 0x20 or ord(c) == 0x7f for c in key)
+
+
+def _bad_key_problem(request: web.Request, key: str) -> web.Response:
+    return _problem(400, "bad-key", "Unusable instance key",
+                    f"An instance key is a non-empty name without control "
+                    f"characters; this one is {key!r}.",
+                    instance=str(request.rel_url))
+
+
+def _unwritable(request: web.Request,
+                e: "publish.JournalUnwritable") -> web.Response:
+    """503: the journal could not be written, so nothing was accepted.
+
+    Reads keep serving the state as it was. The write may be retried as it
+    stands once space returns; no operator action is needed, because the
+    journal on disk is the last one that was completely written.
+    """
+    r = _problem(503, "journal-unwritable", "The registry cannot record writes",
+                 f"This write was not accepted: the journal could not be "
+                 f"written ({e}). Reads are unaffected. Retry later.",
+                 instance=str(request.rel_url))
+    r.headers["Retry-After"] = "60"
+    return r
+
+
+def _scene_records(st: gateway.State, scene: str) -> int:
+    """Instances plus manifests a scene holds: what `max_records` counts."""
+    n = sum(len(st.latched.get(r.topic, {})) for r in st.resources.values()
+            if r.scene == scene)
+    return n + sum(1 for u in st.manifests if gateway.uri_scene(u) == scene)
+
+
+def _over_quota(request: web.Request, who: "tenancy.Principal",
+                scene: str) -> web.Response | None:
+    if who.max_records is None:
+        return None
+    held = _scene_records(request.app["state"], scene)
+    if held < who.max_records:
+        return None
+    status, title, _when = tenancy.WRITE_REFUSALS["quota-exceeded"]
+    return _problem(status, "quota-exceeded", title,
+                    f"Scene {scene!r} holds {held} record(s) and the quota "
+                    f"for {who.name!r} is {who.max_records}. Replacing an "
+                    f"existing record is still allowed; withdraw one to make "
+                    f"room for a new one.", instance=str(request.rel_url),
+                    scene=scene, limit_records=who.max_records)
 
 
 @web.middleware
@@ -328,6 +456,47 @@ def _json_response(request: web.Request, doc: Any, access: str,
 
 # ---- well-known ------------------------------------------------------------
 
+#: The generated OpenAPI document and its reference page (tools/gen_openapi.py).
+OPENAPI = Path(__file__).resolve().parent.parent / "artifacts" / "openapi.yaml"
+OPENAPI_HTML = OPENAPI.with_suffix(".html")
+#: The one line of the committed document that names a server; served with
+#: this endpoint's own base in its place.
+OPENAPI_SERVER = "- url: https://demo.spatialdds.org\n"
+
+
+async def openapi(request: web.Request) -> web.Response:
+    """The REST surface as OpenAPI 3.1, generated, with this endpoint's base.
+
+    Served from the committed artifact rather than built per request: the
+    document is a build product with a drift gate, and the gateway has no
+    YAML dependency. Only the server URL is this endpoint's own.
+    """
+    text = OPENAPI.read_text()
+    if OPENAPI_SERVER not in text:
+        return _problem(500, "openapi-unservable", "OpenAPI document unusable",
+                        "The packaged document carries no server line to "
+                        "point at this endpoint; regenerate it.")
+    text = text.replace(OPENAPI_SERVER, f"- url: {request.app['base']}\n", 1)
+    return _text_response(request, text, "application/yaml")
+
+
+async def openapi_page(request: web.Request) -> web.Response:
+    """The static reference page rendered from the same document."""
+    return _text_response(request, OPENAPI_HTML.read_text(), "text/html")
+
+
+def _text_response(request: web.Request, text: str,
+                   content_type: str) -> web.Response:
+    etag = '"sha256:' + hashlib.sha256(text.encode()).hexdigest() + '"'
+    headers = {"ETag": etag,
+               **_cache_headers(gateway.PUBLIC, None,
+                                request.headers.get("Origin"))}
+    if request.headers.get("If-None-Match", "") == etag:
+        return web.Response(status=304, headers=headers)
+    return web.Response(text=text, content_type=content_type,
+                        charset="utf-8", headers=headers)
+
+
 async def schemas_index(request: web.Request) -> web.Response:
     base = request.app["base"]
     doc = [{"type": fqn,
@@ -360,6 +529,8 @@ async def search(request: web.Request) -> web.Response:
     if request.method == "POST":
         try:
             req = await request.json()
+        except web.HTTPRequestEntityTooLarge:
+            raise                 # _limited answers it, as the body limit
         except Exception:
             raise web.HTTPBadRequest(
                 body=_body({"type": PROBLEM_NS + "malformed-body",
@@ -564,6 +735,11 @@ def asset_path(root: Path, name: str) -> Path | None:
     would happily leave the directory. Pulled out of the handler so it can
     also be checked directly, over names a request could not carry.
     """
+    # A NUL (or any control character) is no file name, and reaching
+    # `resolve()` with one raised ValueError inside the handler: a 500 with a
+    # traceback in the log, found by gates/security.py.
+    if not name or any(ord(c) < 0x20 or ord(c) == 0x7f for c in name):
+        return None
     target = (root / name).resolve()
     inside = str(target).startswith(str(root.resolve()) + "/")
     return target if inside and target.is_file() else None
@@ -787,6 +963,8 @@ async def post_command(request: web.Request) -> web.Response:
 
     try:
         body = await request.json()
+    except web.HTTPRequestEntityTooLarge:
+        raise                 # _limited answers it, as the body limit
     except Exception as e:
         return _rejected(publish.Rejected(
             400, "not-json", "Body is not JSON",
@@ -836,6 +1014,8 @@ async def put_instance(request: web.Request) -> web.Response:
     st: gateway.State = request.app["state"]
     try:
         body = await request.json()
+    except web.HTTPRequestEntityTooLarge:
+        raise                 # _limited answers it, as the body limit
     except Exception as e:
         return _rejected(publish.Rejected(
             400, "not-json", "Body is not JSON",
@@ -851,6 +1031,8 @@ async def put_instance(request: web.Request) -> web.Response:
 
     key = str(data.get(res.key, "")) if res.key else ""
     want = request.match_info["key"]
+    if _bad_key(want):
+        return _bad_key_problem(request, want)
     if key != want:
         return _rejected(publish.Rejected(
             400, "key-mismatch", "Body does not match the URL",
@@ -876,11 +1058,20 @@ async def put_instance(request: web.Request) -> web.Response:
             f"An absent If-Match is an unconditional replace.",
             if_match=im), request)
 
-    created = publish.apply_sample(st, topic, res, key, data)
+    if held is None:
+        over = _over_quota(request, who, res.scene)
+        if over is not None:
+            return over
+    # Journal first: a write the disk refuses is refused to the client, and
+    # the registry never holds what its journal does not.
     jr: publish.Journal | None = request.app["journal"]
     if jr is not None:
-        jr.record_sample(topic, res.fqn, key, raw, principal=who.name,
-                         scene=res.scene)
+        try:
+            jr.record_sample(topic, res.fqn, key, raw, principal=who.name,
+                             scene=res.scene)
+        except publish.JournalUnwritable as e:
+            return _unwritable(request, e)
+    created = publish.apply_sample(st, topic, res, key, data)
     await _broadcast(request, topic,
                      {"event": "sample", "topic": topic, "key": key,
                       "data": data})
@@ -905,7 +1096,9 @@ async def delete_instance(request: web.Request) -> web.Response:
     except publish.Rejected as r:
         return _rejected(r, request)
     key = m["key"]
-    if not publish.apply_dispose(st, topic, key):
+    if _bad_key(key):
+        return _bad_key_problem(request, key)
+    if key not in st.latched.get(topic, {}):
         return _rejected(publish.Rejected(
             404, "no-such-instance", "No such instance",
             f"Topic {topic} holds no instance keyed {key!r}, so there is "
@@ -913,8 +1106,12 @@ async def delete_instance(request: web.Request) -> web.Response:
     reason = request.query.get("reason") or "withdrawn"
     jr: publish.Journal | None = request.app["journal"]
     if jr is not None:
-        jr.record_dispose(topic, key, reason, principal=who.name,
-                          scene=m["scene"])
+        try:
+            jr.record_dispose(topic, key, reason, principal=who.name,
+                              scene=m["scene"])
+        except publish.JournalUnwritable as e:
+            return _unwritable(request, e)
+    publish.apply_dispose(st, topic, key)
     await _broadcast(request, topic,
                      {"event": "dispose", "topic": topic, "key": key,
                       "reason": reason})
@@ -937,6 +1134,8 @@ async def put_manifest(request: web.Request) -> web.Response:
     st: gateway.State = request.app["state"]
     try:
         doc = await request.json()
+    except web.HTTPRequestEntityTooLarge:
+        raise                 # _limited answers it, as the body limit
     except Exception as e:
         return _rejected(publish.Rejected(
             400, "not-json", "Body is not JSON",
@@ -957,16 +1156,23 @@ async def put_manifest(request: web.Request) -> web.Response:
     if isinstance(who, web.Response):
         return who
     created = uri not in st.manifests
+    if created:
+        over = _over_quota(request, who, gateway.uri_scene(uri))
+        if over is not None:
+            return over
     # Held as its canonical form, the same bytes the journal stores, so the
     # accepting process serves what every later restart will (finding 41:
     # served as sent, `158.0` became `158` at the first restart and the ETag
     # moved with no change of content).
     doc = json.loads(webjson.canon(doc))
-    st.manifests[uri] = doc
     jr = request.app.get("journal")
     if jr is not None:
-        jr.record_manifest(uri, doc, principal=who.name,
-                           scene=gateway.uri_scene(uri))
+        try:
+            jr.record_manifest(uri, doc, principal=who.name,
+                               scene=gateway.uri_scene(uri))
+        except publish.JournalUnwritable as e:
+            return _unwritable(request, e)
+    st.manifests[uri] = doc
     return _written(request, doc, created,
                     {"X-SpatialDDS-Access": gateway.OPERATOR})
 
@@ -1000,12 +1206,15 @@ async def delete_manifest(request: web.Request) -> web.Response:
             404, "no-such-manifest", "No such manifest",
             f"This endpoint holds no manifest with id {uri!r}, so there is "
             f"nothing to withdraw.", uri=uri), request)
-    del st.manifests[uri]
     reason = request.query.get("reason") or "withdrawn"
     jr = request.app.get("journal")
     if jr is not None:
-        jr.record_manifest_withdraw(uri, reason, principal=who.name,
-                                    scene=gateway.uri_scene(uri))
+        try:
+            jr.record_manifest_withdraw(uri, reason, principal=who.name,
+                                        scene=gateway.uri_scene(uri))
+        except publish.JournalUnwritable as e:
+            return _unwritable(request, e)
+    del st.manifests[uri]
     return web.Response(status=204,
                         headers=_cache_headers(
                             gateway.OPERATOR, None,
@@ -1027,6 +1236,22 @@ async def subscribe(request: web.Request) -> web.StreamResponse:
     if res.access == gateway.OPERATOR and not _authorized(request):
         return _unauthorized(str(request.rel_url))
 
+    lim: limits_.Limits = request.app["limits"]
+    if lim.ws_open >= lim.max_ws:
+        return _limit_problem(
+            "too-many-subscriptions",
+            f"This endpoint holds at most {lim.max_ws} WebSocket "
+            f"subscriptions at once, and that many are open.", request,
+            limit_subscriptions=lim.max_ws)
+    lim.ws_open += 1
+    try:
+        return await _subscribe(request, st, topic, res)
+    finally:
+        lim.ws_open -= 1
+
+
+async def _subscribe(request: web.Request, st: gateway.State, topic: str,
+                     res: gateway.Resource) -> web.StreamResponse:
     ws = web.WebSocketResponse(heartbeat=None)
     await ws.prepare(request)
 
@@ -1113,7 +1338,8 @@ def make_app(state: gateway.State, base: str, token: str | None,
              assets: Path | None = None,
              command_registry: "commands.Registry | None" = None,
              live_subscriptions: bool | None = None,
-             tokens: "tenancy.TokenTable | None" = None) -> web.Application:
+             tokens: "tenancy.TokenTable | None" = None,
+             limits: "limits_.Limits | None" = None) -> web.Application:
     """The app, with two switches that used to be one.
 
     `publish_enabled` means what its name says and nothing else: the
@@ -1134,7 +1360,13 @@ def make_app(state: gateway.State, base: str, token: str | None,
     embedder passes `publish_enabled=False, live_subscriptions=True` and gets
     the live lane with no write surface at all.
     """
-    app = web.Application(middlewares=[_reach])
+    lim = limits if limits is not None else limits_.Limits()
+    # `client_max_size` one byte past the stated limit is aiohttp's own
+    # backstop for a body that declares no length; `_limited` turns its
+    # refusal into the same problem document as the declared-length check.
+    app = web.Application(middlewares=[_reach, _limited],
+                          client_max_size=lim.max_body)
+    app["limits"] = lim
     app["state"] = state
     app["base"] = base.rstrip("/")
     app["token"] = token
@@ -1179,6 +1411,8 @@ def make_app(state: gateway.State, base: str, token: str | None,
         web.post(f"{WELL_KNOWN}/search", search),
         web.get(f"{WELL_KNOWN}/bootstrap", no_dds),
         web.get(f"{WELL_KNOWN}/resolver", resolver),
+        web.get(f"{WELL_KNOWN}/openapi", openapi),
+        web.get(f"{WELL_KNOWN}/openapi.html", openapi_page),
         web.get(gateway.RESOLVE_PATH, resolve),
         web.get(f"{ASSET_PATH}/{{name}}", asset),
         # The latched-resource pattern: the on-bus topic name with
