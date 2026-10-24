@@ -159,7 +159,19 @@ class TokenTable:
         with os.fdopen(fd, "w") as f:
             json.dump(doc, f, indent=2)
             f.write("\n")
-        os.chmod(tmp, 0o600)
+        # Keep the mode and group the operator gave the file: a registry
+        # running as its own user reads the table through its group, and a
+        # save that reset it to root 0600 would lock that registry out at its
+        # next start. A new file starts private.
+        if self.path.exists():
+            st = self.path.stat()
+            os.chmod(tmp, st.st_mode & 0o777)
+            try:
+                os.chown(tmp, -1, st.st_gid)
+            except PermissionError:
+                pass
+        else:
+            os.chmod(tmp, 0o600)
         os.replace(tmp, self.path)
 
     def __bool__(self) -> bool:
