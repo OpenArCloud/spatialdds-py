@@ -447,7 +447,27 @@ explicitly was tried first and is what missed two paths.
 
 If your clients are not browsers, nothing here changes anything for you.
 
-## Not in 0.5.4
+## New in 0.6.0: lanes, hardening, OpenAPI
+
+One registry can now take several publishers. Each one holds a token scoped to
+the scenes it may write, issued with `python -m spatialdds.tokens` and served
+with `--tokens`. A write outside its lane is a `403` naming the scene, and
+reads stay open. Manifests can be withdrawn, and the journal records who wrote
+each entry. The REST surface is published as OpenAPI 3.1 at
+`/.well-known/spatialdds/openapi`. Every limit refuses with a problem document
+naming its number.
+
+Two changes may need a line of yours:
+
+- **Publishing needs a scene.** The client's publish verbs refuse when no
+  scene is set, where they used to write into `default`. Pass `scene=`.
+- **The demo's manifest URIs changed.** They name the scene now,
+  `…/ut-austin-south-mall/…`.
+
+The security fixes, the limits table and the details are in the
+[changelog](https://github.com/OpenArCloud/spatialdds-web/blob/main/lib/spatialdds/CHANGELOG.md).
+
+## Not in 0.6.0
 
 Stated so nobody waits for them: no async API, no caching beyond ETag
 revalidation, no retry policy, no MCAP tooling beyond the journal the server
