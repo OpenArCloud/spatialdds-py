@@ -1648,3 +1648,54 @@ withdraw, `resolve` still answers 200 for the duck. That is defensible — a
 manifest is an N.7 document, not an instance — but it means "withdraw" on this
 surface is half a withdrawal, and only a deliberate reset removes the rest.
 Worth a sentence in docs/PUBLISH.md, or a `DELETE` on the resolve path.
+
+### 45. The client sends its bearer token to whatever host an asset lives on
+
+Found writing the external handoff, 2026-10-24, and it is the serious one.
+`Endpoint._request` adds `Authorization: Bearer <token>` to every request, and
+`Resolved.fetch_asset` calls it with the asset's absolute URL — so an
+`sd.connect(base, token=...)` that fetches an asset sends the endpoint's
+operator credential to a third-party origin. Measured against the live
+endpoint, whose fountain marker is hosted on `raw.githubusercontent.com`:
+
+```
+curl -s -o /dev/null -w "%{http_code}" "$A"                                      -> 200
+curl -s -o /dev/null -w "%{http_code}" -H "Authorization: Bearer dummy" "$A"     -> 404
+```
+
+so the leak is also a breakage: GitHub refuses a bearer it does not know, and
+`fetch_asset` raises `404 Not Found` on an asset an anonymous client fetches
+fine. Every integrator who publishes and reads with one `Endpoint` hits it,
+and every one whose assets live on their own CDN hands that CDN their token.
+The gates never saw it because every gated asset is served by the endpoint
+itself, where the token is welcome.
+
+*Smallest change:* attach `Authorization` only when the request URL's origin
+is the endpoint's own base; an absolute URL elsewhere goes without it. A gate
+that fetches an off-origin asset with a token set, and asserts the header is
+absent, is the check that was missing.
+
+### 46. A client with no `scene=` publishes into a scene named `default`
+
+`sd.connect(base, token=...)` without `scene=` and then `publish_content(...)`
+creates `/default/content/content_announce/v1` on the endpoint, with a new
+`spatialdds-web-default` service in search, rather than joining the scene the
+endpoint already serves. Against the demo endpoint that is a second, empty-
+looking scene beside the fountain, and the record's `manifest_uri` names
+`/default/` too. Nothing says so at publish time.
+
+*Smallest change:* when the endpoint serves exactly one scene, default to it;
+when it serves several and none was given, refuse with the list.
+
+### 47. One bearer token per registry
+
+`_authorized` compares against a single `--token`, so every writer to a
+registry shares one credential: no per-party revocation, rotation, or
+attribution. The demo endpoint works around it at the TLS front (Caddy
+accepts a per-party token and swaps in the gateway token before proxying,
+tested 201/200/401/401/204 for party/operator/wrong/none/party-DELETE), which
+gives revocation and rotation but not attribution — the gateway still sees one
+writer, and any party can withdraw any record.
+
+*Smallest change:* `--token` repeatable or a token file of `name token`
+lines, with the name recorded on journal entries.
