@@ -2049,3 +2049,16 @@ An announce on a scene-less topic now belongs to the scene its own
 `manifest_uri` names (`gateway._scene_announces`). `gates/short_topics.py`
 holds that with a recording carrying the announce only on the well-known topic.
 A planted scene-only rule fails it.
+- **A rename sweep that renamed data.** Sweeping the repository's name to
+  spatialdds-py also changed `records._meta`'s MetaKV namespace,
+  `"spatialdds-web"`. That string is data: every built manifest carries it,
+  and the committed ones are hashed with it. The inventory had excluded the
+  quoted literal, but the sweep's keep-list did not. `gates/builders.py` and
+  `gates/quickstart.py` caught it: the duck manifest no longer rebuilt, and
+  the walkthroughs' pasted output differed. The namespace is restored, with a
+  comment saying why, in the unpushed sweep commit itself.
+- **A venv with no extra in it.** The first `[dds]` install test ran
+  `pip install "$W[dds]"` under zsh, which reads `$W[dds]` as an array
+  subscript, so nothing was installed. The check that followed failed loudly
+  (`PackageNotFoundError: cyclonedds`), and the re-run used `"${W}[dds]"`.
+  This is the shell word-handling class already ledgered for an earlier batch.

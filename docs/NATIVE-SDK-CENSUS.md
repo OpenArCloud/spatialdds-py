@@ -547,6 +547,34 @@ A participant stays a plain program.
    the same instance, with the typed sample on `.typed`. Or is the typed
    sample the default?
 
+## Rulings, as given (2026-10-24)
+
+The census was accepted, with these answers to the five questions above:
+
+1. **The pin is the `v1.8` tag, package-wide, in 0.7.0.** At 9c3e1f2 the SDK
+   would refuse the lanes its own acceptance publishes.
+2. **Clean exit:** as proposed, and the declaration is mandatory. The announce
+   always departs. `on_exit="keep"` or `"withdraw"` is required on every
+   latched writer, and refused when unstated.
+3. **`withdraw()` without a reason member:** dispose with the terminal sample,
+   and never refuse. The reason is carried wherever a carrier exists: a type
+   field when present, the recording's metadata always, the log always. The
+   spec entry is filed with this as its origin (candidates entry 9.1).
+4. **VPS and coverage request/reply:** documented as conventions, with nothing
+   built (docs/REQUEST-REPLY.md).
+5. **Typed by default.** `Sample.data` is the typed sample, and JSON is the one
+   shared conversion, the gateway's own code path.
+
+And two more, from James:
+
+- the repository renames to **spatialdds-py** at 0.7.0, with the package name
+  unchanged;
+- the QoS table ships **generated from the registry at the pin**, with a drift
+  gate.
+
+What was built against these rulings, and its acceptance, is
+docs/NATIVE-SDK-ACCEPTANCE.md.
+
 ## Appendix: every demo helper a demo component uses
 
 Generated from the demo's git-tracked files at `0434a8b`, by an AST walk of

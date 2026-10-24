@@ -1,7 +1,7 @@
 # spatialdds
 
-SpatialDDS over plain HTTPS and a WebSocket: a client for programs, and the
-reference registry behind one command.
+SpatialDDS for programs: a client over plain HTTPS and a WebSocket, a native
+DDS participant, and the reference registry behind one command.
 
 ```sh
 pip install spatialdds                       # the client: two dependencies
@@ -544,6 +544,31 @@ explicitly was tried first and is what missed two paths.
 
 If your clients are not browsers, nothing here changes anything for you.
 
+## New in 0.7.0: a native participant, and the v1.8 tag
+
+- **The package speaks DDS natively.** `sd.participant(...)`, under the `[dds]`
+  extra, is described at the top of this page. It takes the conventions as
+  code and leaves the program a plain program.
+- **One pin, the `v1.8` tag**, for everything vendored: the schemas, the IDL,
+  the native bindings and the registry its QoS comes from.
+- **Four-segment topics.** The gateway now serves them at their well-known
+  paths, where it used to drop them.
+- **Recordings carry their disposes.** A recording's withdrawals are served
+  with their reasons.
+
+Two changes may need a line of yours:
+
+- **`sd.topic()` derives durability from a registered `qos_profile`.** It used
+  to say `TRANSIENT_LOCAL` whatever the profile was. For a templated type
+  (`model_entity`) it uses the template's name.
+- **`sd.Sample` and friends moved to `spatialdds.events`.** They are
+  re-exported where they were.
+
+The repository is now
+[spatialdds-py](https://github.com/OpenArCloud/spatialdds-py), and the package
+name is unchanged. Details are in the
+[changelog](https://github.com/OpenArCloud/spatialdds-py/blob/main/lib/spatialdds/CHANGELOG.md).
+
 ## New in 0.6.0: lanes, hardening, OpenAPI
 
 One registry can now take several publishers. Each one holds a token scoped to
@@ -564,12 +589,20 @@ Two changes may need a line of yours:
 The security fixes, the limits table and the details are in the
 [changelog](https://github.com/OpenArCloud/spatialdds-py/blob/main/lib/spatialdds/CHANGELOG.md).
 
-## Not in 0.6.0
+## Not in 0.7.0
 
-Stated so nobody waits for them: no async API, no caching beyond ETag
-revalidation, no retry policy, no MCAP tooling beyond the journal the server
-writes, no client-side command helper, and no DDS dependency of any kind. The
-wire is HTTP and a WebSocket.
+Stated so nobody waits for them:
+
+- no async API;
+- no caching beyond ETag revalidation;
+- no retry policy;
+- no client-side command helper;
+- no request/reply machinery in the native layer. VPS and coverage queries are
+  a documented convention until 1.9 settles their shape;
+- no C++ or other-language port.
+
+The web client still has no DDS dependency of any kind: cyclonedds arrives
+only with `[dds]`.
 
 0.4.0 added the N.6 command surface described above; 0.5.0 made it usable
 from an embedder with a live source, which is two releases for one capability
