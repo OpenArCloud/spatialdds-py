@@ -17,6 +17,7 @@ a gate goes red rather than a reader going in circles.
 | [`publish_service.py`](publish_service.py) | The SSD successor in the write direction: PUT an announce, then find it. Needs `--publish`. |
 | [`publish_content.py`](publish_content.py) | The SCD successor in the write direction: PUT a content record and its manifest, then resolve it. Needs `--publish`. |
 | [`publish_duck.py`](publish_duck.py) | Write to bytes in one file: publish a duck, resolve its URI, fetch the model. Needs `--publish`. |
+| [`withdraw_duck.py`](withdraw_duck.py) | The other half: watch the content lane, withdraw the duck with a reason, see the dispose arrive. Needs `--publish`. |
 | [`publish_anchor.py`](publish_anchor.py) | The open-anchors gesture in two PUTs: publish content, then an anchor naming it. Needs `--publish`. |
 
 ## The endpoint
@@ -389,6 +390,47 @@ beside the recording's own two content records rather than in place of them.
 And the dump is what a client receives — `assets[0].hash` is the digest of the
 committed `samples/assets/duck.gltf`, and `assets[0].meta` records the path it
 was authored from, so the document says where its own bytes came from.
+
+## withdraw_duck.py
+
+The other half of `publish_duck.py`, and the half a publisher has to be able to
+trust: open the content lane's WebSocket, read the latched set to
+`end_of_replay` so the duck is seen there, then `DELETE` its announce with a
+reason and read on until the dispose event brings that reason back. A
+subscriber learns of a withdrawal from the stream, which is why the socket is
+open before the `DELETE` is sent.
+
+The two files are the walkthrough, run in order:
+
+<!-- gate: publish sh -->
+```sh
+export SPATIALDDS_ENDPOINT=http://127.0.0.1:8787 SPATIALDDS_TOKEN=tok
+python3 examples/publish_duck.py > /dev/null
+python3 examples/withdraw_duck.py
+```
+
+```console
+  WS replay     -> content/duck, content/fountain-label, content/fountain-marker
+  DELETE        -> 204  content/duck  reason="walkthrough: the duck is withdrawn"
+  WS dispose    -> {"event": "dispose", "key": "content/duck", "reason": "walkthrough: the duck is withdrawn", "topic": "spatialdds/ut-austin-south-mall/content/content_announce/v1"}
+  GET announce  -> 404
+  GET list      -> content/fountain-label, content/fountain-marker
+  GET resolve   -> 200  the manifest stays: no route withdraws one
+```
+
+The dispose line is the event exactly as the stream sent it. The collection is
+back to the fountain's own two records, and the last line is the half a
+withdrawal does not reach: the duck's manifest still resolves, because this
+surface has no route that withdraws a manifest
+([finding 44](../WEB-BINDING-FINDINGS.md)). Only a deliberate reset of the
+registry removes it.
+
+Run alone, with no duck published, it says so and stops:
+
+<!-- gate: publish py-fails examples/withdraw_duck.py -->
+```console
+  no duck at $BASE to withdraw: publish it first, python3 examples/publish_duck.py
+```
 
 ## publish_anchor.py
 
