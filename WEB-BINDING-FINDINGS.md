@@ -1943,3 +1943,78 @@ repository). It now takes both from the generated registry:
   native layer uses.
 
 `gates/native_registry.py` holds all four.
+
+## The native layer: 0.7.0, 2026-10-24
+
+What building `spatialdds.dds` found, in this repository and in the layer
+itself, before anything shipped. The four-repository census is
+docs/NATIVE-SDK-CENSUS.md, and its filings go to each repository.
+
+### 63. Four defects the layer's own gates caught while it was being built
+
+None of these shipped. Each was caught by a gate that had first been shown
+failable.
+
+- **A reader that looked only at invalid samples lost every withdrawal.**
+  Under KEEP_LAST(1), a dispose that arrives before the terminal sample is
+  taken is reported as the instance state *on that valid sample*, with no
+  separate invalid sample queued. The first reader emitted the terminal
+  `Sample` and never the `Dispose`. The reader is now a per-key state machine
+  over both kinds of sample, emitting each transition once.
+- **`close()` deleted nothing.** cyclonedds's `Entity._delete` takes the
+  handle, and called bare it raises a `TypeError`, which a bare `except`
+  swallowed. Measured by `gates/native_lifecycle.py`: with `on_exit="keep"`,
+  readers learned of a clean stop only when the lease expired, 10.2 s later.
+  An explicit `unregister_instance` reached them in under 10 ms.
+  `close()` now unregisters what it keeps, and deletes through `__del__`
+  (cyclonedds's own path), logging rather than swallowing a failure.
+- **`import spatialdds.records` imported the client.** `from . import
+  canonjson` asked the facade for an attribute it did not list as a submodule,
+  and the facade's fallback imports `client.py`, and so `requests`. Latent
+  since `records` was written, because the client was always loaded first. It
+  mattered once a caller existed that does not want the client.
+  `gates/import_graph.py` now imports the native layer with `requests`,
+  `websockets` and `aiohttp` forbidden.
+- **N.1 cannot carry what DDS can.** A NaN or infinite double serializes, and
+  the projector passes it through. `jsonschema` accepts it as a number, so
+  validation passed a sample no N.1 reader can receive. `to_json` now applies
+  the gateway's own canonical form, which refuses non-finite doubles
+  (MAPPING.md: "finite only").
+
+### 64. One non-finite double in a recording stops the gateway from starting
+
+`gateway.build_state` computes every latched instance's digest as it loads.
+`canonjson` refuses a non-finite double, and the refusal is not caught. So a
+recording with one NaN in one sample does not load at all, and nothing is
+served:
+
+```
+ValueError: non-finite double is not representable (NaN deprecated, §2.3)
+```
+
+Reproduced with a one-message recording, a GeoAnchor with
+`geopose.lat_deg = nan`. The smallest change is to refuse the sample rather
+than the recording: count it under `unrepresentable:<topic>`, beside the
+existing `unnamed:` counts, and serve the rest. Not fixed in 0.7.0, so it can
+be decided as gateway behaviour rather than slipped into a native batch. The
+native layer refuses such a sample at write time, so its own recordings cannot
+trip it.
+
+### Misfires, ledgered
+
+- **A plant masked by a second enforcement point.** Removing the cyclonedds
+  refusal from `require_cyclonedds()` left the gate green, because the
+  package's `__getattr__` converted the same `ImportError` a second time. Two
+  enforcement points for one rule was the defect. The conversion in
+  `__getattr__` is gone, every module that touches cyclonedds calls
+  `require_cyclonedds()` (the generated types root included, from the
+  generator), and the re-plant fails the gate.
+- **A validation check that passed for the wrong reason.** "A sample that
+  breaks its published schema is refused" was green because cyclonedds failed
+  to serialize the planted 3-element quaternion. That is the wire refusing,
+  not the schema. The check is now two, each naming its mechanism. Hunting for
+  a schema-level case found the NaN gap above.
+- **A gate that crashed on the defect it existed for.** With the five-segment
+  split planted, `gates/short_topics.py` raised on the refused WebSocket
+  handshake instead of reporting it. A refused upgrade is now a reported
+  result.

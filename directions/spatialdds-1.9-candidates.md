@@ -563,3 +563,121 @@ collection path, not modelled; AsyncAPI would be the formal home.
 * **The scene rule and the write refusals are documentable from one table**
   (`tenancy.WRITE_REFUSALS`, `limits.REFUSALS`), which is what keeps a
   generated document honest about writes.
+
+## 9. Native participants: what the SDK census found the spec does not say
+
+**Origin.** These come from the native-SDK census of four codebases
+(spatialdds-web `docs/NATIVE-SDK-CENSUS.md`, 2026-10-24) and from building the
+SDK at the `v1.8` tag. Each sub-entry is a question for 1.9, with the evidence
+and what the SDK does meanwhile.
+
+### 9.1 A standard reason for a removal, on types that have no member for one
+
+§2.14 asks every RELIABLE + TRANSIENT_LOCAL keyed instance's removal to be "a
+final sample carrying the instance's terminal state and a human-readable
+reason", then a dispose. N.5.2 asks the same over the web. But these carry
+no member for a reason:
+
+- `Announce`
+- `ContentAnnounce`
+- `GeoAnchor`
+- `SpatialZone`
+- `CrossingLine`
+
+Only `owm::Entity` has `state` and `state_reason`. A participant can always
+send the terminal *state*, by rewriting the instance's last sample before the
+dispose. It cannot put the *reason* on the raw DDS wire.
+
+**Ruling recorded (James, 2026-10-24).** Never refuse the removal over a
+missing nicety. Send the terminal sample and dispose for every keyed type, and
+carry the reason wherever a carrier exists:
+
+- the type's own member when it has one;
+- the recording's metadata, always;
+- the log, always.
+
+**The 1.9 question:** a standard optional reason member on the removable
+latched types, or a tombstone-reason convention (for instance, a well-known
+`Removal` record keyed on the removed instance), so the reason crosses DDS too.
+This joins the typed-removal-record direction already noted for 1.9. It is the
+same gap, seen from a native writer rather than from the three web removal
+conventions.
+
+**The precedence part, which is new.** §3.3's departure rule (dispose
+`Announce`, then publish `Depart`, with no terminal sample) is a second removal
+rule for the type §2.14 also covers. The SDK does both, terminal sample then
+dispose then `Depart`. The spec should say which governs.
+
+### 9.2 Writers of latched keyed types should not autodispose
+
+§3.3.3 fixes four policies and says "other DDS policies MAY be tuned".
+§2.14 says loss of liveliness is not removal. DDS's default
+(`autodispose_unregistered_instances = TRUE`) turns liveliness loss *into* a
+dispose on the wire, before any consumer can obey §2.14. Measured: a
+SpatialDDS-demo writer killed with `kill -9` reached its reader as
+`NOT_ALIVE_DISPOSED` ten seconds later, at lease expiry. With the policy off,
+the same kill is `NOT_ALIVE_NO_WRITERS` (`gates/native_lifecycle.py` holds
+both arms). Three of the four codebases shipped the default.
+
+**Candidate:** writers of RELIABLE + TRANSIENT_LOCAL keyed types SHALL set
+`autodispose_unregistered_instances = FALSE`. It is writer-local, so no
+reader's matching changes.
+
+### 9.3 Registry completeness
+
+The §3.3.2 completeness rule makes a topic-bearing struct without a row a spec
+defect. Measured at `v1.8`:
+
+- **Published as topics with no row:**
+  - `GeoAnchor` (the web binding's `frames/geo_anchor/v1`);
+  - `FrameTransform` (`frames/frame_transform/v1`, in the demo and
+    spatialdds_ros);
+  - `BlobChunk`, whose lane has no topic, row or profile anywhere (9.6).
+
+  The well-known discovery types have their own table.
+- **Rows that name no profile:**
+  - `navsat_status` and `entity_binding` spell no QoS at all;
+  - `model_entity` spells RELIABLE + TRANSIENT_LOCAL, KEEP_LAST(1), which four
+    §3.3.3 profiles carry identically (GEOM_TILE, MAP_META, ZONE_META,
+    SENSOR_META);
+  - `model_pose` and `model_command` spell durability and history but no
+    reliability.
+
+  The SDK refuses all five without an explicit `qos_profile`, and lists the
+  profiles that fit. SpatialDDS-demo's `owm-1.8-spec-queue.md` already carries
+  the `MODEL_LATCHED` naming half.
+
+### 9.4 What "caught up" means for a native reader
+
+N.5 gives the web binding an explicit `end_of_replay`. DDS states nothing
+equivalent: `wait_for_historical_data` covers the writers matched at that
+moment, and discovery is asynchronous. The SDK's `EndOfReplay` means
+"complete for the writers matched when it fired", after letting the matched
+count settle. A latched writer discovered later is just more samples. Should
+the spec define the native boundary, so a bridge from DDS to N.5 has one to
+translate?
+
+### 9.5 The VPS lanes' names are only in an example
+
+`spatialdds/vps/query/v1` and `spatialdds/vps/result/v1` appear only in an
+example manifest. They are four-segment names, which §3.3.1 reserves for
+well-known and profile-defined topics, and `vps_query` / `vps_response` have
+no template. The demo and openvps both use them. Are they normative, and if so
+where? Request/reply is otherwise documented as a convention
+(`docs/REQUEST-REPLY.md`), pending entry 5.
+
+### 9.6 The blob lane is unnamed
+
+`BlobChunk` and its partial-delivery rule are normative, but no topic, registry
+row or QoS profile carries chunks. The demo chose `spatialdds/blob/chunk/v1` on
+GEOM_TILE, and openvps's chunk reader requests TRANSIENT_LOCAL, so a volatile
+client writer silently never matches. The SDK names no lane, and a program
+uses an extension lane of its own.
+
+### 9.7 A non-finite double has a DDS form and no N.1 form
+
+N.1 is "finite only; NaN/Inf rejected". DDS carries NaN. The spec says what a
+web publisher must not send, and nothing about what a gateway serving a
+recording, or a bridge from DDS, does with a sample that carries one. The
+reference gateway refuses the whole recording (spatialdds-web finding 64). The
+SDK refuses the sample at write time.
