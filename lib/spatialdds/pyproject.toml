@@ -32,6 +32,14 @@ dependencies = ["requests>=2.25", "websockets>=12"]
 # every publish with a 500 rather than accept something unvalidated, so
 # leaving it out of this group would ship a registry nobody can publish into.
 server = ["aiohttp>=3.8", "mcap>=1.1", "jsonschema>=4.0"]
+# Being a native DDS participant: `sd.participant(...)` beside `sd.connect(...)`.
+# cyclonedds is the binding the generated types and every endpoint use; 11.0.1
+# is the only version any of the four repositories the native layer replaces
+# had tested. mcap is the recording tap's format, and jsonschema validates
+# every written sample against the published schema before it reaches the bus.
+# Without this extra `import spatialdds` is unchanged, and `sd.participant`
+# raises `sd.MissingExtra` naming it.
+dds = ["cyclonedds>=11.0.1,<12", "mcap>=1.1", "jsonschema>=4.0"]
 
 [project.scripts]
 spatialdds-serve = "spatialdds.serve:main"
@@ -40,8 +48,11 @@ spatialdds-serve = "spatialdds.serve:main"
 Homepage = "https://github.com/OpenArCloud/spatialdds-web"
 Specification = "https://github.com/OpenArCloud/SpatialDDS-spec"
 
-[tool.setuptools]
-packages = ["spatialdds", "spatialdds.server"]
+# Found rather than listed: the native layer's generated bindings are a tree
+# of subpackages (`spatialdds.dds.types.spatial.core`, ...), and a hand list
+# is how one of them would go missing from a wheel.
+[tool.setuptools.packages.find]
+include = ["spatialdds", "spatialdds.*"]
 
 [tool.setuptools.package-data]
 # Everything vendored travels with the package, because the point of 0.2.0 is
@@ -52,9 +63,10 @@ packages = ["spatialdds", "spatialdds.server"]
 # * `artifacts/schemas/*.json` -- the 112 generated JSON Schemas. The endpoint
 #   publishes them and validates against them, and §8.4's third-party reader
 #   has nothing else to go on.
-# * `artifacts/idl/*.idl` -- the pinned IDL. A registry that starts empty
-#   boots its types from this; the tables cannot stand in because they carry
-#   no `@key`, so a keyed resource would have no instance names.
+# * `artifacts/idl/**.idl` -- the pinned IDL, the whole v1.8 tree. A registry
+#   that starts empty boots its types from this (the tables cannot stand in:
+#   they carry no `@key`), and the native layer's bindings are generated from
+#   it and its codec models it.
 # * `demo/**` -- the fountain set `--demo` serves. Byte-identical to the
 #   repository's `samples/` copy, which `tools/pack_demo.py` maintains and
 #   `gates/serve_demo.py` checks.
@@ -67,6 +79,7 @@ spatialdds = [
   "artifacts/openapi.html",
   "artifacts/schemas/*.json",
   "artifacts/idl/*.idl",
+  "artifacts/idl/provisional/*.idl",
   "demo/*.mcap",
   "demo/manifests/*.json",
   "demo/assets/*",

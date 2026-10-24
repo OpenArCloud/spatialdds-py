@@ -83,6 +83,20 @@ def gates() -> list[dict]:
     # the listening process is the one it started, which needs lsof. A probe
     # that fetched a URL until it answered would pass against a gateway left
     # running from an earlier session.
+    # The native layer's gates. cyclonedds is the `[dds]` extra; the drift
+    # check regenerates the bindings with idlc, which lives in the image.
+    try:
+        import cyclonedds     # noqa: F401
+        no_dds = None
+    except ImportError:
+        no_dds = 'needs cyclonedds, the [dds] extra: pip install "spatialdds[dds]"'
+    no_idlc = None
+    if not shutil.which("docker"):
+        no_idlc = "needs docker, to run idlc in the cyclonedds-python image"
+    elif subprocess.run(["docker", "image", "inspect", "cyclonedds-python"],
+                        capture_output=True).returncode != 0:
+        no_idlc = ("needs the cyclonedds-python image, which carries idlc "
+                   "11.0.1 (the toolchain the generated headers record)")
     no_lsof = None if shutil.which("lsof") else (
         "needs lsof to confirm which process is listening on the port")
     no_node = None if shutil.which("node") else (
@@ -220,6 +234,12 @@ def gates() -> list[dict]:
         {"name": "client_scope", "what": "the client's token goes only to its endpoint, and a publish never guesses a scene",
          "cmd": ["gates/client_scope.py"],
          "skip": no_fountain or no_web or no_requests},
+        {"name": "native_types", "what": "the native bindings are the pinned IDL, every type, introspectable",
+         "cmd": ["gates/native_types.py"],
+         "skip": no_dds},
+        {"name": "native_types_drift", "what": "the native bindings are regenerated from the pin without a diff",
+         "cmd": ["gates/native_types_drift.py"],
+         "skip": no_idlc},
         {"name": "short_topics", "what": "a four-segment topic is served at its well-known path, exactly as a scene-scoped one",
          "cmd": ["gates/short_topics.py"],
          "skip": no_web},

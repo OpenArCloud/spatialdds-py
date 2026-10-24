@@ -40,25 +40,31 @@ schemas.count = 112
 schemas.set_sha256 = 97906152283cec93cd6c19e28e73c870b8b73dc4b583a24109acb30bff851ab8
 golden.count = 9
 
-# The IDL itself, vendored at the same commit as the generated artifacts above
-# and for one reason: a registry that starts empty has no recording to read its
-# types out of, and the serializer tables cannot stand in because they carry no
-# @key annotations -- so the instances of a keyed resource could not be named.
-# These three files are the closure of the publishable kinds (Announce,
-# ContentAnnounce, GeoAnchor); `spatialdds.server.pin` flattens them the same
-# way a recording's embedded schema records are flattened, and
-# gates/fresh_start.py requires the model parsed from them to agree with the
-# tables beside them.
+# The IDL itself, vendored at the same tag as the generated artifacts above:
+# the whole normative idl/v1.8 tree plus provisional/, the set SpatialDDS-demo's
+# generator compiles (the informative examples/ are not vendored). Two readers.
+#
+# * The gateway. A registry that starts empty has no recording to read its
+#   types out of, and the serializer tables cannot stand in because they carry
+#   no @key annotations. `spatialdds.server.pin` flattens the closures of the
+#   publishable kinds the way a recording's schema records are flattened, and
+#   gates/fresh_start.py requires the model parsed from them to agree with the
+#   tables beside them.
+# * The native layer. tools/generate_types.py compiles this tree, and only
+#   this tree, into spatialdds.dds.types; its codec models the whole tree with
+#   the gateway's own parser. Until 0.7.0 only the three closure files were
+#   here.
 
 idl.dir = lib/spatialdds/spatialdds/artifacts/idl/
 idl.source_tree = idl/v1.8/
-idl.count = 3
-idl.files = core.idl, discovery.idl, types.idl
-# Set digests (schemas, idl) are sha256 over, for each file in name order, the
-# file's name then the sha256 of its bytes. gates/schema_fidelity.py recomputes
-# every digest and count in this file; until 0.7.0 only two of them were, and
-# the idl digest recorded here reproduced by no method (finding 59).
-idl.set_sha256 = 7cb8eb76507955d63a849ddd395f1b75857ec6b67abbf51cbd69bea7ca0e8a78
+idl.count = 17
+idl.files = anchors.idl, argeo.idl, common.idl, core.idl, discovery.idl, events.idl, lidar.idl, mapping.idl, provisional/owm.idl, provisional/radio.idl, provisional/rf_beam.idl, rad.idl, semantics.idl, slam_frontend.idl, types.idl, vio.idl, vision.idl
+# Set digests (schemas, idl) are sha256 over, for each file in path order, the
+# file's path relative to its directory then the sha256 of its bytes.
+# gates/schema_fidelity.py recomputes every digest and count in this file;
+# until 0.7.0 only two of them were, and the idl digest recorded for 9c3e1f2
+# reproduced by no method (finding 59).
+idl.set_sha256 = d6cf8383a93ef3b97fa948f5f79da1883f78179ba8f51f16c9c833cf9fd944e7
 
 # The recording. This is the data interface: a typed SpatialDDS 1.8 MCAP,
 # carrying its own IDL in its schema records, which is the only description
