@@ -111,14 +111,18 @@ scene:
   tick, a framework's timer, or a request handler.
 - **`topic=`** on `writer()` and `reader()` gives the whole name, for another
   scene's lane or one the spec names only by example. It is held to §3.3.1's
-  grammar, and a templated type to its template. `history=` sets a reader's
-  own cache, for a reply reader that must keep every reply.
+  grammar, a templated type to its template, and a name that fills §2's
+  template for its type is admitted though it is longer
+  (`spatialdds/<scene>/plan/<agent_id>/trajectory/v1`). `history=` sets a
+  reader's own cache, for a reply reader that must keep every reply.
 - **`ignore_local=True`** on a reader drops the participant's own writes, for
   a bridge that writes and reads one lane. **`matched()`** and
   **`wait_matched()`** on writers and readers count the other side.
 - **`p.announce(transforms=...)`** carries the service's frame placement.
   `service_id=` and `topics=` announce several services from one
-  participant.
+  participant. `topics=` may list readers as well as writers, for a service
+  that announces where requests go, and `auth_hint=` and
+  `coverage_frame_ref=` pass through.
 - **`p.relay()`** re-publishes other services' announces. It uses a writer of
   its own and marks each with a `relayed_by` hint naming the relay, so it
   never speaks as the asserter.
@@ -570,6 +574,22 @@ explicitly was tried first and is what missed two paths.
 
 If your clients are not browsers, nothing here changes anything for you.
 
+## New in 0.7.3: what the first migration found
+
+Mostly additive; one fix changes bytes. Every frame this package builds now
+carries the uuid its name derives to, because Appendix G makes the uuid a
+frame's identity. Until 0.7.3 the earth-fixed frame's uuid was empty in
+announces, built manifests and the gateway's manifest, and a conforming
+consumer could match it to nothing. If you compare such documents by digest,
+expect the uuid, and the ETags over it, to change.
+
+- `check_topic` and `topic=` admit §2's lane templates, so the six-segment
+  plan lane opens.
+- `p.announce(topics=)` takes readers, plus `auth_hint=` and
+  `coverage_frame_ref=`.
+- `sd.dds.from_json(..., strict=True)` refuses unknown members by name.
+- `sd.dds.WireError` is exported and is a `ValueError`.
+
 ## New in 0.7.2: a deployment's own types
 
 `sd.dds.extend(name, cls, idl)` brings a deployment's own documented type
@@ -631,7 +651,7 @@ Two changes may need a line of yours:
 The security fixes, the limits table and the details are in the
 [changelog](https://github.com/OpenArCloud/spatialdds-py/blob/main/lib/spatialdds/CHANGELOG.md).
 
-## Not in 0.7.2
+## Not in 0.7.3
 
 Stated so nobody waits for them:
 

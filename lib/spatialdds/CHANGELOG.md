@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.7.3: what the first migration found
+
+Found by SpatialDDS-demo's migration onto 0.7.2 (WEB-BINDING-FINDINGS.md,
+finding 70).
+
+- **Fixed: frames had no identity** (S14). `earth_fixed()` had an empty
+  uuid, and so did every announce built here, `frame()`'s default, the
+  manifest builder's coverage and the gateway's own manifest. Appendix G:
+  "Implementations MUST treat `uuid` uniqueness as the identity key." Each
+  now carries the uuid its fqn derives to (`frames.frame_uuid`, UUIDv5 of
+  the fqn). **This changes bytes**: the earth-fixed frame's uuid is
+  `00cc62ae-c21e-5d3b-b5f9-2587a084ba31` where it was `""`, and ETags over
+  such documents change with it. `frame(uuid=)` still takes a token of your
+  own. The packaged demo set's two content manifests are re-authored.
+- **Fixed: §2's lane templates were refused** (S15). §2 gives
+  PlannedTrajectory `spatialdds/<scene>/plan/<agent_id>/trajectory/v1`, and
+  §3.3.1 lets such templates have extra segments. The registry now reads
+  §2's template sentences from the spec, and `check_topic`, and so
+  `topic=`, admit a name that fills one. A five-segment name is still
+  admitted for these types, since §2 says SHOULD. The gateway still serves
+  four- and five-segment topics only: N.3 gives a longer template no path.
+- **`p.announce(topics=)` takes readers** (S11), each described by its own
+  `TopicMeta`, so a service can announce the lane it reads requests on.
+  `auth_hint=` and `coverage_frame_ref=` pass through. Readers gain
+  `topic_meta()`, `type_name` and `profile`.
+- **`from_json(..., strict=True)`** (S12) refuses every member the type does
+  not have, at any depth, by name, as `SchemaInvalid`. The default stays
+  the gateway's tolerant lift.
+- **`WireError` is a `ValueError`**, exported as `sd.dds.WireError` (S13).
+
 ## 0.7.2: a deployment's own types
 
 Additive. **`sd.dds.extend(type_name, cls, idl)`** registers a deployment's
