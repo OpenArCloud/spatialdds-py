@@ -2042,6 +2042,20 @@ origin.
   handshake instead of reporting it. A refused upgrade is now a reported
   result.
 
+- **A rename sweep that renamed data.** Sweeping the repository's name to
+  spatialdds-py also changed `records._meta`'s MetaKV namespace,
+  `"spatialdds-web"`. That string is data: every built manifest carries it,
+  and the committed ones are hashed with it. The inventory had excluded the
+  quoted literal, but the sweep's keep-list did not. `gates/builders.py` and
+  `gates/quickstart.py` caught it: the duck manifest no longer rebuilt, and
+  the walkthroughs' pasted output differed. The namespace is restored, with a
+  comment saying why, in the unpushed sweep commit itself.
+- **A venv with no extra in it.** The first `[dds]` install test ran
+  `pip install "$W[dds]"` under zsh, which reads `$W[dds]` as an array
+  subscript, so nothing was installed. The check that followed failed loudly
+  (`PackageNotFoundError: cyclonedds`), and the re-run used `"${W}[dds]"`.
+  This is the shell word-handling class already ledgered for an earlier batch.
+
 ### 65. The vendored retail recording is not a 1.8 recording
 
 The v1.8.2 conformance suite added a check that every *streamed* payload
@@ -2077,16 +2091,93 @@ An announce on a scene-less topic now belongs to the scene its own
 `manifest_uri` names (`gateway._scene_announces`). `gates/short_topics.py`
 holds that with a recording carrying the announce only on the well-known topic.
 A planted scene-only rule fails it.
-- **A rename sweep that renamed data.** Sweeping the repository's name to
-  spatialdds-py also changed `records._meta`'s MetaKV namespace,
-  `"spatialdds-web"`. That string is data: every built manifest carries it,
-  and the committed ones are hashed with it. The inventory had excluded the
-  quoted literal, but the sweep's keep-list did not. `gates/builders.py` and
-  `gates/quickstart.py` caught it: the duck manifest no longer rebuilt, and
-  the walkthroughs' pasted output differed. The namespace is restored, with a
-  comment saying why, in the unpushed sweep commit itself.
-- **A venv with no extra in it.** The first `[dds]` install test ran
-  `pip install "$W[dds]"` under zsh, which reads `$W[dds]` as an array
-  subscript, so nothing was installed. The check that followed failed loudly
-  (`PackageNotFoundError: cyclonedds`), and the re-run used `"${W}[dds]"`.
-  This is the shell word-handling class already ledgered for an earlier batch.
+
+## The demo adopts the SDK: 0.7.1, 2026-10-24
+
+SpatialDDS-demo's adoption census (`docs/sdk-adoption-census.md` there, at
+f4890e8) mapped every module and call site of the demo's private helpers to
+the SDK. It is the SDK's first real consumer, and what it found the SDK
+lacks is filed here verbatim from that census, so nothing is lost in relay.
+Each was found against `spatialdds[dds]==0.7.0` installed from PyPI. The
+demo-side citations are SpatialDDS-demo paths at f4890e8.
+
+### 67. What the first consumer found the SDK lacks (S1–S9)
+
+- **S1. No public non-blocking drain.**
+  - *What 0.7.0 has:* `Reader.events()` is a blocking generator. The drain
+    exists only as the private `Reader._events()`.
+  - *Where it bites:* every live reader in the demo drains inside a loop it
+    already owns:
+    - `model_service.py:787` and `duck_mover.py:308-313`;
+    - `keepout_node.py:165`, inside an rclpy timer;
+    - `web_bridge/server.py:149-170`, inside sync FastAPI handlers;
+    - `nuscenes/subscriber_rerun.py:98-111`, twenty readers on one thread;
+    - `ros2_bridge/bridge_node.py:589-594`, inside an rclpy timer.
+  - *Smallest change:* make `Reader.take()` public, with `EndOfReplay`
+    emitted once, on the first take after the settle.
+- **S2. No lane outside `spatialdds/<scene>/…`.**
+  - *Why:* `_Lane` builds every topic as `topic_name(scene, stream, type)`.
+  - *Unreachable today:*
+    - the VPS lanes (`spatialdds/vps/query|result/v1`);
+    - the oarc bootstrap lanes;
+    - coverage reply topics named by the asker (`service_bus.py:181-206`,
+      KEEP_ALL);
+    - anchor deltas (`spatialdds/anchors/<set>/delta/v1`);
+    - another scene's lanes (all four bridges and the MCAP replayer).
+  - *Smallest change:* a `topic=` that takes a full name, validated against
+    §3.3.1's grammar and refused on a well-known topic, with a history
+    override for reply readers.
+- **S3. The announce cannot carry `transforms`, and is one per participant.**
+  - *Found at:* `spatialdds_catalog_server.py:167` (the AR catalogue's
+    frame-to-earth placement), `synthetic_publisher.py:500-508` (N+1
+    services from one participant), and `replayer.py:178-191`,
+    `mqtt_bridge`, `test_live.py:164-170` (relayed announces).
+  - *Smallest change:* `transforms=` on `p.announce()`, and a documented
+    relay writer for bridges, marked as not the participant's own claim.
+- **S4. No IgnoreLocal on readers.** The MQTT and ROS 2 bridges prevent
+  loops with `Policy.IgnoreLocal.Participant` (`mqtt_bridge/bridge.py:138-142`,
+  `bridge_node.py:586-587`).
+- **S5. No matched status on writers.** `duck_mover.py:462`,
+  `scripts/move_duck.py:101`, `reshape_pond.py:95` and `retire_entity.py:67`
+  wait for a matched reader before commanding.
+- **S6. No absent-value constants.** The demo's `absent.py`,
+  `payloads.ABSENT_*`, the nuScenes and DeepSense converters, and
+  `spatialdds_validation.py:458, 474`.
+- **S7. A participant cannot be shared with a library that takes a
+  `DomainParticipant`.** `robot_bridge.py:310-379` hands its participant to
+  `spatialdds_ros`. Not needed until the ROS rebase: the robot lane keeps its
+  own raw participant beside an SDK one, which interoperates (measured in the
+  census).
+- **S8. `content_announce` has no `transforms=`.** The demo's
+  `content_catalogue.py:238-253` carries the placement and frame anchor.
+- **S9. No public lookup from a registered type name to its class.** Bridges
+  and the replayer resolve a `TopicMeta.type` string at runtime, and the
+  SDK's lookup is the private `_types_class`.
+
+**Ruled 2026-10-24.** 0.7.1 carries S1–S5 and S9 before the demo's migration,
+so the batch ends with one stack in the tree, not two. Each is additive. One
+design constraint is on S3: announcing several services and carrying
+placement transforms are in. Relaying someone else's announce must be
+explicit re-publication under the relay's own writer identity, never
+impersonation of the original asserter, because the claims discipline
+applies to announces too. S6 and S8 stay as filings. S7 waits for the ROS
+rebase.
+
+### 68. Three equivalents this repository's census named do not exist
+
+`docs/NATIVE-SDK-CENSUS.md`'s appendix maps demo helpers to SDK equivalents.
+Against the 0.7.0 release, three of those claims are wrong. The demo's census
+tool (`--check-sdk`) imports every named equivalent, and it refuses each of
+these when planted:
+
+- **`blob.*` maps to "`p.blob_writer()`".** There is no such method. The
+  equivalent is `sd.dds.chunk`, `Reassembler` and `blob_ref`, with a plain
+  `p.writer("blob_chunk", stream=…)`.
+- **`qos_profiles.MODEL_LATCHED` is the "registry default for
+  `model_entity`".** §3.3.2 names no profile for `model_entity`, and 0.7.0
+  refuses the writer without `qos_profile=`.
+- **"Absent-value constants beside the types".** 0.7.0 ships none (S6).
+
+The appendix was written before the release, and nothing checked its
+right-hand column against it. The census here is corrected by this note, not
+by rewriting a ruled document.
