@@ -33,6 +33,15 @@ process.
   - The relay's `close()` reaches readers as liveliness ending, never as a
     `Dispose`. Its `withdraw()` is a `Dispose`, recorded with the relay's
     name in the reason.
+* **S4, `ignore_local=`.** A participant that writes and reads one lane, with
+  `ignore_local=True`, hears another participant's write and not its own.
+  The control reader, without it, hears both.
+* **S5, `matched()` and `wait_matched()`.** A writer with no reader is
+  matched with none, and `wait_matched()` returns False at its timeout. Once
+  a reader exists, it returns True and `matched()` counts it.
+* **S9, `class_for()`.** A registered name, a well-known message and a dotted
+  identity each resolve to the generated class. An unknown name is refused,
+  saying which forms were tried.
 
 Usage:  gates/native_additions.py
 """
@@ -411,6 +420,60 @@ def s3(checks: list, domain: int) -> None:
         watch.close()
 
 
+def s4_s5_s9(checks: list, domain: int) -> None:
+    lane = f"spatialdds/{SCENE}/bridge/geopose/v1"
+    with sd.participant(SCENE, domain=domain, service_id=SVC) as me, \
+            sd.participant(SCENE, domain=domain, service_id=SVC + ":far") as far:
+        mine = me.writer("geopose", topic=lane)
+        # KEEP_ALL: POSE_RT is KEEP_LAST(1), and both writes are one
+        # instance, so a depth-1 reader would hold only the second.
+        deaf = me.reader("geopose", topic=lane, ignore_local=True,
+                         history="KEEP_ALL")
+        hears = me.reader("geopose", topic=lane, history="KEEP_ALL")
+        theirs = far.writer("geopose", topic=lane)
+        for w in (mine, theirs):
+            w.wait_matched(2, timeout=10)
+        mine.write(sd.geopose(30.0, -97.0))
+        theirs.write(sd.geopose(31.0, -97.0))
+        time.sleep(1.0)
+        lat = {name: sorted(round(e.data.lat_deg) for e in r.take()
+                            if isinstance(e, sd.Sample))
+               for name, r in (("ignore_local", deaf), ("control", hears))}
+        checks.append(("S4: with ignore_local, a participant hears another's "
+                       "write and not its own; the control hears both",
+                       lat == {"ignore_local": [31], "control": [30, 31]},
+                       f"{lat}"))
+
+        lonely = me.writer("geopose", topic=f"spatialdds/{SCENE}/nobody/geopose/v1")
+        t0 = time.time()
+        none = lonely.wait_matched(timeout=0.5)
+        waited = time.time() - t0
+        before = lonely.matched()
+        far.reader("geopose", topic=lonely.topic)
+        some = lonely.wait_matched(timeout=10)
+        checks.append((f"S5: an unheard writer is matched with none, and "
+                       f"wait_matched() is False at its timeout "
+                       f"({waited:.2f} s); once a reader exists it is True",
+                       before == 0 and none is False and 0.45 <= waited < 2
+                       and some is True and lonely.matched() == 1,
+                       f"before={before} none={none} some={some} "
+                       f"after={lonely.matched()}"))
+
+    resolved = {n: sd.dds.class_for(n).__name__
+                for n in ("model_entity", "Announce", "spatial.core.GeoPose")}
+    try:
+        sd.dds.class_for("oarc.never_registered")
+        unknown = None
+    except sd.dds.RegistryError as e:
+        unknown = str(e)
+    checks.append(("S9: class_for resolves a registered name, a well-known "
+                   "message and a dotted identity, and refuses an unknown name",
+                   resolved == {"model_entity": "Entity", "Announce": "Announce",
+                                "spatial.core.GeoPose": "GeoPose"}
+                   and unknown and "not a registered type name" in unknown,
+                   f"{resolved} / {unknown}"))
+
+
 def _metadata(path: Path) -> list:
     from mcap.reader import make_reader
     from spatialdds.server.mcapmeta import DISPOSE_RECORD
@@ -433,6 +496,7 @@ def run() -> int:
     arm(checks, "S1", s1)
     arm(checks, "S2", s2)
     arm(checks, "S3", s3)
+    arm(checks, "S4, S5, S9", s4_s5_s9)
     return report("native additions", checks,
                   "0.7.1's additions do what finding 67 asked")
 

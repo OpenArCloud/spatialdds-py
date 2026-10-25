@@ -90,11 +90,17 @@ class ParticipantRefused(ValueError):
 
 
 def _types_class(fqn: str) -> type:
-    """The generated class for a dotted type identity."""
-    import importlib
-    parts = fqn.split(".")
-    mod = importlib.import_module("spatialdds.dds.types." + ".".join(parts[:-1]))
-    return getattr(mod, parts[-1])
+    """The generated class for a dotted type identity (`codec.class_for`)."""
+    return codec.class_for(fqn)
+
+
+def _wait(cond, timeout: float, poll: float = 0.02) -> bool:
+    deadline = time.time() + timeout
+    while not cond():
+        if time.time() >= deadline:
+            return False
+        time.sleep(poll)
+    return True
 
 
 def _now_time():
@@ -208,6 +214,19 @@ class Writer:
     @property
     def cls(self) -> type:
         return self._lane.cls
+
+    def matched(self) -> int:
+        """How many readers this writer is matched with, now."""
+        return self._dw.get_publication_matched_status().current_count
+
+    def wait_matched(self, n: int = 1, timeout: float = 5.0) -> bool:
+        """Wait until at least `n` readers have matched. False on timeout.
+
+        For a command that is pointless unless somebody hears it. Matching
+        is not delivery: a reliable writer's `close()` still awaits
+        acknowledgements for that.
+        """
+        return _wait(lambda: self.matched() >= n, timeout)
 
     def keys(self) -> List[str]:
         """The instances this writer holds: written, and not withdrawn."""
@@ -332,9 +351,11 @@ class Writer:
 class Reader:
     """One lane's reader. Created by `Participant.reader`, never directly."""
 
-    def __init__(self, p: "Participant", lane: _Lane, settle_s: float) -> None:
+    def __init__(self, p: "Participant", lane: _Lane, settle_s: float,
+                 ignore_local: bool = False) -> None:
         self._p, self._lane, self._settle = p, lane, settle_s
-        self._dr = DataReader(p._dp, p._topic(lane), qos=reader_qos(lane.profile))
+        self._dr = DataReader(p._dp, p._topic(lane),
+                              qos=reader_qos(lane.profile, ignore_local))
         self._keys: Dict[int, str] = {}
         #: Per key: "alive", "quiet" (no writers) or "gone" (disposed). A
         #: transition is an event, emitted once.
@@ -354,6 +375,10 @@ class Reader:
     def matched(self) -> int:
         """How many writers this reader is matched with, now."""
         return self._dr.get_subscription_matched_status().current_count
+
+    def wait_matched(self, n: int = 1, timeout: float = 5.0) -> bool:
+        """Wait until at least `n` writers have matched. False on timeout."""
+        return _wait(lambda: self.matched() >= n, timeout)
 
     def _replay_complete(self, now: float) -> bool:
         """Has the latched replay finished? Never blocks.
@@ -692,13 +717,15 @@ class Participant:
                qos_profile: Union[str, Profile, None] = None,
                version: str = "v1", type_name: Optional[str] = None,
                settle_s: float = 1.0, topic: Optional[str] = None,
-               history: Union[str, int, None] = None) -> Reader:
+               history: Union[str, int, None] = None,
+               ignore_local: bool = False) -> Reader:
         """A reader for a registered type, a well-known topic, or an extension.
 
         `topic=` is as for `writer()`. `history=` overrides the reader's own
         cache, `"KEEP_ALL"` or a depth: a reply reader that must not lose
         replies arriving together. History is the reader's own policy, so
-        matching is unaffected.
+        matching is unaffected. `ignore_local=True` does not deliver this
+        participant's own writes, for a bridge that writes and reads one lane.
         """
         self._open()
         problems: List[str] = []
@@ -718,7 +745,7 @@ class Participant:
                                 f">= 1")
         if problems:
             raise ParticipantRefused(problems)
-        r = Reader(self, lane, settle_s)
+        r = Reader(self, lane, settle_s, ignore_local)
         self._readers.append(r)
         return r
 

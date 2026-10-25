@@ -56,6 +56,13 @@ def writer_qos(p: Profile, lifespan_sec: Optional[float] = None) -> "_qos.Qos":
                     _qos.Policy.WriterDataLifecycle(autodispose=False))
 
 
-def reader_qos(p: Profile) -> "_qos.Qos":
-    """The profile's four columns, exactly, so a conformant writer matches."""
-    return _qos.Qos(*_common(p, None))
+def reader_qos(p: Profile, ignore_local: bool = False) -> "_qos.Qos":
+    """The profile's four columns, exactly, so a conformant writer matches.
+
+    `ignore_local` drops samples from writers in the same participant, which
+    is how a bridge that writes and reads one lane avoids hearing itself.
+    """
+    pol = _common(p, None)
+    if ignore_local:
+        pol.append(_qos.Policy.IgnoreLocal.Participant)
+    return _qos.Qos(*pol)

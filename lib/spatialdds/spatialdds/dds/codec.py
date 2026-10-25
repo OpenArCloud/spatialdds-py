@@ -80,6 +80,35 @@ def fqn_of(obj_or_cls: Any) -> str:
     return name.replace("::", ".")
 
 
+def class_for(name: str) -> type:
+    """The generated class for a type, by any name this layer knows it by.
+
+    * a registered §3.3.2 type name (`"model_entity"`);
+    * a well-known message (`"Announce"`);
+    * a dotted identity (`"spatial.core.GeoPose"`).
+
+    For a program that learns a type at run time, a bridge reading an
+    announce's `TopicMeta.type` say, rather than importing a class it knew
+    about beforehand. An unknown name raises `RegistryError` saying which
+    forms were tried.
+    """
+    import importlib
+    from . import registry
+    reg = registry.registrations().get(name)
+    wk = registry.well_known() if name in registry.well_known() else None
+    fqn = reg.fqn if reg else wk[name].fqn if wk else name
+    mod, _, cls = fqn.rpartition(".")
+    if mod.startswith("spatial") or mod == "builtin":
+        try:
+            return getattr(importlib.import_module(
+                "spatialdds.dds.types." + mod), cls)
+        except (ImportError, AttributeError):
+            pass
+    raise registry.RegistryError(
+        f"{name!r} is not a registered type name, a well-known message, or a "
+        f"dotted type identity in the pinned IDL")
+
+
 def to_json(sample: Any) -> Dict[str, Any]:
     """The N.1 document for a typed sample: the gateway's projection of its bytes.
 
