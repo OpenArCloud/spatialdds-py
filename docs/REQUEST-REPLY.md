@@ -8,6 +8,19 @@ would freeze a convention in the middle of its redesign. So this page writes
 down the convention two codebases already run, so a program can follow it with
 the layer's building blocks, and the API waits for 1.9's answer.
 
+**What 0.7.1 adds for it.** Still no request/reply API. But the lanes the
+convention runs on are now reachable, and a reply reader can keep every reply
+(finding 67, S2):
+
+- `p.writer("vps_query", topic="spatialdds/vps/query/v1")`, and the same for
+  the result lane: the spec gives these names only by example.
+- A coverage reply reader on the topic the asker named:
+  `p.reader(CoverageResponse, type_name=..., topic=reply_topic,
+  history="KEEP_ALL", qos_profile=...)`.
+- `Writer.wait_matched()` before a request that is pointless unheard.
+- `Reader.take()` inside the asker's own loop while it waits for its
+  `query_id`.
+
 The two codebases:
 
 - SpatialDDS-demo's `spatialdds_demo/service_bus.py`, the reference shape;

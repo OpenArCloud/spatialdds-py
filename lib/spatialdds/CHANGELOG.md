@@ -1,5 +1,37 @@
 # Changelog
 
+## 0.7.1: for programs that own their loop
+
+Additive. Every change is something SpatialDDS-demo's adoption, the native
+layer's first real consumer, found missing (WEB-BINDING-FINDINGS.md, finding
+67). Nothing 0.7.0 did changes.
+
+- **`Reader.take()`** (S1): the non-blocking drain, with exactly one
+  `EndOfReplay`, on the first take at which the replay is complete. That is
+  decided before the call drains, so no historical sample lands behind the
+  marker. `events()` is `take()` in a loop.
+- **`topic=`** on `writer()` and `reader()` (S2): the whole name, held to
+  §3.3.1 by `registry.check_topic`. A well-known topic is refused (ask for it
+  by message name), and a templated type is held to its template.
+  `records.topic(name=)` announces such a lane truthfully.
+  **`reader(history=)`** overrides the reader's own cache.
+- **The announce** (S3):
+  - `transforms=` carries the service's frame placement;
+  - `service_id=` and `topics=` announce several services from one
+    participant, each with its own writer, TTL and departure;
+  - **`p.relay()`** re-publishes other services' announces with its own
+    writer, marked `relayed_by`. It refuses its own services and chained
+    relays, and unregisters, never disposes, on close.
+- **`reader(ignore_local=True)`** (S4), **`matched()` / `wait_matched()`** on
+  writers and readers (S5), and **`sd.dds.class_for(name)`** (S9).
+
+Fixed: an `announce()` that failed on its first publish made `close()` raise
+`AttributeError`, which hid the failure.
+
+`gates/native_additions.py` holds every addition against a bus, and each of
+its 16 plants fails it. Spec queue entry 10 (`Announce` has no member saying
+who relayed it) is filed from S3's design.
+
 ## 0.7.0: a native participant, the v1.8 tag
 
 ### The native layer (`[dds]`)

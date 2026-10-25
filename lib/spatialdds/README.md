@@ -103,6 +103,28 @@ And what it does without being asked:
 - **Every sample is validated** against the published JSON Schema before it is
   written.
 
+For a program that already owns its loop, or reads lanes beyond its own
+scene:
+
+- **`reader.take()`** returns what has arrived, now, without blocking: the
+  same events as `events()`, with the same single `EndOfReplay`. It is for a
+  tick, a framework's timer, or a request handler.
+- **`topic=`** on `writer()` and `reader()` gives the whole name, for another
+  scene's lane or one the spec names only by example. It is held to §3.3.1's
+  grammar, and a templated type to its template. `history=` sets a reader's
+  own cache, for a reply reader that must keep every reply.
+- **`ignore_local=True`** on a reader drops the participant's own writes, for
+  a bridge that writes and reads one lane. **`matched()`** and
+  **`wait_matched()`** on writers and readers count the other side.
+- **`p.announce(transforms=...)`** carries the service's frame placement.
+  `service_id=` and `topics=` announce several services from one
+  participant.
+- **`p.relay()`** re-publishes other services' announces. It uses a writer of
+  its own and marks each with a `relayed_by` hint naming the relay, so it
+  never speaks as the asserter.
+- **`sd.dds.class_for(name)`** is the generated class for a registered type
+  name, a well-known message or a dotted identity.
+
 `Sample.data` is the typed sample (`sd.dds.types` carries every type in the
 pinned IDL). `sd.dds.to_json(sample)` is its N.1 form, produced by the gateway's
 own codec, so a native sample and a served one cannot disagree.
@@ -544,6 +566,16 @@ explicitly was tried first and is what missed two paths.
 
 If your clients are not browsers, nothing here changes anything for you.
 
+## New in 0.7.1: for programs that own their loop
+
+Everything SpatialDDS-demo's adoption found missing, and nothing removed:
+`reader.take()`, `topic=` and `history=`, `ignore_local=`, `matched()` and
+`wait_matched()`, announces that carry placement and speak for several
+services, `p.relay()`, and `sd.dds.class_for()`. They are described with the
+native participant at the top of this page. Nothing in 0.7.0 changed
+behaviour. Details are in the
+[changelog](https://github.com/OpenArCloud/spatialdds-py/blob/main/lib/spatialdds/CHANGELOG.md).
+
 ## New in 0.7.0: a native participant, and the v1.8 tag
 
 - **The package speaks DDS natively.** `sd.participant(...)`, under the `[dds]`
@@ -589,7 +621,7 @@ Two changes may need a line of yours:
 The security fixes, the limits table and the details are in the
 [changelog](https://github.com/OpenArCloud/spatialdds-py/blob/main/lib/spatialdds/CHANGELOG.md).
 
-## Not in 0.7.0
+## Not in 0.7.1
 
 Stated so nobody waits for them:
 
@@ -598,7 +630,8 @@ Stated so nobody waits for them:
 - no retry policy;
 - no client-side command helper;
 - no request/reply machinery in the native layer. VPS and coverage queries are
-  a documented convention until 1.9 settles their shape;
+  a documented convention until 1.9 settles their shape, and 0.7.1 makes
+  their lanes reachable;
 - no C++ or other-language port.
 
 The web client still has no DDS dependency of any kind: cyclonedds arrives

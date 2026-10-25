@@ -41,7 +41,7 @@ __all__ = [
     "participant", "MissingExtra", "dds", "events", "frames", "Recency",
 ]
 
-__version__ = "0.7.0"
+__version__ = "0.7.1"
 #: The SpatialDDS-spec commit whose Appendix N and generated artifacts this
 #: package implements. Package versions and specification versions move
 #: independently; this is the one that says what the wire looks like.
