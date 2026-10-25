@@ -2366,3 +2366,57 @@ in `frames`.
   sample, which still carried the empty uuid. Reverted, and the samples
   were re-authored; every refilled line was then read, and each is the
   uuid or the checksum over it.
+
+## After 0.7.3: what the rest of the migration found, 2026-10-25
+
+SpatialDDS-demo finished its adoption on 0.7.3 (pushed at 3cdb27b there).
+Two more defects and one observation, filed here on James's word. None
+blocked the demo: each has a labelled workaround there, said below.
+
+### 71. A time that is not a time, a close that cannot finish, and two type objects for one type (S16, S17)
+
+- **S16. `sd.stamp` does not normalise.** It splits a float into
+  `int(t)` and `round((t % 1) * 1e9)`, so:
+  - `sd.stamp(5.9999999999)` is `{"sec": "5", "nanosec": 1000000000}`, a
+    `nanosec` outside `[0, 10^9)`;
+  - `sd.stamp(-0.25)` is `{"sec": "0", "nanosec": 750000000}`, +0.75 s,
+    because `int()` truncates toward zero while `%` floors.
+
+  A time type that can emit `nanosec = 10^9` is a conformance bug waiting
+  for a consumer. The first is reachable with any wall-clock float; the
+  second with any time before the epoch, or a negative offset.
+  *Smallest change:* compute nanoseconds as one integer
+  (`round(t * 1e9)`), then `divmod(ns, 10**9)`, which floors both parts.
+  *Demo's workaround:* its `payloads.stamp`, which normalises both, stays,
+  labelled (the census has it REPLACED by `sd.stamp`).
+- **S17. `close()` raises when an ack wait times out.** `close()` writes
+  each dispose and Depart, then awaits acks with
+  `DataWriter.wait_for_acks`. In cyclonedds-python 11.0.1 that method's
+  timeout branch reads `Exception.DDS_RETCODE_TIMEOUT`, which does not
+  exist (`cyclonedds/pub.py:325`), so every timeout raises
+  `AttributeError`. A clean stop with one slow peer (measured: a reader
+  whose process is SIGSTOPped, every time; met naturally when the mock VPS
+  stopped beside a catalogue busy validating its inventory) exits with a
+  traceback, and skips the remaining writers' flushes and every recorder's
+  `flush()`. The dispose and Depart are already written, so departures
+  still go out.
+  *Smallest change:* treat that `AttributeError`, and only that one, as
+  `False` in `Writer._flush` and the presence-writer loop, so `close()`
+  finishes its flushes and its recorders, and log the timeout. The root is
+  upstream, and a report is drafted for cyclonedds-python.
+  *Demo's workaround:* `spatialdds_demo.lanes` restores the documented
+  contract at one point, with a test that fails once cyclonedds no longer
+  has the bug.
+- **An observation, not a defect here: two complete type objects for one
+  type.** cyclonedds-python names each typedef in a type's *complete*
+  XTypes TypeObject by the Python package it was generated into:
+  `spatialdds::dds::types::spatial::common::Vec3` for this package's types,
+  `spatialdds_idl18::spatial::common::Vec3` for spatialdds_ros's. So the
+  complete type identifiers of the same IDL type differ between the two
+  trees (7 of the 9 robot-lane types), while the *minimal* identifiers,
+  which assignability is decided on, agree for all 9. Wire interop holds.
+  Anything that compares complete type objects, such as a type lookup
+  from a C++ participant whose aliases are named `spatial::common::Vec3`,
+  would see two types. Recorded so it is not rediscovered; whether the
+  generator should rename aliases to the IDL's scoped names is a question
+  for this package's generator, not a change requested.
