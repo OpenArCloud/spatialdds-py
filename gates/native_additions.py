@@ -21,6 +21,18 @@ process.
     type with `topic=`.
   - `history=` holds: a burst of ten poses on one key reaches a depth-1
     reader as one, a `KEEP_ALL` reader as ten, and a depth-3 reader as three.
+* **S3, the announce.**
+  - Placement `transforms=` reach a reader on the announce.
+  - Two services announced from one participant are two instances, each
+    with its own lanes, and both depart on `close()`: two disposes, then two
+    `Depart`s.
+  - A second service is refused while the first claims "every writer".
+  - A relayed announce carries the asserter's members and a `relayed_by`
+    naming the relay.
+  - The relay refuses its own service, and an announce already relayed.
+  - The relay's `close()` reaches readers as liveliness ending, never as a
+    `Dispose`. Its `withdraw()` is a `Dispose`, recorded with the relay's
+    name in the reason.
 
 Usage:  gates/native_additions.py
 """
@@ -28,6 +40,7 @@ from __future__ import annotations
 
 import random
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -254,6 +267,158 @@ def s2(checks: list, domain: int) -> None:
                        f"{n}"))
 
 
+def placement() -> dict:
+    return {"from": FRAME, "to": sd.earth_fixed(),
+            "pose": {"t": [1.0, 2.0, 3.0], "q": [0.0, 0.0, 0.0, 1.0]},
+            "stamp": sd.stamp(), "has_validity": False,
+            "validity": {"from": {"sec": "0", "nanosec": 0}, "seconds": 0}}
+
+
+def announces(r, until: float, want) -> list:
+    out = []
+    while time.time() < until and not want(out):
+        out += r.take()
+        time.sleep(0.05)
+    return out
+
+
+def s3(checks: list, domain: int) -> None:
+    from spatialdds.dds import RELAYED_BY
+    cov = sd.circle(30.28, -97.73, 50)
+    watch = sd.participant(SCENE, domain=domain)
+    ra = watch.reader("Announce", settle_s=0.3)
+    rd = watch.reader("Depart")
+    rec = None
+    try:
+        with sd.participant(SCENE, domain=domain, service_id=SVC,
+                            authority="gate.example") as p:
+            ent = p.writer("model_entity", qos_profile="MAP_META",
+                           on_exit="keep")
+            pose = p.writer("model_pose", qos_profile=FAST)
+            # The first service claims "every writer", so a second one makes
+            # that ambiguous and is refused, even though it names its own lanes.
+            p.announce("OTHER", coverage=cov, transforms=[placement()])
+            try:
+                p.announce("OTHER", coverage=cov, service_id=SVC + ":b",
+                           topics=[pose])
+                refused = None
+            except sd.dds.ParticipantRefused as e:
+                refused = str(e)
+            checks.append(("S3: a second service is refused while an announce "
+                           "claims 'every writer'",
+                           refused is not None
+                           and "names its lanes with topics=" in refused,
+                           f"{refused}"))
+            p.announce("OTHER", coverage=cov, transforms=[placement()],
+                       topics=[ent])
+            p.announce("OTHER", coverage=cov, service_id=SVC + ":b",
+                       topics=[pose])
+            evs = announces(ra, time.time() + 15, lambda o: len(
+                {e.key for e in o if isinstance(e, sd.Sample)}) >= 2)
+            got = {e.key: e.data for e in evs if isinstance(e, sd.Sample)}
+            a, b = got.get(SVC), got.get(SVC + ":b")
+            checks.append(("S3: placement transforms reach a reader on the "
+                           "announce",
+                           a is not None and len(a.transforms) == 1
+                           and a.transforms[0].to.fqn == "earth-fixed",
+                           f"{a.transforms if a else None}"))
+            checks.append(("S3: two services from one participant are two "
+                           "instances, each with its own lanes",
+                           a is not None and b is not None
+                           and [t.name for t in a.topics] == [ent.topic]
+                           and [t.name for t in b.topics] == [pose.topic],
+                           f"{ {k: [t.name for t in v.topics] for k, v in got.items()} }"))
+        evs = announces(ra, time.time() + 10, lambda o: len(
+            [e for e in o if isinstance(e, sd.Dispose)]) >= 2)
+        deps = announces(rd, time.time() + 10, lambda o: len(
+            [e for e in o if isinstance(e, sd.Sample)]) >= 2)
+        checks.append(("S3: both depart on close(): two disposes, two Departs",
+                       sorted(e.key for e in evs if isinstance(e, sd.Dispose))
+                       == sorted([SVC, SVC + ":b"])
+                       and sorted(e.key for e in deps
+                                  if isinstance(e, sd.Sample))
+                       == sorted([SVC, SVC + ":b"]),
+                       f"{kinds(evs)} / {kinds(deps)}"))
+
+        heard = sd.service_announce(
+            "svc:gate:elsewhere", "VPS", coverage=cov,
+            authority="elsewhere.example", scene="far", name="heard over MQTT")
+        relay_id = SVC + ":relay"
+        with tempfile.TemporaryDirectory() as tmp:
+            with sd.participant(SCENE, domain=domain, service_id=relay_id,
+                                authority="gate.example") as rp:
+                rec = rp.record(Path(tmp) / "relay.mcap")
+                relay = rp.relay()
+                relay.write(heard)
+                evs = announces(ra, time.time() + 10, lambda o: any(
+                    isinstance(e, sd.Sample) and e.key == "svc:gate:elsewhere"
+                    for e in o))
+                s_ = [e.data for e in evs if isinstance(e, sd.Sample)
+                      and e.key == "svc:gate:elsewhere"]
+                hints = {h.key: h.value for h in s_[-1].hints} if s_ else {}
+                checks.append(("S3: a relayed announce keeps the asserter's "
+                               "members and names the relay in relayed_by",
+                               s_ and s_[-1].name == "heard over MQTT"
+                               and hints.get(RELAYED_BY) == relay_id, f"{hints}"))
+                why = {}
+                for label, doc in (("its own service", sd.service_announce(
+                        relay_id, "OTHER", coverage=cov,
+                        authority="gate.example", scene=SCENE)),
+                        ("an announce already relayed", dict(
+                            heard, hints=[{"key": RELAYED_BY,
+                                           "value": "svc:someone"}]))):
+                    try:
+                        relay.write(doc)
+                        why[label] = None
+                    except sd.dds.ParticipantRefused as e:
+                        why[label] = str(e)
+                checks.append(("S3: the relay refuses " + " and ".join(why),
+                               why["its own service"] and "announce() it" in
+                               why["its own service"]
+                               and why["an announce already relayed"]
+                               and "already relayed by svc:someone" in
+                               why["an announce already relayed"], f"{why}"))
+                second = sd.service_announce(
+                    "svc:gate:second", "VPS", coverage=cov,
+                    authority="elsewhere.example", scene="far")
+                relay.write(second)
+                announces(ra, time.time() + 10, lambda o: any(
+                    isinstance(e, sd.Sample) and e.key == "svc:gate:second"
+                    for e in o))
+                relay.withdraw("svc:gate:second", reason="it departed upstream")
+                evs = announces(ra, time.time() + 10, lambda o: any(
+                    isinstance(e, sd.Dispose) for e in o))
+                checks.append(("S3: the relay's withdraw() is a Dispose of the "
+                               "relayed copy",
+                               [e.key for e in evs if isinstance(e, sd.Dispose)]
+                               == ["svc:gate:second"], f"{kinds(evs)}"))
+            evs = announces(ra, time.time() + 12, lambda o: any(
+                isinstance(e, (sd.Liveliness, sd.Dispose))
+                and e.key == "svc:gate:elsewhere" for e in o))
+            ends = [type(e).__name__ for e in evs
+                    if isinstance(e, (sd.Liveliness, sd.Dispose))
+                    and e.key == "svc:gate:elsewhere"]
+            checks.append(("S3: the relay's close() is liveliness ending for "
+                           "what it carried, never a Dispose",
+                           ends == ["Liveliness"], f"{ends}"))
+            reasons = [md.metadata.get("reason", "") for md in _metadata(
+                Path(tmp) / "relay.mcap")]
+            checks.append(("S3: the withdrawal is recorded with the relay's "
+                           "name in its reason",
+                           any(r.startswith(f"relayed by {relay_id}:")
+                               for r in reasons), f"{reasons}"))
+    finally:
+        watch.close()
+
+
+def _metadata(path: Path) -> list:
+    from mcap.reader import make_reader
+    from spatialdds.server.mcapmeta import DISPOSE_RECORD
+    with open(path, "rb") as f:
+        return [m for m in make_reader(f).iter_metadata()
+                if m.name == DISPOSE_RECORD]
+
+
 def arm(checks: list, name: str, fn) -> None:
     """One arm on a domain of its own; whatever it raises is a reported FAIL."""
     try:
@@ -267,6 +432,7 @@ def run() -> int:
     checks: list = []
     arm(checks, "S1", s1)
     arm(checks, "S2", s2)
+    arm(checks, "S3", s3)
     return report("native additions", checks,
                   "0.7.1's additions do what finding 67 asked")
 

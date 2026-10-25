@@ -482,6 +482,97 @@ class Reader:
             time.sleep(poll)
 
 
+RELAYED_BY = "relayed_by"
+
+
+class AnnounceRelay:
+    """Re-publishes other services' announces, marked as relayed. From `p.relay()`.
+
+    A bridge or a replayer carries announces it heard somewhere else: over
+    MQTT, from a recording, from another bus. The claim is still the
+    asserter's. So the relay is explicit about what it is doing:
+
+    * **Its own writer.** The relay writes with a DataWriter of its own, never
+      the asserter's identity and never the participant's own announce
+      writer.
+    * **Marked.** Every relayed announce carries a `relayed_by` hint naming
+      the relaying participant's `service_id`. Its other members are the
+      asserter's, unchanged.
+    * **Refused when it would blur who said what:**
+      - one of this participant's own services, which it announces with
+        `announce()`;
+      - an announce already relayed, because relays do not chain;
+      - an announce whose hints are full.
+    * **It ends only what it started.** On `close()` the relay unregisters
+      what it carried: readers see its writer leave, never a removal, because
+      the asserter's presence is not the relay's to end. `withdraw()` is for
+      a departure the relay itself observed where it heard the announce. It
+      takes a reason, and it removes only the relayed copy.
+    """
+
+    def __init__(self, p: "Participant") -> None:
+        self._p = p
+        wk = registry.well_known("Announce")
+        self._cls = _types_class(wk.fqn)
+        self._dw = DataWriter(p._dp, p._topic(p._wk_lane("Announce")),
+                              qos=writer_qos(wk.profile))
+        self._last: Dict[str, Any] = {}
+        self._lock = threading.Lock()
+
+    def write(self, announce: Any) -> Any:
+        """Relay one announce, typed or as its N.1 document. Returns what was sent."""
+        doc = codec.to_json(announce) if not isinstance(announce, dict) \
+            else dict(announce)
+        sid = doc.get("service_id", "")
+        problems = []
+        if sid in self._p._services or sid == self._p.service_id:
+            problems.append(f"{sid} is this participant's own service: "
+                            f"announce() it, do not relay it")
+        hints = [dict(h) for h in doc.get("hints") or []]
+        prior = [h["value"] for h in hints if h.get("key") == RELAYED_BY]
+        if prior:
+            problems.append(f"{sid}'s announce was already relayed by "
+                            f"{prior[0]}: a relay re-publishes the asserter's "
+                            f"announce, not another relay's")
+        if len(hints) >= 32:
+            problems.append(f"{sid}'s announce has 32 hints, the type's bound, "
+                            f"so it cannot be marked as relayed")
+        if problems:
+            raise ParticipantRefused(problems)
+        hints.append({"key": RELAYED_BY, "value": self._p.service_id})
+        doc["hints"] = hints
+        sample = codec.from_json(self._cls, doc)
+        codec.validate(sample)
+        with self._lock:
+            self._dw.write(sample)
+            self._last[sid] = sample
+        self._p._recorded(registry.well_known("Announce").topic,
+                          registry.well_known("Announce").fqn, sample)
+        return sample
+
+    def withdraw(self, service_id: str, *, reason: str) -> None:
+        """Remove the relayed copy of a service the relay saw depart."""
+        if not isinstance(reason, str) or not reason.strip():
+            raise ValueError("withdraw() needs a non-empty reason=")
+        wk = registry.well_known("Announce")
+        with self._lock:
+            if service_id not in self._last:
+                raise KeyError(f"this relay carries no announce from "
+                               f"{service_id!r}")
+            terminal = dataclasses.replace(self._last.pop(service_id),
+                                           stamp=_now_time())
+            self._dw.write(terminal)
+            self._dw.dispose(terminal)
+        self._p._recorded(wk.topic, wk.fqn, terminal)
+        self._p._recorded_dispose(wk.topic, service_id,
+                                  f"relayed by {self._p.service_id}: {reason}")
+
+    def _exit(self) -> None:
+        with self._lock:
+            for sample in self._last.values():
+                self._dw.unregister_instance(sample)
+
+
 class Participant:
     """One DDS participant on one scene. See the module docstring."""
 
@@ -520,12 +611,12 @@ class Participant:
         self._topics: Dict[str, Topic] = {}
         self._writers: List[Writer] = []
         self._readers: List[Reader] = []
-        self._announce: Optional[Dict[str, Any]] = None
-        self._announce_w: Optional[DataWriter] = None
+        #: Every service this participant announces, by service_id: what it
+        #: said, its own writer, the sample as last published (None until one
+        #: has been), and when its refresh is due.
+        self._services: Dict[str, Dict[str, Any]] = {}
         self._depart_w: Optional[DataWriter] = None
-        self._next_refresh = 0.0
-        #: The announce as last published; None until one has been.
-        self._last_announce: Any = None
+        self._relay: Optional["AnnounceRelay"] = None
         self._recorders: List[Any] = []
         self._closed = False
 
@@ -592,8 +683,9 @@ class Participant:
             raise ParticipantRefused(problems)
         w = Writer(self, lane, on_exit, floor_hz, validate, lifespan_sec)
         self._writers.append(w)
-        if self._announce is not None:
-            self._publish_announce()      # its topics changed: §3.3 re-announce
+        for sid, svc in self._services.items():
+            if svc["spec"]["topics"] is None:
+                self._publish_announce(sid)   # its topics changed: §3.3
         return w
 
     def reader(self, type_: Union[str, type], *, stream: Optional[str] = None,
@@ -635,20 +727,43 @@ class Participant:
                  name: str = "", org: str = "", version: str = "",
                  hints: Optional[Dict[str, str]] = None,
                  caps: Optional[Dict[str, Any]] = None,
-                 manifest_uri: Optional[str] = None) -> Dict[str, Any]:
-        """Announce this participant's lanes. Returns the announce's N.1 form.
+                 manifest_uri: Optional[str] = None,
+                 transforms: Optional[List[Dict[str, Any]]] = None,
+                 service_id: Optional[str] = None,
+                 topics: Optional[List["Writer"]] = None) -> Dict[str, Any]:
+        """Announce a service and its lanes. Returns the announce's N.1 form.
 
         Built by the web layer's `records.service_announce`, so there is one
-        builder for both layers. `topics` is every writer opened, never
-        written by hand. The announce is refreshed every `ttl_sec / 3` by
-        `tick()`, rides Lifespan `ttl_sec`, and is re-published when a
-        writer is added.
+        builder for both layers. The announce is refreshed every
+        `ttl_sec / 3` by `tick()` and rides Lifespan `ttl_sec`.
+
+        * **Its lanes.** `topics=None` is every writer this participant has
+          opened, and the announce is re-published when one is added. A list
+          of writers is exactly those lanes. Either way the rows are the
+          writers' own `TopicMeta`, never written by hand.
+        * **Its placement.** `transforms=` are the service's frame
+          transforms, as N.1 `Transform` documents: the slot an AR client
+          places content with.
+        * **More than one service.** `service_id=` another id announces
+          another service from this participant: an operator console
+          speaking for several platforms, say. Each has its own writer, so
+          its own TTL and liveliness, and each departs on `close()`. Once a
+          participant announces more than one, each must name its lanes with
+          `topics=`, because "every writer" no longer says whose they are.
+
+        Calling it again for a service already announced replaces what that
+        service says.
         """
         self._open()
+        sid = service_id or self.service_id
         problems = []
         if not self.service_id:
             problems.append("announce() needs service_id= on the participant")
-        muri = manifest_uri or self.manifest_uri
+        if service_id is not None and (not isinstance(service_id, str)
+                                       or not service_id.strip()):
+            problems.append("service_id= must be a non-empty string when given")
+        muri = manifest_uri or (self.manifest_uri if sid == self.service_id
+                                else None)
         if not (muri or self.authority):
             problems.append("announce() needs authority= on the participant "
                             "(or manifest_uri=): a spatialdds:// URI names a "
@@ -657,67 +772,104 @@ class Participant:
         if not isinstance(ttl_sec, int) or ttl_sec < 3:
             problems.append(f"ttl_sec {ttl_sec!r} must be an integer >= 3, so "
                             f"the refresh at ttl/3 is at least a second apart")
+        if topics is not None:
+            mine = set(map(id, self._writers))
+            for w in topics:
+                if not isinstance(w, Writer) or id(w) not in mine:
+                    problems.append(f"topics= takes this participant's own "
+                                    f"writers, not {w!r}")
+        others = {k: v for k, v in self._services.items() if k != sid}
+        if others and (topics is None or any(
+                v["spec"]["topics"] is None for v in others.values())):
+            problems.append(
+                f"this participant announces {', '.join(sorted(others))} as "
+                f"well as {sid}: once it speaks for more than one service, "
+                f"each announce names its lanes with topics=")
         if problems:
             raise ParticipantRefused(problems)
-        self._announce = dict(kind=kind, coverage=coverage, ttl_sec=ttl_sec,
-                              name=name, org=org, version=version, hints=hints,
-                              caps=caps, manifest_uri=muri)
-        if self._announce_w is None:
-            wk = registry.well_known("Announce")
-            dp = registry.well_known("Depart")
-            self._announce_w = DataWriter(
-                self._dp, self._topic(_Lane(self.scene, "Announce", type_name=None,
-                                            stream=None, qos_profile=None,
-                                            version="v1", problems=[])),
-                qos=writer_qos(wk.profile, lifespan_sec=ttl_sec))
-            self._depart_w = DataWriter(
-                self._dp, self._topic(_Lane(self.scene, "Depart", type_name=None,
-                                            stream=None, qos_profile=None,
-                                            version="v1", problems=[])),
-                qos=writer_qos(dp.profile))
-        return self._publish_announce()
+        svc = self._services.get(sid)
+        if svc is None:
+            if self._depart_w is None:
+                self._depart_w = DataWriter(
+                    self._dp, self._topic(self._wk_lane("Depart")),
+                    qos=writer_qos(registry.well_known("Depart").profile))
+            svc = self._services[sid] = {
+                "w": DataWriter(
+                    self._dp, self._topic(self._wk_lane("Announce")),
+                    qos=writer_qos(registry.well_known("Announce").profile,
+                                   lifespan_sec=ttl_sec)),
+                "last": None, "next": 0.0}
+        svc["spec"] = dict(kind=kind, coverage=coverage, ttl_sec=ttl_sec,
+                           name=name, org=org, version=version, hints=hints,
+                           caps=caps, manifest_uri=muri,
+                           transforms=list(transforms or []),
+                           topics=None if topics is None else list(topics))
+        return self._publish_announce(sid)
 
-    def _announce_sample(self):
-        a = self._announce
+    def _wk_lane(self, message: str) -> _Lane:
+        return _Lane(self.scene, message, type_name=None, stream=None,
+                     qos_profile=None, version="v1", problems=[])
+
+    def _announce_sample(self, sid: str):
+        a = self._services[sid]["spec"]
+        lanes = self._writers if a["topics"] is None else a["topics"]
         doc = records.service_announce(
-            self.service_id, a["kind"], coverage=a["coverage"],
+            sid, a["kind"], coverage=a["coverage"],
             authority=self.authority or "", scene=self.scene,
             name=a["name"], org=a["org"], version=a["version"],
-            topics=[w.topic_meta() for w in self._writers
+            topics=[w.topic_meta() for w in lanes
                     if w._lane.well_known is None],
             manifest_uri=a["manifest_uri"], ttl_sec=a["ttl_sec"],
             hints=a["hints"], caps=a["caps"])
+        doc["transforms"] = [dict(t) for t in a["transforms"]]
         cls = _types_class(registry.well_known("Announce").fqn)
         return doc, codec.from_json(cls, doc)
 
-    def _publish_announce(self) -> Dict[str, Any]:
-        doc, sample = self._announce_sample()
+    def _publish_announce(self, sid: str) -> Dict[str, Any]:
+        svc = self._services[sid]
+        doc, sample = self._announce_sample(sid)
         codec.validate(sample)
-        self._announce_w.write(sample)
-        self._last_announce = sample
-        self._next_refresh = time.time() + self._announce["ttl_sec"] / 3.0
+        svc["w"].write(sample)
+        svc["last"] = sample
+        svc["next"] = time.time() + svc["spec"]["ttl_sec"] / 3.0
         self._recorded(registry.well_known("Announce").topic,
                        registry.well_known("Announce").fqn, sample)
         return doc
 
     def _depart(self, reason: str) -> None:
-        # Nothing published, nothing to depart: an announce() that failed on
-        # its first publish leaves no presence, and must not turn close() into
-        # an AttributeError that hides why it failed.
-        if self._announce_w is None or self._last_announce is None:
-            return
         wk = registry.well_known("Announce")
-        terminal = dataclasses.replace(self._last_announce, stamp=_now_time())
-        self._announce_w.write(terminal)
-        self._announce_w.dispose(terminal)
-        self._recorded(wk.topic, wk.fqn, terminal)
-        self._recorded_dispose(wk.topic, self.service_id, reason)
         Depart = _types_class(registry.well_known("Depart").fqn)
-        dep = Depart(service_id=self.service_id, stamp=_now_time())
-        self._depart_w.write(dep)
-        self._recorded(registry.well_known("Depart").topic,
-                       registry.well_known("Depart").fqn, dep)
-        log.info("departed %s: %s", self.service_id, reason)
+        for sid, svc in self._services.items():
+            # Nothing published, nothing to depart: an announce() that failed
+            # on its first publish leaves no presence, and must not turn
+            # close() into an error that hides why it failed.
+            if svc["last"] is None:
+                continue
+            terminal = dataclasses.replace(svc["last"], stamp=_now_time())
+            svc["w"].write(terminal)
+            svc["w"].dispose(terminal)
+            self._recorded(wk.topic, wk.fqn, terminal)
+            self._recorded_dispose(wk.topic, sid, reason)
+            dep = Depart(service_id=sid, stamp=_now_time())
+            self._depart_w.write(dep)
+            self._recorded(registry.well_known("Depart").topic,
+                           registry.well_known("Depart").fqn, dep)
+            log.info("departed %s: %s", sid, reason)
+
+    def relay(self) -> "AnnounceRelay":
+        """The writer a bridge re-publishes other services' announces with.
+
+        Explicit re-publication under this participant's own identity, never
+        impersonation. See `AnnounceRelay`.
+        """
+        self._open()
+        if not self.service_id:
+            raise ParticipantRefused([
+                "relay() needs service_id= on the participant: a relayed "
+                "announce says who relayed it"])
+        if self._relay is None:
+            self._relay = AnnounceRelay(self)
+        return self._relay
 
     # -- the program's clock -------------------------------------------------
     def tick(self, now: Optional[float] = None) -> Dict[str, int]:
@@ -725,9 +877,10 @@ class Participant:
         self._open()
         now = time.time() if now is None else now
         out = {"announce": 0, "floor": 0}
-        if self._announce is not None and now >= self._next_refresh:
-            self._publish_announce()
-            out["announce"] = 1
+        for sid, svc in self._services.items():
+            if now >= svc["next"]:
+                self._publish_announce(sid)
+                out["announce"] += 1
         for w in self._writers:
             out["floor"] += w._floor(now)
         return out
@@ -770,10 +923,11 @@ class Participant:
         from .record import Recorder
         r = Recorder(path, scene=self.scene, principal=self.service_id or "")
         self._recorders.append(r)
-        if self._announce is not None:
-            self._recorded(registry.well_known("Announce").topic,
-                           registry.well_known("Announce").fqn,
-                           self._last_announce)
+        for svc in self._services.values():
+            if svc["last"] is not None:
+                self._recorded(registry.well_known("Announce").topic,
+                               registry.well_known("Announce").fqn,
+                               svc["last"])
         return r
 
     def _recorded(self, topic: str, fqn: str, sample: Any) -> None:
@@ -802,11 +956,12 @@ class Participant:
             for w in self._writers:
                 w._exit(reason)
             self._depart(reason)
+            if self._relay is not None:
+                self._relay._exit()
             for w in self._writers:
                 w._flush(flush_s)
-            for dw in (self._announce_w, self._depart_w):
-                if dw is not None:
-                    dw.wait_for_acks(duration(seconds=flush_s))
+            for dw in self._presence_writers():
+                dw.wait_for_acks(duration(seconds=flush_s))
             for r in self._recorders:
                 r.flush()
         finally:
@@ -817,12 +972,20 @@ class Participant:
             # draft of this method swallowed that and deleted nothing.)
             for e in ([w._dw for w in self._writers]
                       + [r._dr for r in self._readers]
-                      + [x for x in (self._announce_w, self._depart_w) if x]
+                      + self._presence_writers()
                       + list(self._topics.values()) + [self._dp]):
                 try:
                     e.__del__()
                 except Exception as err:          # pragma: no cover
                     log.warning("could not delete %r: %s", e, err)
+
+    def _presence_writers(self) -> List[DataWriter]:
+        out = [svc["w"] for svc in self._services.values()]
+        if self._depart_w is not None:
+            out.append(self._depart_w)
+        if self._relay is not None:
+            out.append(self._relay._dw)
+        return out
 
     def __enter__(self) -> "Participant":
         return self

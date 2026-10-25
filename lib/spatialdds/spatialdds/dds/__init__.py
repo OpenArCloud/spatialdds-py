@@ -26,6 +26,7 @@ from ._extra import MissingExtra, require_cyclonedds
 __all__ = [
     "MissingExtra", "require_cyclonedds",
     "participant", "Participant", "Writer", "Reader", "ParticipantRefused",
+    "AnnounceRelay", "RELAYED_BY",
     "ON_EXIT", "DOMAIN_ENV",
     "to_json", "from_json", "validate", "SchemaInvalid", "fqn_of", "key_of",
     "registry", "Profile", "RegistryError", "topic_name",
@@ -45,6 +46,7 @@ _FROM = {
     "participant": "_participant", "Participant": "_participant",
     "Writer": "_participant", "Reader": "_participant",
     "ParticipantRefused": "_participant", "ON_EXIT": "_participant",
+    "AnnounceRelay": "_participant", "RELAYED_BY": "_participant",
     "DOMAIN_ENV": "_participant",
     "to_json": "codec", "from_json": "codec", "validate": "codec",
     "SchemaInvalid": "codec", "fqn_of": "codec", "key_of": "codec",

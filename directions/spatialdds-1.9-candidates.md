@@ -701,3 +701,28 @@ MUST NOT emit one in any form, and that a binding meeting one in a DDS-side
 source refuses that source with a diagnostic naming the topic, key and member
 rather than serving it. A native writer refuses at write time, which the SDK
 already does.
+
+## 10. An announce has no member that says who relayed it
+
+*Origin: the ruling on spatialdds-py finding 67 (S3), 2026-10-24: relaying
+someone else's announce "must be explicit re-publication under the relay's
+own writer identity, never impersonation of the original asserter".*
+
+Bridges carry announces between transports: MQTT, recordings, another bus.
+`Announce` is keyed on the asserter's `service_id`, and nothing in it says
+the copy a reader holds came through someone else. The DDS writer that sent
+it is different, but that identity is invisible to a JSON consumer, to a
+recording, and to anything downstream of a second hop. So a relayed claim
+and a first-hand one read the same.
+
+The reference SDK marks a relayed announce with a `relayed_by` hint naming
+the relay's `service_id` (`AnnounceRelay`, 0.7.1). It refuses to relay an
+announce that already carries one, so relays do not chain, and it never
+disposes what it carried on its own exit. A hint is a convention, though,
+not a member: nothing obliges another implementation to set it, or a
+consumer to read it.
+
+Proposed: an appended `relayed_by` member on `Announce` (empty for a
+first-hand announce), with §2.14's removal rule extended. A relay removes
+only its relayed copy, and a consumer weighs a relayed announce as a claim
+the asserter made, not one the relay made.
