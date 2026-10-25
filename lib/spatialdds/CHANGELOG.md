@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.7.2: a deployment's own types
+
+Additive. **`sd.dds.extend(type_name, cls, idl)`** registers a deployment's
+own type (a documented §3.3.2 extension) with the native layer. Before it,
+such a type could be written only with `validate=False`, and nothing else
+worked: it had no N.1 conversion, no key, no `class_for`, and no recorded
+schema (finding 69, found by SpatialDDS-demo's migration). After it, the
+type converts through the gateway's codec like any pinned type, keys on its
+own `@key`, is named by `class_for`, is recorded with its IDL, and is opened
+by its name. With no published schema, `validate()` checks N.1
+representability. The error for an unregistered type now names `extend()`.
+
 ## 0.7.1: for programs that own their loop
 
 Additive. Every change is something SpatialDDS-demo's adoption, the native

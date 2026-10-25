@@ -124,6 +124,10 @@ scene:
   never speaks as the asserter.
 - **`sd.dds.class_for(name)`** is the generated class for a registered type
   name, a well-known message or a dotted identity.
+- **`sd.dds.extend(name, cls, idl)`** registers a deployment's own type, with
+  the IDL it was generated from. After that it converts, keys, records and
+  opens by name like a pinned type, and validation checks N.1
+  representability, since it has no published schema.
 
 `Sample.data` is the typed sample (`sd.dds.types` carries every type in the
 pinned IDL). `sd.dds.to_json(sample)` is its N.1 form, produced by the gateway's
@@ -566,6 +570,12 @@ explicitly was tried first and is what missed two paths.
 
 If your clients are not browsers, nothing here changes anything for you.
 
+## New in 0.7.2: a deployment's own types
+
+`sd.dds.extend(name, cls, idl)` brings a deployment's own documented type
+into the native layer: N.1 conversion, its key, `class_for`, the recording
+tap, and opening it by name. Additive, as 0.7.1 was.
+
 ## New in 0.7.1: for programs that own their loop
 
 Everything SpatialDDS-demo's adoption found missing, and nothing removed:
@@ -621,7 +631,7 @@ Two changes may need a line of yours:
 The security fixes, the limits table and the details are in the
 [changelog](https://github.com/OpenArCloud/spatialdds-py/blob/main/lib/spatialdds/CHANGELOG.md).
 
-## Not in 0.7.1
+## Not in 0.7.2
 
 Stated so nobody waits for them:
 
