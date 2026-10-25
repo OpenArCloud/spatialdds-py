@@ -322,28 +322,43 @@ class Reader:
         #: transition is an event, emitted once.
         self._state: Dict[str, str] = {}
         self._reason: Dict[str, str] = {}
+        # The replay's progress, advanced by `take()` without blocking. A
+        # VOLATILE lane has nothing to replay, so its marker is due at once.
+        self._born = time.time()
+        self._matched, self._matched_since = -1, self._born
+        self._replayed = 0
+        self._marked = False
 
     @property
     def topic(self) -> str:
         return self._lane.topic
 
-    def _settle_matches(self) -> int:
-        """Wait until the matched-writer count stops changing for `settle_s`.
+    def matched(self) -> int:
+        """How many writers this reader is matched with, now."""
+        return self._dr.get_subscription_matched_status().current_count
 
-        Discovery is asynchronous, so a reader that asked for history the
-        instant it was created would be told it was complete before a single
-        writer had matched.
+    def _replay_complete(self, now: float) -> bool:
+        """Has the latched replay finished? Never blocks.
+
+        Two conditions, in order. The matched-writer count has stopped
+        changing for `settle_s`: discovery is asynchronous, so a reader that
+        asked for history the instant it was created would be told it was
+        complete before a single writer had matched. Then the matched
+        writers' history has arrived. Each has a deadline, so a writer that
+        never delivers cannot hold the marker forever.
         """
-        deadline = time.time() + max(self._settle * 6, 3.0)
-        last, since = -1, time.time()
-        while time.time() < deadline:
-            n = self._dr.get_subscription_matched_status().current_count
-            if n != last:
-                last, since = n, time.time()
-            elif time.time() - since >= self._settle:
-                break
-            time.sleep(0.02)
-        return max(last, 0)
+        if not self._lane.profile.latched:
+            return True
+        n = self.matched()
+        if n != self._matched:
+            self._matched, self._matched_since = n, now
+        settle_by = self._born + max(self._settle * 6, 3.0)
+        if now - self._matched_since < self._settle and now < settle_by:
+            return False
+        if self._matched <= 0:
+            return True
+        return (bool(self._dr.wait_for_historical_data(duration(seconds=0)))
+                or now >= settle_by + 5.0)
 
     def _transition(self, key: str, state: Any, out: List[Any]) -> None:
         """The instance state DDS reports, as at most one event per change.
@@ -391,6 +406,32 @@ class Reader:
             self._transition(self._keys.get(handle, ""), state, out)
         return out
 
+    def take(self) -> List[Any]:
+        """Every event that has arrived, now, without blocking.
+
+        For a program that already owns its loop: a tick, a framework's
+        timer, a request handler. The events are the ones `events()` yields,
+        in the same order, with exactly one `EndOfReplay`. It comes on the
+        first `take()` at which the replay is complete, after every replayed
+        sample, so the count it carries is what was replayed. Until then,
+        samples are replay. After it, they are live.
+
+        Whether the replay is complete is decided before this call drains
+        the reader. History that arrived by then is taken in this call,
+        ahead of the marker, and none can land behind it.
+
+        Use `take()` or `events()` on a reader, not both: they share one
+        drain.
+        """
+        due = not self._marked and self._replay_complete(time.time())
+        evs = self._events()
+        if not self._marked:
+            self._replayed += sum(isinstance(e, Sample) for e in evs)
+            if due:
+                evs.append(EndOfReplay(self.topic, self._replayed))
+                self._marked = True
+        return evs
+
     def events(self, timeout: Optional[float] = None, poll: float = 0.02,
                stop: Optional[threading.Event] = None) -> Iterator[Any]:
         """Latched replay, exactly one `EndOfReplay`, then live.
@@ -402,27 +443,24 @@ class Reader:
         to replay, and emits the marker at once with `replayed=0`.
 
         `timeout` ends the stream after that many seconds without an event,
-        as the web client's `subscribe(timeout)` does; None runs until the
-        caller stops iterating. `stop`, a `threading.Event`, ends it when set,
-        for a program draining readers on threads of its own.
+        once the replay is over, as the web client's `subscribe(timeout)`
+        does; None runs until the caller stops iterating. `stop`, a
+        `threading.Event`, ends it when set, for a program draining readers
+        on threads of its own.
+
+        This is `take()` in a loop, so the two cannot disagree.
         """
-        replayed = 0
-        if self._lane.profile.latched:
-            if self._settle_matches():
-                self._dr.wait_for_historical_data(duration(seconds=5))
-            for ev in self._events():
-                replayed += isinstance(ev, Sample)
-                yield ev
-        yield EndOfReplay(self.topic, replayed)
-        quiet_since = time.time()
+        quiet_since = None
         while stop is None or not stop.is_set():
-            evs = self._events()
+            evs = self.take()
             for ev in evs:
                 yield ev
-            if evs:
-                quiet_since = time.time()
-            elif timeout is not None and time.time() - quiet_since >= timeout:
-                return
+            if self._marked:
+                now = time.time()
+                if evs or quiet_since is None:
+                    quiet_since = now
+                elif timeout is not None and now - quiet_since >= timeout:
+                    return
             time.sleep(poll)
 
 
