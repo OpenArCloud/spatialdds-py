@@ -135,6 +135,20 @@ canonical digest. A `404 not-an-authority` here means
 `SPATIALDDS_AUTHORITY` is wrong; see above. Mechanism and rationale in
 [docs/RESOLUTION.md](../docs/RESOLUTION.md).
 
+## Upgrading across 0.7.3: changed ETags on unchanged content
+
+An endpoint built on 0.7.2 or earlier that moves to 0.7.3 or later serves
+the earth-fixed frame with a uuid, `00cc62ae-c21e-5d3b-b5f9-2587a084ba31`,
+where it served `""` (finding 70, S14: Appendix G makes the uuid a frame's
+identity). The gateway's own manifest coverage and anything the regenerated
+seed builds (announces and manifests) change bytes, so their ETags change.
+Every cached client revalidates once and gets a `200` where it got a `304`.
+That is expected and harmless. Do not read changed ETags on unchanged
+content as a defect in that deploy.
+
+The journal's stored records keep their bytes, because the gateway serves
+what was published. Published content is unaffected.
+
 ## Expected footprint
 
 The smallest instance any provider sells. Measured on the image's own payload,

@@ -726,3 +726,26 @@ Proposed: an appended `relayed_by` member on `Announce` (empty for a
 first-hand announce), with §2.14's removal rule extended. A relay removes
 only its relayed copy, and a consumer weighs a relayed announce as a claim
 the asserter made, not one the relay made.
+
+## 11. A templated lane has no web form
+
+*Two origins, 2026-10-25, both in spatialdds-py finding 70:*
+- *the reference SDK refused the lane (S15, fixed in 0.7.3);*
+- *the reference gateway cannot serve it (not fixed, because it is this
+  decision).*
+
+§2 recommends a lane the web binding cannot carry. A PlannedTrajectory
+"SHOULD be advertised on the topic
+`spatialdds/<scene>/plan/<agent_id>/trajectory/v1`". §3.3.1 makes profile
+templates normative where they are defined and lets them "use additional
+path segments". But N.3 maps exactly §3.3.1's five segments, or four, to a
+resource path, and gives a longer name no path at all. So the plan
+trajectory is bus-only by an accident of path grammar, not by anyone's
+choice. A recording that carries it serves no resource for it.
+
+Silence is the problem: every gateway will improvise, and two improvisations
+will disagree on the URL of the same lane. 1.9 should do one of these:
+- define the path mapping for templated topics (for instance, the extra
+  segments joined into the stream segment, or appended before the version);
+- say explicitly that templated lanes are bus-only and that a gateway omits
+  them from its manifest.
