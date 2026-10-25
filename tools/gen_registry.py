@@ -10,7 +10,8 @@ and readers SHALL set exactly these policies" --- so the native layer reads it
 from the spec's own text at the pinned tag, and a gate fails if a regeneration
 disagrees with what is vendored.
 
-Three tables, all from `sections/v1.8/02-idl-profiles.md` at the pin:
+Three tables and one kind of sentence, all from `sections/v1.8/02-idl-profiles.md`
+at the pin:
 
 * §3.3.3, **QoS Profiles**: each profile's reliability, durability, history and
   deadline. Ordering is recorded but sets no policy: "Ordered" in every row is
@@ -19,6 +20,14 @@ Three tables, all from `sections/v1.8/02-idl-profiles.md` at the pin:
   names (or `null`), any topic template the row gives, and any QoS the row
   spells out instead of naming a profile.
 * **Well-Known Discovery Topics** with **QoS defaults for discovery topics**.
+* §2's **profile topic templates**: "`X` is registered as type `x` in §3.3.2 and
+  SHOULD be advertised on the topic `spatialdds/<scene>/...`". §3.3.1 makes such
+  a template "normative as specified where [it is] defined" and lets it "use
+  additional path segments", so `spatialdds/<scene>/plan/<agent_id>/trajectory/v1`
+  is a name the native layer must open, though it is six segments. Recorded
+  with the sentence's own keyword (SHOULD), beside the type's row. Until 0.7.3
+  these were not read at all, and the native layer refused the plan template
+  (S15, found by SpatialDDS-demo).
 
 Nothing is inferred. A row that names no profile records `profile: null` and
 whatever policies it does spell; the native layer refuses to pick a profile for
@@ -51,6 +60,10 @@ TYPE_ROW = re.compile(r"^\| `(?P<type>[a-z0-9_]+)` \| (?P<payload>[^|]+) \| (?P<
 IDL_TYPE = re.compile(r"`((?:spatial::)?[a-z_]+(?:::[a-z_]+)*::[A-Z]\w+)`")
 NAMED_QOS = re.compile(r"QoS `([A-Z_]+)`")
 TEMPLATE = re.compile(r"\bon `(spatialdds/[^`]+)`")
+PROFILE_TEMPLATE = re.compile(
+    r"is registered as type `(?P<type>[a-z0-9_]+)` in §3\.3\.2 and "
+    r"(?P<level>MUST|SHALL|SHOULD|MAY) be advertised on the topic "
+    r"`(?P<topic>spatialdds/[^`]+)`")
 WELL_KNOWN_ROW = re.compile(r"^\| `(?P<type>[A-Z]\w+)` \| `(?P<topic>spatialdds/discovery/[a-z_]+/v\d+)` \|$")
 DISCO_QOS_ROW = re.compile(
     r"^\| `(?P<topic>[a-z_]+)` \| (?P<rel>RELIABLE|BEST_EFFORT) \| (?P<dur>TRANSIENT_LOCAL|VOLATILE) "
@@ -140,6 +153,25 @@ def parse(text: str) -> dict:
             "spelled_qos": _spelled(notes) if profile is None else {},
             "provisional": "(provisional)" in line,
         }
+
+    for t in types.values():
+        t["profile_template"] = None
+    for m in PROFILE_TEMPLATE.finditer(text):
+        row = types.get(m["type"])
+        if row is None:
+            raise SystemExit(f"§2 gives {m['type']} a topic template, but "
+                             f"§3.3.2 has no such row")
+        if row["profile_template"] is not None:
+            raise SystemExit(f"§2 gives {m['type']} two topic templates")
+        row["profile_template"] = {"topic": m["topic"], "level": m["level"]}
+    # Every templated name the section mentions is one of these or a §3.3.2
+    # row's, so a template written in other words is an error, not a skip.
+    read = ({t["topic_template"] for t in types.values()} |
+            {t["profile_template"]["topic"] for t in types.values()
+             if t["profile_template"]})
+    for name in set(re.findall(r"`(spatialdds/<scene>/[^`]+)`", text)) - read:
+        raise SystemExit(f"the section names the template {name}, and this "
+                         f"parser read no rule for it")
 
     well_known = {}
     for line in _section(text, "#### **Well-Known Discovery Topics (Normative)**",

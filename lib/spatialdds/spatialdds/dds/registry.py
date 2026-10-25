@@ -103,6 +103,12 @@ class Registration:
     topic_template: Optional[str]    # "spatialdds/<scene>/world/entity/v1"
     spelled_qos: Mapping[str, Any] = field(default_factory=dict)
     provisional: bool = False
+    #: §2's template for the type, when its profile gives one, and the
+    #: keyword it is given with: ("spatialdds/<scene>/plan/<agent_id>/
+    #: trajectory/v1", "SHOULD"). Separate from `topic_template`, which is
+    #: §3.3.2's and binding.
+    profile_template: Optional[str] = None
+    profile_template_level: Optional[str] = None
 
     @property
     def fqn(self) -> str:
@@ -160,7 +166,10 @@ def profile(name: str) -> Profile:
 def registrations() -> Dict[str, Registration]:
     """Every §3.3.2 row, by registered type name."""
     return {t: Registration(t, r["idl"], r["profile"], r["topic_template"],
-                            r["spelled_qos"], r["provisional"])
+                            r["spelled_qos"], r["provisional"],
+                            *((r["profile_template"]["topic"],
+                               r["profile_template"]["level"])
+                              if r.get("profile_template") else (None, None)))
             for t, r in _doc()["types"].items()}
 
 
@@ -235,6 +244,14 @@ def resolve_profile(reg: Registration,
 VERSION = re.compile(r"^v[0-9]+$")
 
 
+def fits_template(name: str, template: str) -> bool:
+    """Does `name` fill `template`: each `<...>` a §3.3.1 segment, the rest equal?"""
+    have, want = name.split("/"), template.split("/")
+    return len(have) == len(want) and all(
+        SEGMENT.match(h) if w.startswith("<") and w.endswith(">") else h == w
+        for h, w in zip(have, want))
+
+
 def check_topic(name: str, type_name: str) -> str:
     """An explicit topic name, held to §3.3.1's grammar. Returns it, or raises.
 
@@ -251,12 +268,26 @@ def check_topic(name: str, type_name: str) -> str:
 
     * `spatialdds/`, then three or four segments, each a §3.3.1 segment, and
       the last a version (`v1`);
+    * or a name that fits §2's template for the type, which may be longer:
+      §3.3.1 makes a profile's template "normative as specified where [it
+      is] defined" and lets it "use additional path segments"
+      (`spatialdds/<scene>/plan/<agent_id>/trajectory/v1`). Each `<...>`
+      takes any §3.3.1 segment, and the rest are the template's own. §2
+      gives both of its templates as SHOULD, so a five-segment name is
+      still admitted for these types;
     * a well-known discovery topic is refused, because it is reached by its
       message name, so its QoS is the spec's;
-    * a registered type whose row gives a template is held to that template
-      in every segment but the scene.
+    * a registered type whose §3.3.2 row gives a template is held to that
+      template in every segment but the scene.
+
+    Until 0.7.3 the second rule was missing, and the plan template itself was
+    refused as "not a §3.3.1 name" (S15, found by SpatialDDS-demo).
     """
     segs = (name or "").split("/")
+    reg = registrations().get(type_name)
+    if (reg is not None and reg.profile_template
+            and fits_template(name or "", reg.profile_template)):
+        return name
     if segs[0] != "spatialdds" or len(segs) not in (4, 5):
         raise RegistryError(
             f"topic {name!r} is not a §3.3.1 name: spatialdds/<domain>/"
@@ -274,7 +305,6 @@ def check_topic(name: str, type_name: str) -> str:
             raise RegistryError(
                 f"{name} is the well-known {msg} topic: ask for it as "
                 f"{msg!r}, so its QoS is the spec's")
-    reg = registrations().get(type_name)
     if reg is not None and reg.topic_template:
         want = reg.topic_template.split("/")
         if len(segs) != len(want) or any(

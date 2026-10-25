@@ -98,7 +98,7 @@ announce created: True | manifest created: True
   "circle_radius_m": 500,
   "frame_ref": {
    "fqn": "earth-fixed",
-   "uuid": ""
+   "uuid": "00cc62ae-c21e-5d3b-b5f9-2587a084ba31"
   },
   "geohash": [
    "9v6krc"
@@ -223,7 +223,7 @@ content created: True | manifest created: True
   "circle_radius_m": 2,
   "frame_ref": {
    "fqn": "earth-fixed",
-   "uuid": ""
+   "uuid": "00cc62ae-c21e-5d3b-b5f9-2587a084ba31"
   },
   "global": false,
   "has_bbox": false,
@@ -271,7 +271,7 @@ anchor anchor/duck-perch method VisualFix confidence 0.6667
 names    spatialdds://registry.mytown.example/mytown/content/duck
 {
  "anchor_id": "anchor/duck-perch",
- "checksum": "sha256:24755608268c4650718f27d1105d1c10bb130f23b4dafe19e6d35ab69a2c732e",
+ "checksum": "sha256:e7f8d7f789cd959a1b856b7361afbef8d3ed5a022b72530f97b2002d1325d2cb",
  "confidence": 0.6667,
  "cov": {
   "pos": [
@@ -295,7 +295,7 @@ names    spatialdds://registry.mytown.example/mytown/content/duck
   "has_scale": false,
   "meters_per_unit": 0.0,
   "scale_status": "SCALE_UNKNOWN",
-  "uuid": ""
+  "uuid": "00cc62ae-c21e-5d3b-b5f9-2587a084ba31"
  },
  "geopose": {
   "alt_m": 158.0,

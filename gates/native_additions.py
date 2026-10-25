@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""What 0.7.x adds for programs that own their loop, lanes outside a scene, and their own types.
+"""What 0.7.x adds for programs that own their loop, lanes outside a scene, their own types, and what the first migration found.
 
 Each check is one of finding 67's filings, by number, held against a bus on a
 domain of its own: a writer participant and a reader participant in this
@@ -56,6 +56,23 @@ process.
   - Refused: a name with no namespace, a registered name, a pinned type,
     IDL including an unpinned file, and the same name with other IDL.
     Registering again with identical arguments is a no-op.
+* **S11–S15, what the demo's migration onto 0.7.2 found** (finding 70).
+  - S11: a service announces a lane it reads beside one it writes (a VPS's
+    query and response lanes), with its `auth_hint=` and its
+    `coverage_frame_ref=`, and a reader of the announce sees all four. Another
+    participant's reader is refused in `topics=`.
+  - S12: `from_json` drops an unknown member, as the gateway does, and with
+    `strict=True` refuses each one, at every depth, by name. A clean document
+    passes strict.
+  - S13: a document missing a member is a `WireError`, which is a
+    `ValueError` and is `sd.dds.WireError`.
+  - S14: the default announce frame, `earth_fixed()`, `frame()` and a built
+    manifest's coverage each carry the uuid their fqn derives to.
+  - S15: §2's six-segment plan template and its binding template open, a
+    writer and a reader on the plan template match, and the announce names
+    the lane as written. Refused: a seventh segment, the plan template for
+    another type, and a placeholder that is not a §3.3.1 segment. A
+    five-segment plan lane is still admitted, because §2 says SHOULD.
 
 Usage:  gates/native_additions.py
 """
@@ -599,6 +616,165 @@ def s10(checks: list, domain: int) -> None:
                        f"{[r.topic for r in st.resources.values()]}"))
 
 
+COV = sd.circle(30.28, -97.73, 50)
+PLAN = f"spatialdds/{SCENE}/plan/{SCENE}_ego/trajectory/v1"
+
+
+def s11_s15_bus(checks: list, domain: int) -> None:
+    from spatialdds.frames import frame_uuid
+    cov, plan = COV, PLAN
+    venue = sd.frame("map/venue", convention="ENU", meters_per_unit=1.0)
+    watch = sd.participant(SCENE, domain=domain)
+    ra = watch.reader("Announce", settle_s=0.3)
+    try:
+        with sd.participant(SCENE, domain=domain, service_id=SVC,
+                            authority="gate.example") as p, \
+                sd.participant(SCENE, domain=domain,
+                               service_id=SVC + ":far") as far:
+            query = p.reader("vps_query", topic="spatialdds/vps/query/v1")
+            result = p.writer("vps_response", topic="spatialdds/vps/result/v1")
+            pw = p.writer("planned_trajectory", topic=plan)
+            pr = far.reader("planned_trajectory", topic=plan)
+            matched = pw.wait_matched(timeout=10) and pr.wait_matched(timeout=10)
+            try:
+                p.announce("VPS", coverage=cov, topics=[query, far.reader(
+                    "geopose", topic="spatialdds/geo/geopose/v1")])
+                foreign = None
+            except sd.dds.ParticipantRefused as e:
+                foreign = str(e)
+            try:
+                p.announce("VPS", coverage=cov, topics=[query, result, pw],
+                           auth_hint="bearer", coverage_frame_ref=venue)
+                own = None
+            except sd.dds.ParticipantRefused as e:
+                own = str(e)
+            got = [] if own else announces(ra, time.time() + 10, lambda evs: any(
+                isinstance(e, sd.Sample) and e.key == SVC for e in evs))
+            a = next((sd.dds.to_json(e.data) for e in reversed(got)
+                      if isinstance(e, sd.Sample) and e.key == SVC), None)
+            names = sorted(t["name"] for t in (a or {}).get("topics", []))
+            checks.append((
+                "S11: an announce lists the lane its service reads beside the "
+                "ones it writes, with its auth_hint and its coverage frame",
+                a is not None and names == sorted([
+                    "spatialdds/vps/query/v1", "spatialdds/vps/result/v1", plan])
+                and a["auth_hint"] == "bearer"
+                and a["coverage_frame_ref"]["fqn"] == "map/venue"
+                and a["coverage_frame_ref"]["uuid"] == frame_uuid("map/venue"),
+                f"refused={own} {names} {a and a['auth_hint']!r} "
+                f"{a and a['coverage_frame_ref']}"))
+            checks.append(("S11: another participant's reader is refused in "
+                           "topics=", bool(foreign) and "own writers and "
+                           "readers" in foreign, f"{foreign}"))
+            checks.append(("S15: a writer and a reader on §2's six-segment plan "
+                           "template open and match, and the announce names the "
+                           "lane as written", matched and plan in names,
+                           f"matched={matched} {names}"))
+    finally:
+        watch.close()
+
+
+def s15_names(checks: list, domain: int) -> None:
+    plan = PLAN
+    reg = sd.dds.registry
+    try:
+        templated = reg.check_topic(plan, "planned_trajectory")
+    except reg.RegistryError as e:
+        templated = f"refused: {e}"
+    checks.append(("S15: check_topic admits §2's six-segment plan template",
+                   templated == plan, f"{templated}"))
+    binding = reg.check_topic(f"spatialdds/{SCENE}/entity/binding/v1",
+                              "entity_binding")
+    five = reg.check_topic(f"spatialdds/{SCENE}/ego/planned_trajectory/v1",
+                           "planned_trajectory")
+    refused = {}
+    for label, name, t in (
+            ("a seventh segment", f"spatialdds/{SCENE}/plan/a/b/trajectory/v1",
+             "planned_trajectory"),
+            ("the plan template for another type", plan, "geopose"),
+            ("a placeholder that is no segment",
+             f"spatialdds/{SCENE}/plan/a b/trajectory/v1", "planned_trajectory")):
+        try:
+            reg.check_topic(name, t)
+            refused[label] = None
+        except reg.RegistryError as e:
+            refused[label] = str(e)
+    checks.append(("S15: the binding template and a five-segment plan lane are "
+                   "admitted; refused: " + "; ".join(refused),
+                   bool(binding and five) and all(refused.values()),
+                   f"{refused}"))
+    rows = {t: r.profile_template for t, r in reg.registrations().items()
+            if r.profile_template}
+    checks.append(("S15: the registry holds §2's two templates, read from the "
+                   "spec's own sentences, each with its SHOULD",
+                   rows == {"planned_trajectory":
+                            "spatialdds/<scene>/plan/<agent_id>/trajectory/v1",
+                            "entity_binding":
+                            "spatialdds/<scene>/entity/binding/v1"}
+                   and {r.profile_template_level for r in
+                        reg.registrations().values() if r.profile_template}
+                   == {"SHOULD"}, f"{rows}"))
+
+
+def _announce_doc() -> dict:
+    return sd.records.service_announce("svc:x", "VPS", coverage=COV,
+                                       authority="a.example", scene=SCENE)
+
+
+def s12(checks: list, domain: int) -> None:
+    cls = sd.dds.class_for("Announce")
+    ok = _announce_doc()
+    bad = dict(ok, ttlsec=3, coverage=[dict(ok["coverage"][0], junk=1)],
+               coverage_frame_ref=dict(ok["coverage_frame_ref"], fqnn="x"))
+    lenient = sd.dds.to_json(sd.dds.from_json(cls, bad)) == sd.dds.to_json(
+        sd.dds.from_json(cls, ok))
+    try:
+        sd.dds.from_json(cls, bad, strict=True)
+        strict = None
+    except Exception as e:
+        strict = str(e) if isinstance(e, sd.dds.SchemaInvalid) else None
+    clean = sd.dds.from_json(cls, ok, strict=True) is not None
+    checks.append(("S12: an unknown member is dropped by default, as the "
+                   "gateway drops it; strict=True refuses each, at every "
+                   "depth, by name; a clean document passes strict",
+                   lenient and clean and bool(strict) and all(
+                       n in strict for n in ("Announce.ttlsec",
+                                             "CoverageElement.junk",
+                                             "FrameRef.fqnn")),
+                   f"lenient={lenient} clean={clean} {strict}"))
+
+
+def s13(checks: list, domain: int) -> None:
+    cls = sd.dds.class_for("Announce")
+    try:
+        sd.dds.from_json(cls, {"service_id": "x"})
+        missing = None
+    except Exception as e:
+        missing = e
+    checks.append(("S13: a document missing a member is a WireError, a "
+                   "ValueError, exported as sd.dds.WireError",
+                   isinstance(missing, sd.dds.WireError)
+                   and issubclass(sd.dds.WireError, ValueError),
+                   f"{type(missing).__mro__ if missing else None}"))
+
+
+def s14(checks: list, domain: int) -> None:
+    from spatialdds.frames import EARTH_FIXED_FQN, frame_uuid
+    ok = _announce_doc()
+    ef = frame_uuid(EARTH_FIXED_FQN)
+    man = sd.service_manifest("svc:x", "VPS", authority="a.example",
+                              scene=SCENE, coverage=COV)
+    got = {"announce default": ok["coverage_frame_ref"]["uuid"],
+           "earth_fixed()": sd.earth_fixed()["uuid"],
+           "frame()": sd.frame("map/venue")["uuid"],
+           "manifest coverage": man["coverage"]["frame_ref"]["uuid"]}
+    want = {"announce default": ef, "earth_fixed()": ef,
+            "frame()": frame_uuid("map/venue"), "manifest coverage": ef}
+    checks.append(("S14: every frame this package builds carries the uuid its "
+                   "fqn derives to, Appendix G's identity key", got == want,
+                   f"{got}"))
+
+
 def _metadata(path: Path) -> list:
     from mcap.reader import make_reader
     from spatialdds.server.mcapmeta import DISPOSE_RECORD
@@ -623,8 +799,13 @@ def run() -> int:
     arm(checks, "S3", s3)
     arm(checks, "S4, S5, S9", s4_s5_s9)
     arm(checks, "S10", s10)
+    arm(checks, "S11, S15 on the bus", s11_s15_bus)
+    arm(checks, "S15 names", s15_names)
+    arm(checks, "S12", s12)
+    arm(checks, "S13", s13)
+    arm(checks, "S14", s14)
     return report("native additions", checks,
-                  "0.7.x's additions do what findings 67 and 69 asked")
+                  "0.7.x's additions do what findings 67, 69 and 70 asked")
 
 
 if __name__ == "__main__":

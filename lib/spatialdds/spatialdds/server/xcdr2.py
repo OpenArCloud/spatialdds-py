@@ -62,9 +62,14 @@ _FMT = {
 }
 
 
-class WireError(Exception):
+class WireError(ValueError):
     """The bytes and the model disagree. Never raised for unknown trailing
-    members, which are a writer being newer and are skipped."""
+    members, which are a writer being newer and are skipped.
+
+    A `ValueError`, as of 0.7.3 (S13): `codec.from_json` raises it for a
+    document missing a member and `ValueError` for a member of the wrong
+    form, and a caller asking "is this a valid document" should not need to
+    know which layer noticed. Exported as `spatialdds.dds.WireError`."""
 
 
 class Reader:

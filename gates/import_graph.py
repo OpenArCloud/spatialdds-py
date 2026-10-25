@@ -126,27 +126,34 @@ def main() -> int:
                    f"({len(list(SERVER.glob('*.py')))} modules read)",
                    not bad, "; ".join(bad[:3])))
 
-    # The one thing the server may reach up for, named so that it is an
-    # allowance rather than a gap: `spatialdds.canonjson` is Appendix N.1's
-    # canonical form, which both halves must produce byte-identically. It
-    # belongs to neither of them -- no dependencies, no knowledge of either
-    # side -- and it is shared for the same reason `artifacts/` is shared as
-    # data. Any *other* import from the parent package would be the coupling
-    # this gate exists to prevent.
+    # The things the server may reach up for, named so that each is an
+    # allowance rather than a gap. `spatialdds.canonjson` is Appendix N.1's
+    # canonical form, which both halves must produce byte-identically.
+    # `spatialdds.frames` holds the frame identity rule, a uuid derived from
+    # the fqn: the gateway's manifest and the client's builders must name the
+    # earth-fixed frame by the same uuid, or Appendix G's identity key says
+    # two frames (0.7.3, S14). Each belongs to neither half -- no dependencies,
+    # no knowledge of either side -- and is shared for the same reason
+    # `artifacts/` is shared as data. Any *other* import from the parent
+    # package would be the coupling this gate exists to prevent.
+    leaves = ["..canonjson", "..frames"]
     reach = sorted({m for q in SERVER.glob("*.py") for m in imports(q)
                     if m.startswith("..")})
-    checks.append((f"the only name the server reaches out of its own package "
-                   f"for is the shared canonical-JSON leaf "
-                   f"({', '.join(reach) or 'none'})",
-                   reach in ([], ["..canonjson"]), f"{reach}"))
+    checks.append((f"the only names the server reaches out of its own package "
+                   f"for are the shared leaves ({', '.join(reach) or 'none'})",
+                   set(reach) <= set(leaves), f"{reach}"))
     shared = sorted(q.name for q in PKG.glob("*.py")
                     if not imports(q) or all(
                         m.split(".")[0] in sys.stdlib_module_names
                         for m in imports(q) if not m.startswith(".")))
-    checks.append((f"…and that leaf imports nothing but the standard library, "
+    relative = sorted(f"{q.name} imports {m}" for q in PKG.glob("*.py")
+                      if q.stem in [l[2:] for l in leaves]
+                      for m in imports(q) if m.startswith("."))
+    checks.append((f"…and each leaf imports nothing but the standard library, "
                    f"so sharing it costs neither half anything "
                    f"({', '.join(shared)})",
-                   "canonjson.py" in shared, f"{shared}"))
+                   all(l[2:] + ".py" in shared for l in leaves)
+                   and not relative, f"{shared} {relative}"))
 
     # ---- static: the client half ----
     bad = []

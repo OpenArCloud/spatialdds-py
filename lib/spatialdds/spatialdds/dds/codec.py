@@ -272,12 +272,56 @@ def to_json(sample: Any) -> Dict[str, Any]:
     return doc
 
 
-def from_json(cls: Type[T], doc: Dict[str, Any]) -> T:
-    """A typed sample from its N.1 document: the gateway's lift, encoded, decoded."""
+#: The wire layer's refusal: a document or sample that cannot be its type's
+#: wire form (a member missing, say). A `ValueError` (0.7.3, S13).
+WireError = xcdr2.WireError
+
+
+class _StrictLifter(webjson.Lifter):
+    """The gateway's lift, noting every member it was given and did not read."""
+
+    def __init__(self, m, tables) -> None:
+        super().__init__(m, tables)
+        self.unread: list = []
+
+    def lift(self, fqn: str, value: Any) -> Any:
+        agg = self.m.get(fqn)
+        if agg is not None and agg.kind == "struct" and isinstance(value, dict):
+            names = {mem.name for mem in agg.members}
+            self.unread += [f"{fqn}.{k}" for k in value if k not in names]
+        return super().lift(fqn, value)
+
+    def _union(self, agg, value: dict) -> dict:
+        if isinstance(value, dict):
+            label = value.get("type")
+            case = next((mem.name for labels, mem in agg.cases
+                         if label in labels and mem.name), None)
+            self.unread += [f"{agg.name}.{k}" for k in value
+                            if k not in ("type", case)]
+        return super()._union(agg, value)
+
+
+def from_json(cls: Type[T], doc: Dict[str, Any], *, strict: bool = False) -> T:
+    """A typed sample from its N.1 document: the gateway's lift, encoded, decoded.
+
+    A member the type does not have is dropped, as the gateway drops it: the
+    published schemas allow additional properties, so a newer writer's
+    document still reads. `strict=True` refuses one instead, with
+    `SchemaInvalid` naming each, for a program that authors documents rather
+    than relaying them, where an unknown member is a misspelling and dropping
+    it loses what was meant (0.7.3, S12). A document that is missing a
+    member, or has one of the wrong form, is a `ValueError` either way.
+    """
     fqn = fqn_of(cls)
     _known(fqn)
     _d, writer, _p, lifter = _codec()
-    return cls.deserialize(writer.encode(fqn, lifter.lift(fqn, doc)))
+    if strict:
+        lifter = _StrictLifter(lifter.m, lifter.tables)
+    lifted = lifter.lift(fqn, doc)
+    if strict and lifter.unread:
+        raise SchemaInvalid(f"{fqn}: no such member: "
+                            f"{', '.join(lifter.unread)} (strict=True)")
+    return cls.deserialize(writer.encode(fqn, lifted))
 
 
 @lru_cache(maxsize=None)

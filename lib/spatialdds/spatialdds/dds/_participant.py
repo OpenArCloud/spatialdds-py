@@ -357,14 +357,19 @@ class Writer:
 
     def topic_meta(self) -> Dict[str, Any]:
         """This lane as one `TopicMeta`, through the web layer's builder."""
-        p = self.profile
-        segs = self.topic.split("/")
-        where = (dict(name=self.topic) if self._lane.explicit else
-                 dict(stream=segs[2], version=segs[4]))
-        return records.topic(
-            self.type_name, scene=self._p.scene, qos_profile=p.name,
-            durability=None if p.registered else p.durability,
-            rate_hz=float(self.floor_hz or 0.0), **where)
+        return _topic_meta(self._p, self._lane, self.floor_hz)
+
+
+def _topic_meta(p: "Participant", lane: _Lane,
+                floor_hz: Optional[float]) -> Dict[str, Any]:
+    prof = lane.profile
+    segs = lane.topic.split("/")
+    where = (dict(name=lane.topic) if lane.explicit else
+             dict(stream=segs[2], version=segs[4]))
+    return records.topic(
+        lane.type_name, scene=p.scene, qos_profile=prof.name,
+        durability=None if prof.registered else prof.durability,
+        rate_hz=float(floor_hz or 0.0), **where)
 
 
 class Reader:
@@ -390,6 +395,19 @@ class Reader:
     @property
     def topic(self) -> str:
         return self._lane.topic
+
+    @property
+    def type_name(self) -> str:
+        return self._lane.type_name
+
+    @property
+    def profile(self) -> Profile:
+        return self._lane.profile
+
+    def topic_meta(self) -> Dict[str, Any]:
+        """This lane as one `TopicMeta`: for a service that announces a lane
+        it reads (a VPS's query lane), through the same builder as a writer's."""
+        return _topic_meta(self._p, self._lane, None)
 
     def matched(self) -> int:
         """How many writers this reader is matched with, now."""
@@ -776,7 +794,10 @@ class Participant:
                  manifest_uri: Optional[str] = None,
                  transforms: Optional[List[Dict[str, Any]]] = None,
                  service_id: Optional[str] = None,
-                 topics: Optional[List["Writer"]] = None) -> Dict[str, Any]:
+                 topics: Optional[List[Union["Writer", "Reader"]]] = None,
+                 auth_hint: str = "",
+                 coverage_frame_ref: Optional[Dict[str, Any]] = None
+                 ) -> Dict[str, Any]:
         """Announce a service and its lanes. Returns the announce's N.1 form.
 
         Built by the web layer's `records.service_announce`, so there is one
@@ -785,8 +806,14 @@ class Participant:
 
         * **Its lanes.** `topics=None` is every writer this participant has
           opened, and the announce is re-published when one is added. A list
-          of writers is exactly those lanes. Either way the rows are the
-          writers' own `TopicMeta`, never written by hand.
+          is exactly those lanes, and may hold this participant's readers
+          as well as its writers: a service announces where requests go,
+          and a VPS reads its query lane (0.7.3, S11). Either way the rows
+          are the endpoints' own `TopicMeta`, never written by hand.
+        * **Its frame and its access.** `coverage_frame_ref=` is the frame
+          its coverage is stated in, as an N.1 `FrameRef` (default
+          `earth_fixed()`), and `auth_hint=` what it asks a client for
+          (0.7.3, S11).
         * **Its placement.** `transforms=` are the service's frame
           transforms, as N.1 `Transform` documents: the slot an AR client
           places content with.
@@ -819,11 +846,13 @@ class Participant:
             problems.append(f"ttl_sec {ttl_sec!r} must be an integer >= 3, so "
                             f"the refresh at ttl/3 is at least a second apart")
         if topics is not None:
-            mine = set(map(id, self._writers))
+            mine = set(map(id, self._writers)) | set(map(id, self._readers))
             for w in topics:
-                if not isinstance(w, Writer) or id(w) not in mine:
+                if not isinstance(w, (Writer, Reader)) or id(w) not in mine:
                     problems.append(f"topics= takes this participant's own "
-                                    f"writers, not {w!r}")
+                                    f"writers and readers, not {w!r}")
+        if not isinstance(auth_hint, str):
+            problems.append(f"auth_hint= is a string, not {auth_hint!r}")
         others = {k: v for k, v in self._services.items() if k != sid}
         if others and (topics is None or any(
                 v["spec"]["topics"] is None for v in others.values())):
@@ -849,7 +878,9 @@ class Participant:
                            name=name, org=org, version=version, hints=hints,
                            caps=caps, manifest_uri=muri,
                            transforms=list(transforms or []),
-                           topics=None if topics is None else list(topics))
+                           topics=None if topics is None else list(topics),
+                           auth_hint=auth_hint,
+                           coverage_frame_ref=coverage_frame_ref)
         return self._publish_announce(sid)
 
     def _wk_lane(self, message: str) -> _Lane:
@@ -866,7 +897,8 @@ class Participant:
             topics=[w.topic_meta() for w in lanes
                     if w._lane.well_known is None],
             manifest_uri=a["manifest_uri"], ttl_sec=a["ttl_sec"],
-            hints=a["hints"], caps=a["caps"])
+            hints=a["hints"], caps=a["caps"], auth_hint=a["auth_hint"],
+            coverage_frame_ref=a["coverage_frame_ref"])
         doc["transforms"] = [dict(t) for t in a["transforms"]]
         cls = _types_class(registry.well_known("Announce").fqn)
         return doc, codec.from_json(cls, doc)

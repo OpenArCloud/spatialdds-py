@@ -247,19 +247,35 @@ def earth_fixed() -> Dict[str, Any]:
 
     Chosen rather than left empty because a `FrameRef` with an empty `fqn`
     says nothing at all, and every builder here takes positions in degrees.
+    Its uuid is the one its name derives to (`frames.frame_uuid`), because
+    Appendix G makes the uuid the frame's identity: "Implementations MUST
+    treat `uuid` uniqueness as the identity key." Until 0.7.3 it was empty,
+    so every announce this package built named no frame a conforming
+    consumer could match, and SpatialDDS-demo's discovery core refused them
+    (S14).
     """
+    from .frames import EARTH_FIXED_FQN, frame_uuid
     fr = _blank(FRAME_REF)
-    fr["fqn"] = "earth-fixed"
+    fr["fqn"], fr["uuid"] = EARTH_FIXED_FQN, frame_uuid(EARTH_FIXED_FQN)
     return fr
 
 
-def frame(fqn: str, *, uuid: str = "", convention: Optional[str] = None,
+def frame(fqn: str, *, uuid: Optional[str] = None,
+          convention: Optional[str] = None,
           meters_per_unit: Optional[float] = None,
           scale_status: str = "SCALE_DECLARED",
           display_unit: str = "m") -> Dict[str, Any]:
-    """A named frame, with the `has_` flags set by what you actually passed."""
+    """A named frame, with the `has_` flags set by what you actually passed.
+
+    `uuid` defaults to the one `fqn` derives to (`frames.frame_uuid`), the
+    identity Appendix G keys frames on; pass one to use another, a dataset's
+    own token say (Appendix G's informative mapping). Until 0.7.3 it
+    defaulted to empty (S14).
+    """
+    from .frames import frame_uuid
     fr = _blank(FRAME_REF)
-    fr["fqn"], fr["uuid"] = fqn, uuid
+    fr["fqn"] = fqn
+    fr["uuid"] = frame_uuid(fqn) if uuid is None else uuid
     if convention is not None:
         fr["has_coord_convention"] = True
         fr["coord_convention"] = convention
@@ -816,7 +832,8 @@ def _manifest_coverage(coverage: Any,
     if not cov:
         return None
     c = cov[0]
-    out: Dict[str, Any] = {"frame_ref": {"uuid": "", "fqn": "earth-fixed"},
+    ef = earth_fixed()
+    out: Dict[str, Any] = {"frame_ref": {"uuid": ef["uuid"], "fqn": ef["fqn"]},
                            "has_bbox": False, "global": False,
                            "has_circle": False}
     if c.get("has_frame_ref") and c.get("frame_ref"):

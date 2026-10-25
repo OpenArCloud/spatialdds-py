@@ -382,7 +382,7 @@ curl -s --get "$BASE/spatialdds/resolve" \
         "circle_radius_m": 25,
         "frame_ref": {
             "fqn": "earth-fixed",
-            "uuid": ""
+            "uuid": "00cc62ae-c21e-5d3b-b5f9-2587a084ba31"
         },
         "geohash": [
             "9v6krc"
@@ -484,7 +484,7 @@ curl -s --get "$BASE/spatialdds/resolve" \
         "circle_radius_m": 2,
         "frame_ref": {
             "fqn": "earth-fixed",
-            "uuid": ""
+            "uuid": "00cc62ae-c21e-5d3b-b5f9-2587a084ba31"
         },
         "global": false,
         "has_bbox": false,

@@ -216,6 +216,7 @@
   "anchor_delta": {
    "idl": "spatial::anchors::AnchorDelta",
    "profile": "ANCHOR_DELTA",
+   "profile_template": null,
    "provisional": false,
    "spelled_qos": {},
    "topic_template": null
@@ -223,6 +224,7 @@
   "crossing_line": {
    "idl": "spatial::events::CrossingLine",
    "profile": "ZONE_META",
+   "profile_template": null,
    "provisional": false,
    "spelled_qos": {},
    "topic_template": null
@@ -230,6 +232,7 @@
   "desc_array": {
    "idl": "spatial::slam_frontend::KeyframeFeatures",
    "profile": "DESC_BATCH",
+   "profile_template": null,
    "provisional": false,
    "spelled_qos": {},
    "topic_template": null
@@ -237,6 +240,7 @@
   "detection2d": {
    "idl": "spatial::semantics::Detection2DSet",
    "profile": "DET_RT",
+   "profile_template": null,
    "provisional": false,
    "spelled_qos": {},
    "topic_template": null
@@ -244,6 +248,7 @@
   "detection3d": {
    "idl": "spatial::semantics::Detection3DSet",
    "profile": "DET_RT",
+   "profile_template": null,
    "provisional": false,
    "spelled_qos": {},
    "topic_template": null
@@ -251,6 +256,10 @@
   "entity_binding": {
    "idl": "spatial::core::EntityBinding",
    "profile": null,
+   "profile_template": {
+    "level": "SHOULD",
+    "topic": "spatialdds/<scene>/entity/binding/v1"
+   },
    "provisional": false,
    "spelled_qos": {},
    "topic_template": null
@@ -258,6 +267,7 @@
   "framed_pose": {
    "idl": "spatial::core::FramedPose",
    "profile": "POSE_RT",
+   "profile_template": null,
    "provisional": false,
    "spelled_qos": {},
    "topic_template": null
@@ -265,6 +275,7 @@
   "fused_track": {
    "idl": "spatial::semantics::FusedTrackSet",
    "profile": "DET_RT",
+   "profile_template": null,
    "provisional": false,
    "spelled_qos": {},
    "topic_template": null
@@ -272,6 +283,7 @@
   "geometry_tile": {
    "idl": "spatial::core::TileMeta",
    "profile": "GEOM_TILE",
+   "profile_template": null,
    "provisional": false,
    "spelled_qos": {},
    "topic_template": null
@@ -279,6 +291,7 @@
   "geopose": {
    "idl": "spatial::core::GeoPose",
    "profile": "POSE_RT",
+   "profile_template": null,
    "provisional": false,
    "spelled_qos": {},
    "topic_template": null
@@ -286,6 +299,7 @@
   "imu_sample": {
    "idl": "spatial::vio::ImuSample",
    "profile": "IMU_RT",
+   "profile_template": null,
    "provisional": false,
    "spelled_qos": {},
    "topic_template": null
@@ -293,6 +307,7 @@
   "lidar_frame": {
    "idl": "spatial::sensing::lidar::LidarFrame",
    "profile": "LIDAR_RT",
+   "profile_template": null,
    "provisional": false,
    "spelled_qos": {},
    "topic_template": null
@@ -300,6 +315,7 @@
   "lidar_meta": {
    "idl": "spatial::sensing::lidar::LidarMeta",
    "profile": "SENSOR_META",
+   "profile_template": null,
    "provisional": false,
    "spelled_qos": {},
    "topic_template": null
@@ -307,6 +323,7 @@
   "map_alignment": {
    "idl": "spatial::mapping::MapAlignment",
    "profile": "MAP_META",
+   "profile_template": null,
    "provisional": false,
    "spelled_qos": {},
    "topic_template": null
@@ -314,6 +331,7 @@
   "map_event": {
    "idl": "spatial::mapping::MapEvent",
    "profile": "MAP_META",
+   "profile_template": null,
    "provisional": false,
    "spelled_qos": {},
    "topic_template": null
@@ -321,6 +339,7 @@
   "map_meta": {
    "idl": "spatial::mapping::MapMeta",
    "profile": "MAP_META",
+   "profile_template": null,
    "provisional": false,
    "spelled_qos": {},
    "topic_template": null
@@ -328,6 +347,7 @@
   "model_command": {
    "idl": "spatial::owm::ModelCommand",
    "profile": null,
+   "profile_template": null,
    "provisional": true,
    "spelled_qos": {
     "durability": "VOLATILE",
@@ -341,6 +361,7 @@
   "model_entity": {
    "idl": "spatial::owm::Entity",
    "profile": null,
+   "profile_template": null,
    "provisional": true,
    "spelled_qos": {
     "durability": "TRANSIENT_LOCAL",
@@ -355,6 +376,7 @@
   "model_pose": {
    "idl": "spatial::owm::ModelPose",
    "profile": null,
+   "profile_template": null,
    "provisional": true,
    "spelled_qos": {
     "durability": "VOLATILE",
@@ -368,6 +390,7 @@
   "navsat_status": {
    "idl": "spatial::core::NavSatStatus",
    "profile": null,
+   "profile_template": null,
    "provisional": false,
    "spelled_qos": {},
    "topic_template": null
@@ -375,6 +398,10 @@
   "planned_trajectory": {
    "idl": "spatial::core::PlannedTrajectory",
    "profile": "EVENT_RT",
+   "profile_template": {
+    "level": "SHOULD",
+    "topic": "spatialdds/<scene>/plan/<agent_id>/trajectory/v1"
+   },
    "provisional": false,
    "spelled_qos": {},
    "topic_template": null
@@ -382,6 +409,7 @@
   "rad_sensor_meta": {
    "idl": "spatial::sensing::rad::RadSensorMeta",
    "profile": "SENSOR_META",
+   "profile_template": null,
    "provisional": false,
    "spelled_qos": {},
    "topic_template": null
@@ -389,6 +417,7 @@
   "radar_detection": {
    "idl": "spatial::sensing::rad::RadDetectionSet",
    "profile": "RADAR_RT",
+   "profile_template": null,
    "provisional": false,
    "spelled_qos": {},
    "topic_template": null
@@ -396,6 +425,7 @@
   "radar_tensor": {
    "idl": "spatial::sensing::rad::RadTensorFrame",
    "profile": "RADAR_RT",
+   "profile_template": null,
    "provisional": false,
    "spelled_qos": {},
    "topic_template": null
@@ -403,6 +433,7 @@
   "radar_tensor_meta": {
    "idl": "spatial::sensing::rad::RadTensorMeta",
    "profile": "SENSOR_META",
+   "profile_template": null,
    "provisional": false,
    "spelled_qos": {},
    "topic_template": null
@@ -410,6 +441,7 @@
   "radio_scan": {
    "idl": "spatial::sensing::radio::RadioScan",
    "profile": "RADIO_SCAN_RT",
+   "profile_template": null,
    "provisional": true,
    "spelled_qos": {},
    "topic_template": null
@@ -417,6 +449,7 @@
   "radio_sensor_meta": {
    "idl": "spatial::sensing::radio::RadioSensorMeta",
    "profile": "SENSOR_META",
+   "profile_template": null,
    "provisional": true,
    "spelled_qos": {},
    "topic_template": null
@@ -424,6 +457,7 @@
   "rf_beam": {
    "idl": "spatial::sensing::rf_beam::RfBeamFrame",
    "profile": "RF_BEAM_RT",
+   "profile_template": null,
    "provisional": true,
    "spelled_qos": {},
    "topic_template": null
@@ -431,6 +465,7 @@
   "rf_beam_meta": {
    "idl": "spatial::sensing::rf_beam::RfBeamMeta",
    "profile": "SENSOR_META",
+   "profile_template": null,
    "provisional": true,
    "spelled_qos": {},
    "topic_template": null
@@ -438,6 +473,7 @@
   "seg_mask": {
    "idl": "spatial::sensing::vision::VisionFrame",
    "profile": "SEG_MASK_RT",
+   "profile_template": null,
    "provisional": false,
    "spelled_qos": {},
    "topic_template": null
@@ -445,6 +481,7 @@
   "spatial_event": {
    "idl": "spatial::events::SpatialEvent",
    "profile": "EVENT_RT",
+   "profile_template": null,
    "provisional": false,
    "spelled_qos": {},
    "topic_template": null
@@ -452,6 +489,7 @@
   "spatial_zone": {
    "idl": "spatial::events::SpatialZone",
    "profile": "ZONE_META",
+   "profile_template": null,
    "provisional": false,
    "spelled_qos": {},
    "topic_template": null
@@ -459,6 +497,7 @@
   "video_frame": {
    "idl": "spatial::sensing::vision::VisionFrame",
    "profile": "VIDEO_LIVE",
+   "profile_template": null,
    "provisional": false,
    "spelled_qos": {},
    "topic_template": null
@@ -466,6 +505,7 @@
   "video_meta": {
    "idl": "spatial::sensing::vision::VisionMeta",
    "profile": "SENSOR_META",
+   "profile_template": null,
    "provisional": false,
    "spelled_qos": {},
    "topic_template": null
@@ -473,6 +513,7 @@
   "vps_query": {
    "idl": "spatial::argeo::VpsRequest",
    "profile": "VPS_REQ",
+   "profile_template": null,
    "provisional": false,
    "spelled_qos": {},
    "topic_template": null
@@ -480,6 +521,7 @@
   "vps_response": {
    "idl": "spatial::argeo::VpsResponse",
    "profile": "VPS_RESP",
+   "profile_template": null,
    "provisional": false,
    "spelled_qos": {},
    "topic_template": null
@@ -487,6 +529,7 @@
   "zone_state": {
    "idl": "spatial::events::ZoneState",
    "profile": "ZONE_META",
+   "profile_template": null,
    "provisional": false,
    "spelled_qos": {},
    "topic_template": null

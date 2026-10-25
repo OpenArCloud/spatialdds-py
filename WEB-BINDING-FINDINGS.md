@@ -2233,3 +2233,136 @@ of the pin's own types. `gates/native_additions.py` registers a second type
 from one IDL file, and a plant of the old check fails it.
 
 The S10 arm has eight checks, and each of six plants fails it.
+
+## The demo moves its lanes: 0.7.3, 2026-10-25
+
+SpatialDDS-demo's migration onto 0.7.2 moved its AR lane (cea927c there)
+and renamed its topics under §3.3.1 and §2 (fb75428 there). Its bridges are
+written against the SDK and held, because the first of these blocks them.
+Each was found against the PyPI release of 0.7.2.
+
+### 70. What the migration onto 0.7.2 found (S11–S15)
+
+- **S15. §2's own plan template was refused.**
+  - *What 0.7.2 did:* `registry.check_topic` admitted four or five segments
+    and nothing else, so `spatialdds/<scene>/plan/<agent_id>/trajectory/v1`
+    was "not a §3.3.1 name". §2 says a PlannedTrajectory "SHOULD be
+    advertised on" exactly that topic.
+  - *Where it bit:* the demo's announce-driven stream reader opens every
+    lane an announce lists, and its fusion service and dashboard read the
+    plan lane. The bridges could not move.
+  - *Why it is the instructive one:* §3.3.1 says profile templates "are
+    normative as specified where they are defined and MAY use additional
+    path segments". The demo's adoption census read only §3.3.1's basic
+    pattern and proposed renaming the plan and binding lanes off §2's
+    names. This package's check had the same misreading. One author wrote
+    both, so the census and the library agreed, and nothing that checked
+    one against the other could find it. The spec's own sentence, met at
+    the boundary when the demo's frozen cross-era exhibit was refused, is
+    what found it. A misreading shared by the instrument and the subject is
+    self-consistent. The corrective is the spec text, not the census. (The
+    census's blob rename was the same lesson across repositories: OpenVPS
+    reads `spatialdds/blob/chunk/v1`, and the census never listed it as a
+    reader. A reader inventory has to span repositories.)
+  - *Fixed in 0.7.3:* `tools/gen_registry.py` reads §2's "is registered as
+    type `x` in §3.3.2 and SHOULD be advertised on the topic `…`" sentences
+    into the registry as `profile_template`, with the keyword. A templated
+    name the section mentions and no rule read is a generator error, not a
+    skip. `check_topic` admits a name that fits the type's §2 template:
+    each `<…>` takes any §3.3.1 segment, and the rest must be the
+    template's own. Both of §2's templates are SHOULD, so a five-segment
+    name is still admitted for these types. §3.3.2's binding templates are
+    unchanged.
+  - *Not fixed, a spec question:* the gateway's `split_topic` serves four-
+    and five-segment topics only, so a recording that carries the plan lane
+    serves no resource for it. N.3 maps §3.3.1's segments to a path and gives
+    a longer profile template no path. That is the web binding's to decide.
+    Until it does, the native layer can carry the lane and the gateway
+    cannot serve it.
+- **S14. The announce named its frame with an empty uuid.** A conformance
+  bug, not a gap. Appendix G: "Implementations MUST treat `uuid` uniqueness
+  as the identity key." `earth_fixed()` set only the fqn, so every announce
+  `p.announce` and `records.service_announce` built carried
+  `coverage_frame_ref.uuid == ""`. A conforming consumer could match it to
+  no frame. The demo's discovery core refused it ("FrameRef.uuid is
+  required"), so an SDK-announced service was invisible to the demo's
+  `/search`. The same empty uuid was in `frame()`'s default, in the
+  manifest builder's coverage, in the gateway's own manifest coverage
+  (twice), and in four authored samples.
+  - *Fixed in 0.7.3:* each takes the uuid its fqn derives to,
+    `frames.frame_uuid`, which is UUIDv5 of the fqn and the derivation the
+    demo already used. `frame(uuid=)` still takes a dataset's own token.
+    `frames` becomes the server's second named shared leaf, beside
+    `canonjson`, so the gateway and the builders have one derivation rule;
+    `gates/import_graph.py` names it and holds both leaves to the standard
+    library.
+  - *What old clients and documents see:* the earth-fixed frame's uuid is
+    `00cc62ae-c21e-5d3b-b5f9-2587a084ba31` wherever it was `""`: in built
+    announces and manifests, in the gateway's served manifest, and in the
+    four samples (`duck.input.json`, `published-records.input.json` and the
+    two fountain content manifests, re-packed into `spatialdds/demo/`).
+    Their ETags change with their bytes. The MYTOWN anchor's checksum
+    changes because its frame is inside what it covers. The fountain and
+    retail recordings are unchanged.
+- **S11. The announce could not list a lane its service reads.** `topics=`
+  took only the participant's writers, so a VPS could not announce its
+  query lane, which is where requests go. OpenVPS's announce lists both.
+  There was no `auth_hint=` and no `coverage_frame_ref=`, so the demo's
+  catalogue, whose coverage is in its venue frame, could not use
+  `p.announce` at all.
+  - *Fixed in 0.7.3:* `topics=` takes this participant's readers as well as
+    its writers, each described by its own `TopicMeta`, so readers get
+    `topic_meta()`. `p.announce(auth_hint=, coverage_frame_ref=)` pass
+    through. `topics=None` still means every writer, because a bridge
+    reads many lanes and serves none of them.
+- **S12. `from_json` drops an unknown member silently.** That is the
+  gateway's lift, and correct for a relay: the published schemas allow
+  additional properties, and a newer writer's document must still read.
+  For a program that authors documents, a misspelled member is lost with
+  no error.
+  - *Added in 0.7.3:* `from_json(cls, doc, strict=True)` refuses every
+    member the type does not have, at any depth, by name, as
+    `SchemaInvalid`. The default is unchanged.
+- **S13. `WireError` was not a `ValueError`, and not exported.**
+  `from_json` raised `WireError` for a missing member and `ValueError` for
+  a malformed one, so "is this a valid document" needed two catches and an
+  import from `spatialdds.server`.
+  - *Fixed in 0.7.3:* `WireError` subclasses `ValueError` and is
+    `sd.dds.WireError`. No handler in this package changes behaviour (each
+    `except ValueError` was read).
+
+Also noticed and left alone: the announce builder refuses an int64 member
+given as a Python int, while `from_json` accepts one. The builder holds the
+N.1 form (a decimal string) and the codec's lift is tolerant, the same
+split as S12. It is recorded here, not changed.
+
+`gates/native_additions.py` gains five arms for these, with nine checks.
+Each of nine plants fails its own named check. The plants: the template
+admission, the earth-fixed uuid, readers in `topics=`, the `auth_hint`
+passthrough, the strict lifter, `WireError`'s base, the generator's
+template sentence, a server import of `records`, and a non-stdlib import
+in `frames`.
+
+### Misfires, ledgered
+
+- **Plants that never ran.** The first plant batch passed the gate command
+  as one zsh variable, which zsh does not word-split. Every plant landed and
+  was restored, and no check ran. The same shell word-handling class as the
+  `[dds]` install above. The re-run passed the command as an array.
+- **A plant harness that could not confirm an additive plant.** It required
+  the original text to be gone. The two import plants add a line, so the
+  harness refused them as "did not land". It now requires the new text
+  present and the file changed.
+- **An arm that hid its own checks.** The first S11–S15 arm was one
+  function, so a plant that raised early (readers refused in `topics=`)
+  failed as "the arm ran to its end", hiding every check after it. Split
+  into five arms. The template-admission plant then showed that no check in
+  the naming arm asked whether the plan template itself is admitted; one
+  does now.
+- **A refill that wrote a regression into a walkthrough.** After the
+  builders took the derived uuid, `gates/quickstart.py --refill` rewrote
+  the walkthrough's "manifest, conventions excepted: ['stamp']" as
+  "['coverage', 'stamp']". The built manifest no longer matched the served
+  sample, which still carried the empty uuid. Reverted, and the samples
+  were re-authored; every refilled line was then read, and each is the
+  uuid or the checksum over it.

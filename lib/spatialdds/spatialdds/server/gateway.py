@@ -36,6 +36,13 @@ from typing import Any, Callable, Iterable
 from mcap.reader import make_reader
 
 from . import commands, idlmodel, mcapmeta, pin, webjson, xcdr2
+from ..frames import EARTH_FIXED_FQN, frame_uuid
+
+#: The manifest coverage's frame. Appendix G makes the uuid the identity
+#: ("MUST treat `uuid` uniqueness as the identity key"), so it is the one the
+#: name derives to, as `spatialdds.earth_fixed()` writes it. Empty until
+#: 0.7.3 (S14).
+EARTH_FIXED_REF = {"uuid": frame_uuid(EARTH_FIXED_FQN), "fqn": EARTH_FIXED_FQN}
 
 PUBLIC = "public-cacheable"
 OPERATOR = "operator-scoped"
@@ -795,7 +802,7 @@ def service_manifest(st: State, scene: str, base: str,
                 set(man["caps"]["features"]) | set(caps["features"]))
     cov = (declared_coverage(st, scene) or [None])[0]
     if cov is not None:
-        block = {"frame_ref": {"uuid": "", "fqn": "earth-fixed"},
+        block = {"frame_ref": dict(EARTH_FIXED_REF),
                  "global": bool(cov.get("global"))}
         if cov.get("has_circle"):
             block["has_circle"] = True
@@ -810,7 +817,7 @@ def service_manifest(st: State, scene: str, base: str,
     else:
         bbox = scene_bbox(st, scene)
         if bbox is not None:
-            man["coverage"] = {"frame_ref": {"uuid": "", "fqn": "earth-fixed"},
+            man["coverage"] = {"frame_ref": dict(EARTH_FIXED_REF),
                                "has_bbox": True, "bbox": list(bbox),
                                "global": False}
             man["service"]["coverage_declared"] = False
