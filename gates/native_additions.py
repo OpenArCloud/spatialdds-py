@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""What 0.7.1 adds for programs that own their loop, and lanes outside a scene.
+"""What 0.7.x adds for programs that own their loop, lanes outside a scene, and their own types.
 
 Each check is one of finding 67's filings, by number, held against a bus on a
 domain of its own: a writer participant and a reader participant in this
@@ -42,6 +42,20 @@ process.
 * **S9, `class_for()`.** A registered name, a well-known message and a dotted
   identity each resolve to the generated class. An unknown name is refused,
   saying which forms were tried.
+* **S10, `extend()`.** A deployment's own type, defined here with IDL that
+  includes a pinned file.
+  - Before it is registered, `to_json` refuses it, naming `extend()`.
+  - After, it round-trips through N.1, its key is its own `@key`, and
+    `class_for` names it.
+  - A latched writer opened by its name takes `on_exit=` because the type is
+    keyed, and validation refuses a NaN.
+  - A reader sees the sample, then the `Dispose` of a withdrawal, under its
+    key.
+  - The participant's recording embeds the extension's IDL, and the gateway
+    serves the lane from it.
+  - Refused: a name with no namespace, a registered name, a pinned type,
+    IDL including an unpinned file, and the same name with other IDL.
+    Registering again with identical arguments is a no-op.
 
 Usage:  gates/native_additions.py
 """
@@ -474,6 +488,117 @@ def s4_s5_s9(checks: list, domain: int) -> None:
                    f"{resolved} / {unknown}"))
 
 
+def s10(checks: list, domain: int) -> None:
+    import math
+    from spatialdds.server import gateway
+    from _ext_type import EXT_IDL, Note, Reading
+    doc = {"reading_id": "r1", "label": "gate", "value": 2.5,
+           "frame_ref": FRAME}
+    try:
+        sd.dds.to_json(Reading("r0", "x", 1.0, sd.dds.from_json(
+            sd.dds.class_for("spatial.common.FrameRef"), FRAME)))
+        before = None
+    except sd.dds.RegistryError as e:
+        before = str(e)
+    checks.append(("S10: before extend(), to_json refuses the type, naming "
+                   "extend()", before is not None and "sd.dds.extend" in before,
+                   f"{before}"))
+
+    unkeyed_before = sd.dds.key_of(Reading("r0", "x", 1.0, sd.dds.from_json(
+        sd.dds.class_for("spatial.common.FrameRef"), FRAME)))
+    ext = sd.dds.extend("gate.reading", Reading, EXT_IDL)
+    # One IDL file can define several types; the second is registered after
+    # the first has merged both into the model.
+    try:
+        note = sd.dds.extend("gate.note", Note, EXT_IDL)
+        second = sd.dds.to_json(Note("n1", "hello"))["note_id"] == "n1"
+    except sd.dds.RegistryError as e:
+        note, second = None, str(e)
+    checks.append(("S10: a second type from the same IDL file registers after "
+                   "the first", note is not None and second is True,
+                   f"{second}"))
+    r = sd.dds.from_json(Reading, doc)
+    back = sd.dds.to_json(r)
+    checks.append(("S10: after it, the type round-trips through N.1, keys on "
+                   "its own @key, and class_for names it",
+                   back["reading_id"] == "r1" and back["value"] == 2.5
+                   and back["frame_ref"]["fqn"] == FRAME["fqn"]
+                   and sd.dds.key_of(r) == "r1" and unkeyed_before == ""
+                   and sd.dds.class_for("gate.reading") is Reading
+                   and sd.dds.class_for("gate_ext.Reading") is Reading,
+                   f"{back} key={sd.dds.key_of(r)!r}"))
+
+    refused = {}
+    for label, call, why in (
+            ("no namespace", lambda: sd.dds.extend("reading", Reading, EXT_IDL),
+             "must be namespaced"),
+            ("a registered name", lambda: sd.dds.extend(
+                "model_entity", Reading, EXT_IDL), "is the spec's"),
+            ("a pinned type", lambda: sd.dds.extend(
+                "gate.pose", sd.dds.class_for("spatial.core.GeoPose"), EXT_IDL),
+             "is in the pinned IDL"),
+            ("an unpinned include", lambda: sd.dds.extend(
+                "gate.other", Reading, '#include "mine.idl"\n' + EXT_IDL),
+             "does not have"),
+            ("the same name, other IDL", lambda: sd.dds.extend(
+                "gate.reading", Reading, EXT_IDL + "\n// changed\n"),
+             "already registered, differently")):
+        try:
+            call()
+            refused[label] = None
+        except sd.dds.RegistryError as e:
+            refused[label] = str(e) if why in str(e) else f"WRONG: {e}"
+    same = sd.dds.extend("gate.reading", Reading, EXT_IDL) is ext
+    wrong = {k: v for k, v in refused.items() if not v or v.startswith("WRONG")}
+    checks.append(("S10: refused, each for its own reason: "
+                   + "; ".join(refused) + "; and identical re-registration "
+                   "is a no-op", not wrong and same, f"{wrong} same={same}"))
+
+    latched = sd.dds.Profile("GATE_EXT", reliability="RELIABLE",
+                             durability="TRANSIENT_LOCAL", history="KEEP_LAST",
+                             depth=1)
+    with tempfile.TemporaryDirectory() as tmp:
+        rec_path = Path(tmp) / "ext.mcap"
+        with sd.participant(SCENE, domain=domain, service_id=SVC) as pw, \
+                sd.participant(SCENE, domain=domain) as pr:
+            pw.record(rec_path)
+            w = pw.writer("gate.reading", stream="ext", qos_profile=latched,
+                          on_exit="withdraw")
+            w.write(doc)
+            nan = dict(doc, reading_id="r2", value=math.nan)
+            try:
+                w.write(nan)
+                bad = None
+            except sd.dds.SchemaInvalid as e:
+                bad = str(e)
+            checks.append(("S10: a latched writer opened by the extension's "
+                           "name is keyed (on_exit accepted), and refuses a NaN",
+                           w.topic == f"spatialdds/{SCENE}/ext/gate.reading/v1"
+                           and w.keys() == ["r1"] and bad is not None,
+                           f"{w.topic} {w.keys()} {bad}"))
+            rd = pr.reader("gate.reading", stream="ext", qos_profile=latched,
+                           settle_s=0.3)
+            got = drain(rd, time.time() + 10, stop_after_marker_s=0)
+            w.withdraw("r1", reason="the gate is done with it")
+            got += drain(rd, time.time() + 3)
+            seen = [(type(e).__name__, getattr(e, "key", None)) for e in got
+                    if not isinstance(e, sd.EndOfReplay)]
+            checks.append(("S10: a reader sees the sample, then the Dispose of "
+                           "its withdrawal, under the extension's key",
+                           seen[:1] == [("Sample", "r1")]
+                           and ("Dispose", "r1") in seen, f"{seen}"))
+        st = gateway.build_state(rec_path, None)
+        lane = [res for res in st.resources.values()
+                if res.topic == f"spatialdds/{SCENE}/ext/gate.reading/v1"]
+        served = [ev for ev in st.live.get(lane[0].topic, [])
+                  if ev["event"] == "sample"] if lane else []
+        checks.append(("S10: the recording embeds the extension's IDL, and the "
+                       "gateway serves its lane from it",
+                       lane and lane[0].key == "reading_id" and served
+                       and served[0]["data"]["label"] == "gate",
+                       f"{[r.topic for r in st.resources.values()]}"))
+
+
 def _metadata(path: Path) -> list:
     from mcap.reader import make_reader
     from spatialdds.server.mcapmeta import DISPOSE_RECORD
@@ -497,8 +622,9 @@ def run() -> int:
     arm(checks, "S2", s2)
     arm(checks, "S3", s3)
     arm(checks, "S4, S5, S9", s4_s5_s9)
+    arm(checks, "S10", s10)
     return report("native additions", checks,
-                  "0.7.1's additions do what finding 67 asked")
+                  "0.7.x's additions do what findings 67 and 69 asked")
 
 
 if __name__ == "__main__":

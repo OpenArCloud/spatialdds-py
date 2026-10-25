@@ -39,6 +39,7 @@ except ImportError as e:                                      # pragma: no cover
     raise MissingExtra(f"the recording tap needs mcap: {EXTRA}") from e
 
 from ..server import mcapmeta, pin  # noqa: E402
+from . import codec  # noqa: E402
 
 __all__ = ["Recorder"]
 
@@ -73,7 +74,9 @@ class Recorder:
             if self._closed:
                 return
             if fqn not in self._schemas:
-                name, data = pin.schema_record(fqn.replace(".", "::"))
+                ext = codec.extension_of(fqn)
+                name, data = ((fqn.replace(".", "::"), ext.record) if ext
+                              else pin.schema_record(fqn.replace(".", "::")))
                 self._schemas[fqn] = self._w.register_schema(
                     name=name, encoding="omgidl", data=data)
             if topic not in self._channels:

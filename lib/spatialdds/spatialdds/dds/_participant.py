@@ -131,10 +131,29 @@ class _Lane:
                             f"stream= would name a second one")
             return
         try:
+            if isinstance(type_, str) and type_ in codec.extensions():
+                # A deployment extension registered with `extend()`, by its
+                # name: the class is known, and the profile is still the
+                # caller's to give.
+                ext = codec.extensions()[type_]
+                if type_name not in (None, type_):
+                    problems.append(f"{type_} is registered as {type_}; "
+                                    f"type_name={type_name!r} would rename it")
+                    return
+                type_, type_name = ext.cls, type_
             if isinstance(type_, type):
                 # A deployment extension: its own generated class, a name per
                 # §3.3.2's pattern, and an explicit Profile.
                 self.cls, self.fqn = type_, codec.fqn_of(type_)
+                ext = codec.extension_of(self.fqn)
+                if ext is not None and ext.cls is not type_:
+                    ext = None
+                if ext is not None and type_name is None:
+                    type_name = ext.type_name
+                elif ext is not None and type_name != ext.type_name:
+                    problems.append(f"{type_.__name__} is registered as "
+                                    f"{ext.type_name}, not {type_name!r}")
+                    return
                 if not type_name:
                     problems.append(f"{type_.__name__} is an extension type: "
                                     f"pass type_name= (e.g. 'myorg.depth_frame')")

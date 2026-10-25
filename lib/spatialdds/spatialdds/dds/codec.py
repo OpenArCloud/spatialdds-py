@@ -23,12 +23,14 @@ from __future__ import annotations
 
 import re
 from functools import lru_cache
+from dataclasses import dataclass
 from typing import Any, Dict, Optional, Type, TypeVar
 
 from ..server import idlmodel, pin, webjson, xcdr2
 
 __all__ = ["to_json", "from_json", "fqn_of", "key_member", "key_of",
-           "validate", "SchemaInvalid", "model", "idl_order"]
+           "validate", "SchemaInvalid", "model", "idl_order", "class_for",
+           "extend", "Extension", "extensions", "extension_of"]
 
 T = TypeVar("T")
 
@@ -61,7 +63,144 @@ def model() -> idlmodel.Model:
     """The whole vendored IDL, through the gateway's parser."""
     m = idlmodel.parse(pin.flatten(pin.IDL_DIR, idl_order()))
     m._leaves = None
+    #: The pin's own types, before any `extend()` adds to this model. One
+    #: extension's IDL can define several types, so "in the model" is not
+    #: "pinned" once the first is registered.
+    m.pinned = frozenset(m.aggregates)
     return m
+
+
+@dataclass(frozen=True)
+class Extension:
+    """A deployment's own type, registered with `extend()`."""
+    type_name: str      # its §3.3.2-style name, namespaced: "oarc.fusion_coverage"
+    cls: type           # the generated class
+    fqn: str            # its dotted identity, "oarc_demo.FusionCoverage"
+    record: bytes       # the flattened IDL a recording embeds for it
+
+
+_EXT: Dict[str, Extension] = {}
+_EXT_FQN: Dict[str, Extension] = {}
+_EXT_NAME = re.compile(r"^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$")
+
+
+def extensions() -> Dict[str, Extension]:
+    """Every type registered with `extend()`, by name."""
+    return dict(_EXT)
+
+
+def extension_of(fqn: str) -> Optional[Extension]:
+    """The registered extension with this dotted identity, if there is one."""
+    return _EXT_FQN.get(fqn)
+
+
+def extend(type_name: str, cls: type, idl: Any) -> Extension:
+    """Teach this layer a deployment's own type, beside the pinned IDL.
+
+    A deployment's extension (§3.3.2 allows one, documented) is a type the
+    pinned IDL does not define. Until it is registered here, the native
+    layer can write it but cannot convert it to N.1 or back, find its key,
+    name its class, or record its schema. Registering it gives it all four:
+
+    * `to_json` / `from_json`, through the same gateway codec as every
+      pinned type;
+    * `key_of` from its own `@key`, so instances are tracked and `on_exit`
+      applies;
+    * `class_for(type_name)`, for a bridge that learns the type from an
+      announce;
+    * the recording tap embeds its IDL.
+
+    `idl` is the IDL text, or a path to it. It may `#include` only pinned
+    files, and its schema record is their closure, then its own body. It must
+    define the class's own type.
+
+    `validate()` cannot check an extension against a published schema,
+    because none exists. It checks that the sample is representable in N.1,
+    and says so.
+
+    Refused:
+
+    * a name without a namespace, which could collide with a future
+      registration;
+    * a registered name, or a well-known message;
+    * a pinned type;
+    * IDL that includes an unpinned file, or does not define the class;
+    * the same name again with different IDL or class.
+
+    Registering again with identical arguments is a no-op.
+    """
+    from pathlib import Path
+    from . import registry
+    problems = []
+    if type_name in registry.registrations() \
+            or type_name in registry.well_known():
+        problems.append(f"{type_name!r} is the spec's (§3.3.2 or a well-known "
+                        f"message): it needs no extension")
+    elif not isinstance(type_name, str) or not _EXT_NAME.match(type_name):
+        problems.append(f"extension name {type_name!r} must be namespaced, "
+                        f"lower-case segments joined by '.' (e.g. "
+                        f"'oarc.fusion_coverage'), so it cannot collide with a "
+                        f"name §3.3.2 registers later")
+    try:
+        fqn = fqn_of(cls)
+    except TypeError as e:
+        problems.append(str(e))
+        fqn = ""
+    if fqn and fqn in model().pinned:
+        problems.append(f"{fqn} is in the pinned IDL: use its registered name")
+    text = idl
+    if isinstance(idl, Path) or (isinstance(idl, str) and "\n" not in idl
+                                 and Path(idl).is_file()):
+        text = Path(idl).read_text()
+    if not isinstance(text, str) or not text.strip():
+        problems.append("idl= must be IDL text or a path to it")
+        text = ""
+    files: list = []
+    for inc in re.findall(r'^\s*#include\s+"([^"]+)"', text, re.M):
+        if not (pin.IDL_DIR / inc).is_file():
+            problems.append(f"the extension's IDL includes {inc!r}, which the "
+                            f"pinned IDL does not have")
+            continue
+        for f in pin.file_closure(inc):
+            if f not in files:
+                files.append(f)
+    if problems:
+        raise registry.RegistryError("; ".join(problems))
+    body = "\n".join(l for l in text.splitlines()
+                     if not l.lstrip().startswith("#"))
+    record = (pin.flatten(pin.IDL_DIR, files)
+              + f"\n// ---- extension {type_name} ----\n{body}").encode()
+    parsed = idlmodel.parse(record.decode())
+    if fqn not in parsed.aggregates:
+        raise registry.RegistryError(
+            f"the extension's IDL does not define {fqn}, the type "
+            f"{cls.__name__} says it is")
+    prior = _EXT.get(type_name) or _EXT_FQN.get(fqn)
+    if prior is not None:
+        if (prior.type_name, prior.cls, prior.record) == (type_name, cls, record):
+            return prior
+        raise registry.RegistryError(
+            f"{prior.type_name} ({prior.fqn}) is already registered, "
+            f"differently: one name, one type, one IDL")
+    m = model()
+    for k, v in parsed.aggregates.items():
+        m.aggregates.setdefault(k, v)
+    for k, v in parsed.typedefs.items():
+        m.typedefs.setdefault(k, v)
+    m._leaves = None
+    _codec.cache_clear()
+    key_member.cache_clear()
+    ext = Extension(type_name, cls, fqn, record)
+    _EXT[type_name] = _EXT_FQN[fqn] = ext
+    return ext
+
+
+def _known(fqn: str) -> None:
+    if fqn not in model().aggregates:
+        from . import registry
+        raise registry.RegistryError(
+            f"{fqn} is not in the pinned IDL: register a deployment's own type "
+            f"with sd.dds.extend(name, cls, idl) first")
 
 
 @lru_cache(maxsize=1)
@@ -94,6 +233,9 @@ def class_for(name: str) -> type:
     """
     import importlib
     from . import registry
+    ext = _EXT.get(name) or _EXT_FQN.get(name)
+    if ext is not None:
+        return ext.cls
     reg = registry.registrations().get(name)
     wk = registry.well_known() if name in registry.well_known() else None
     fqn = reg.fqn if reg else wk[name].fqn if wk else name
@@ -105,8 +247,9 @@ def class_for(name: str) -> type:
         except (ImportError, AttributeError):
             pass
     raise registry.RegistryError(
-        f"{name!r} is not a registered type name, a well-known message, or a "
-        f"dotted type identity in the pinned IDL")
+        f"{name!r} is not a registered type name, a well-known message, a "
+        f"dotted type identity in the pinned IDL, or an extension registered "
+        f"with extend()")
 
 
 def to_json(sample: Any) -> Dict[str, Any]:
@@ -118,8 +261,9 @@ def to_json(sample: Any) -> Dict[str, Any]:
     gateway's own canonical form, the one its ETags are computed from, so
     the refusal and a served document's digest are the same rule.
     """
-    dec, _w, proj, _l = _codec()
     fqn = fqn_of(sample)
+    _known(fqn)
+    dec, _w, proj, _l = _codec()
     doc = proj.project(fqn, dec.decode(fqn, sample.serialize()))
     try:
         webjson.canon(doc)
@@ -130,8 +274,9 @@ def to_json(sample: Any) -> Dict[str, Any]:
 
 def from_json(cls: Type[T], doc: Dict[str, Any]) -> T:
     """A typed sample from its N.1 document: the gateway's lift, encoded, decoded."""
-    _d, writer, _p, lifter = _codec()
     fqn = fqn_of(cls)
+    _known(fqn)
+    _d, writer, _p, lifter = _codec()
     return cls.deserialize(writer.encode(fqn, lifter.lift(fqn, doc)))
 
 
@@ -162,6 +307,9 @@ def validate(sample: Any) -> Dict[str, Any]:
     to serialize. One whose wire form N.1 cannot carry (a non-finite double)
     is `SchemaInvalid` from `to_json`. One whose N.1 form breaks its published
     schema is `SchemaInvalid` here.
+
+    An extension registered with `extend()` has no published schema, so its
+    check stops at the second: representable in N.1.
     """
     try:
         import jsonschema
@@ -170,6 +318,8 @@ def validate(sample: Any) -> Dict[str, Any]:
         raise MissingExtra(f"validation needs jsonschema: {EXTRA}") from e
     doc = to_json(sample)
     fqn = fqn_of(sample)
+    if fqn in _EXT_FQN:
+        return doc
     schema = webjson.schemas().get(fqn)
     if schema is None:
         raise SchemaInvalid(f"no published schema for {fqn}, so a sample "

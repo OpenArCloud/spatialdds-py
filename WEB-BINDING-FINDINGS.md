@@ -2181,3 +2181,55 @@ these when planted:
 The appendix was written before the release, and nothing checked its
 right-hand column against it. The census here is corrected by this note, not
 by rewriting a ruled document.
+
+### 69. A deployment's own type was second-class in the native layer (S10)
+
+*Found 2026-10-24 by SpatialDDS-demo's migration onto 0.7.1, measured against
+the PyPI release.*
+
+§3.3.2 allows a deployment its own documented types, and the native layer
+accepted one as a class with `type_name=` and a Profile. Everything past
+writing it, though, went through the codec's model, which was built from the
+pinned IDL only. Measured with the demo's `oarc_demo.BootstrapQuery`:
+
+- `to_json`, `from_json` and `validate` refused it. The error blamed "the
+  recording's embedded IDL", but no recording was involved: the message is
+  the gateway decoder's, and wrong in this layer.
+- A writer accepted it only with `validate=False`.
+- `key_of` was `''` for a type with `@key client_id`, so the writer called a
+  keyed latched lane "unkeyed" and refused its `on_exit=`. A reader would
+  have merged every instance into one key.
+- `class_for` could not name it, so a bridge that learns `oarc.fusion_coverage`
+  from an announce could not resolve it.
+- The recording tap could not embed its schema.
+
+That blocks the demo's migration as ruled. Its `json_mapping` is RETIRED,
+but it is the only thing in that tree that converts the demo's three
+`oarc.*` types, and its bridges forward them. A labelled workaround would
+have left a second dialect in the tree.
+
+**Fixed in 0.7.2: `sd.dds.extend(type_name, cls, idl)`.** It registers the
+type, its generated class, and the IDL it came from. The IDL may include
+only pinned files, and its schema record is their closure plus its own
+body. After it, the type converts through the same gateway codec as every
+pinned type, keys on its own `@key`, is named by `class_for`, is embedded by
+the recording tap, and is opened by name (`p.writer("oarc.fusion_coverage",
+…)`). `validate()` checks that it is representable in N.1, because no
+published schema exists, and the docstring says so. The refusals:
+
+- a name without a namespace;
+- a registered name;
+- a pinned type;
+- an include the pin does not have;
+- the same name with other IDL.
+
+The unknown-type error now names `extend()`.
+
+**A defect in the first draft, caught by the demo's own IDL.** One file
+defines all three `oarc.*` types. The first `extend()` merged all three into
+the model, and the second then refused `BootstrapQuery` as "in the pinned
+IDL", because the check read the live model. The model now keeps a snapshot
+of the pin's own types. `gates/native_additions.py` registers a second type
+from one IDL file, and a plant of the old check fails it.
+
+The S10 arm has eight checks, and each of six plants fails it.
