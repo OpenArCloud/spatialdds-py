@@ -199,8 +199,12 @@ def main(argv: list[str] | None = None) -> int:
     generated = table is None and not a.token
     token = None if table is not None else (a.token
                                             or secrets.token_urlsafe(24))
-    st = gateway.build_state(
-        a.mcap, a.manifests if a.manifests and a.manifests.is_dir() else None)
+    try:
+        st = gateway.build_state(
+            a.mcap, a.manifests if a.manifests and a.manifests.is_dir()
+            else None)
+    except gateway.RecordingRefused as e:
+        raise SystemExit(str(e))
     # The manifest hands clients absolute URLs, so the base has to be the
     # address a client can reach rather than the socket this process bound.
     # Behind a TLS terminator those differ, and the failure is quiet: the

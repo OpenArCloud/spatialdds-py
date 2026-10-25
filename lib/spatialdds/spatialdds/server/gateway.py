@@ -302,6 +302,47 @@ def resolve_uri(st: State, base: str, uri: str) -> dict | None:
 PINNED = object()
 
 
+class RecordingRefused(ValueError):
+    """A recording this gateway will not serve, naming the sample that decided it.
+
+    N.1's JSON has no form for NaN or an infinity, and DDS carries both. A
+    recording holding one is therefore not servable as canonical JSON, so it
+    is refused whole rather than served without the sample: a gateway that
+    quietly drops what it cannot say serves a world that never existed. The
+    refusal names the topic, the instance key and the member, so whoever holds
+    the recording can find the offender without a decoder (finding 64).
+    """
+
+    def __init__(self, source: str, topic: str, key: str, member: str,
+                 value: float, log_time: int):
+        self.source, self.topic, self.key = source, topic, key
+        self.member, self.value, self.log_time = member, value, log_time
+        super().__init__(
+            f"{source}: refused. Topic {topic}, key {key!r}, member {member} "
+            f"is {value!r} at log time {log_time}. N.1's JSON has no form for "
+            f"a non-finite double, so this recording cannot be served as "
+            f"canonical JSON. Recapture it with a finite value, or remove the "
+            f"sample.")
+
+
+def _non_finite(v: Any, at: str = "") -> tuple[str, float] | None:
+    """The first non-finite double in a projected document, as (member path, value)."""
+    if isinstance(v, float):
+        return None if math.isfinite(v) else (at, v)
+    if isinstance(v, dict):
+        items: Iterable = ((f"{at}.{k}" if at else str(k), x)
+                           for k, x in v.items())
+    elif isinstance(v, list):
+        items = ((f"{at}[{i}]", x) for i, x in enumerate(v))
+    else:
+        return None
+    for path, x in items:
+        hit = _non_finite(x, path)
+        if hit is not None:
+            return hit
+    return None
+
+
 def build_state(path: Path | None, manifests: Path | None = None,
                 idl_dir: Path | None | object = PINNED) -> State:
     """The state a recording describes, or an empty registry if given none.
@@ -398,6 +439,13 @@ def build_state(path: Path | None, manifests: Path | None = None,
             data = proj.project(fqn, dec.decode(fqn, msg.data))
             lt = msg.log_time
             key = str(data.get(res.key, "")) if res.key else ""
+            # Every sample, not only the latched ones whose digest would have
+            # tripped on it: a stream sample would otherwise reach the wire as
+            # Python's `NaN` token, which no JSON parser is obliged to read.
+            bad = _non_finite(data)
+            if bad is not None:
+                raise RecordingRefused(path.name, ch.topic, key, bad[0],
+                                       bad[1], lt)
             if res.latched:
                 st.latched[ch.topic][key] = Instance(
                     key, data, webjson.digest(data))

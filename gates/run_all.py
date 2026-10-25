@@ -282,6 +282,9 @@ def gates() -> list[dict]:
         {"name": "short_topics", "what": "a four-segment topic is served at its well-known path, exactly as a scene-scoped one",
          "cmd": ["gates/short_topics.py"],
          "skip": no_web},
+        {"name": "unservable", "what": "a non-finite double refuses its recording by name",
+         "cmd": ["gates/unservable.py"],
+         "skip": None},
     ]
 
 

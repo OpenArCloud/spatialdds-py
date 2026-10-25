@@ -676,8 +676,28 @@ uses an extension lane of its own.
 
 ### 9.7 A non-finite double has a DDS form and no N.1 form
 
-N.1 is "finite only; NaN/Inf rejected". DDS carries NaN. The spec says what a
-web publisher must not send, and nothing about what a gateway serving a
-recording, or a bridge from DDS, does with a sample that carries one. The
-reference gateway refuses the whole recording (spatialdds-py finding 64). The
-SDK refuses the sample at write time.
+*Origin: James's ruling on spatialdds-py finding 64, 2026-10-24: "refuse
+loudly, never tolerate, never die unnamed."*
+
+N.1's canonical JSON is silent on IEEE specials. Its mapping row says "finite
+only; NaN/Inf rejected", which tells a web publisher what not to send. DDS
+carries NaN and both infinities, and the spec says nothing about what a
+gateway serving a recording, or a bridge from DDS, does with a sample that
+carries one. Every implementation of the binding will meet that question, and
+the answers available are not equivalent:
+
+- **Refuse the source, naming the offender.** This is the reference
+  gateway's ruling at 0.7.0. It refuses the recording with the topic, key and
+  member (`RecordingRefused`).
+- **Drop the sample and serve the rest.** This serves a world the source does
+  not describe, and the ruling rejected it.
+- **Emit the token anyway.** The reference gateway did this, unnoticed, for
+  streamed samples before the ruling. It sent `Infinity` on the WebSocket,
+  which is not JSON.
+- **Substitute** `null` or a sentinel. That gives a value with no basis.
+
+Proposed: N.1 states that a non-finite double has no JSON form, that a binding
+MUST NOT emit one in any form, and that a binding meeting one in a DDS-side
+source refuses that source with a diagnostic naming the topic, key and member
+rather than serving it. A native writer refuses at write time, which the SDK
+already does.

@@ -1993,12 +1993,35 @@ ValueError: non-finite double is not representable (NaN deprecated, §2.3)
 ```
 
 Reproduced with a one-message recording, a GeoAnchor with
-`geopose.lat_deg = nan`. The smallest change is to refuse the sample rather
-than the recording: count it under `unrepresentable:<topic>`, beside the
-existing `unnamed:` counts, and serve the rest. Not fixed in 0.7.0, so it can
-be decided as gateway behaviour rather than slipped into a native batch. The
-native layer refuses such a sample at write time, so its own recordings cannot
-trip it.
+`geopose.lat_deg = nan`. The native layer refuses such a sample at write time,
+so its own recordings cannot trip it.
+
+**Ruled and closed in 0.7.0: refuse loudly, never tolerate, never die
+unnamed.** JSON has no NaN, so a recording carrying one is unservable as
+canonical JSON by definition. But a startup death that names no offender is a
+crash, not a policy. Dropping the sample and serving the rest, the change first
+proposed here, was rejected: it serves a world the recording does not describe.
+`build_state` now raises `RecordingRefused`, naming the topic, the instance key,
+the member path and the log time, and `spatialdds-serve` exits with that
+sentence and no traceback.
+
+**A second path, found while closing it.** Only latched samples are digested
+at load, so a non-finite double in a *streamed* sample never raised at all. It
+reached the WebSocket as Python's `json.dumps` writes it. Measured with a
+ModelPose carrying `pose.t[1] = inf`:
+
+```
+"pose": {"q": [0.0, 0.0, 0.0, 1.0], "t": [0.0, Infinity, 0.0]}
+```
+
+`Infinity` is not a JSON token, and no parser is obliged to read it. The
+refusal checks every sample, latched or not. `gates/unservable.py` holds both:
+a NaN GeoAnchor, an infinite ModelPose, a finite control, and the CLI's own
+exit. Two plants fail it. With the check removed, four of five checks fail. With
+the check applied to latched samples only, the stream arm fails alone.
+
+The spec's side is queued as candidates entry 9.7, with this ruling as its
+origin.
 
 ### Misfires, ledgered
 
@@ -2034,6 +2057,11 @@ The 0.6.0 gateway gives the identical failure under the same suite, so it is
 the recording and not 0.7.0. The fix is a re-vendor from the sidecar's current
 corpora at its corrected pin, which is the sidecar's call (its own pin is filed
 as behind). Until then, the retail row in docs/EVIDENCE.md says so.
+
+**Ruled, 2026-10-24: the recording-swap rule applies.** The recording is not
+grandfathered. It is either recaptured on current types, with its citing chain
+rerun, or retired to a labelled era artifact if nothing needs it. That is a
+small follow-up of its own, not part of this batch.
 
 ### 66. A well-known announce was invisible to its scene's search results
 

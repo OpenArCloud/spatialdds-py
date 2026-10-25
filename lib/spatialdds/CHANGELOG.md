@@ -69,6 +69,10 @@ paragraph.
 - **A recording's dispose metadata is applied**, so a withdrawal is served with
   its reason.
 - **Schema closures are computed** from the IDL's includes, for any type.
+- **A recording holding a NaN or an infinity is refused by name.**
+  `spatialdds-serve` exits with the topic, the instance key and the member,
+  where it used to die on an unnamed `ValueError`, or, for a streamed sample,
+  send `Infinity` on the wire, which is not JSON (finding 64).
 
 ### Changed, and may need a line of yours
 
@@ -80,9 +84,9 @@ paragraph.
 
 ### Found and filed
 
-Findings 59–66 are in WEB-BINDING-FINDINGS.md. Among them, one non-finite
-double in a recording stops the gateway starting (64): filed, not fixed. The
-vendored retail recording predates 1.8's `det_id` (65). Spec-queue entry 9
+Findings 59–66 are in WEB-BINDING-FINDINGS.md. Among them, the vendored
+retail recording predates 1.8's `det_id` (65); its recapture or retirement is
+a follow-up of its own. Spec-queue entry 9
 holds what the census found the spec does not say.
 
 The repository is renamed **spatialdds-py**, and the package name is
