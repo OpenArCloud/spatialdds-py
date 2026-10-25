@@ -113,10 +113,17 @@ class _Lane:
     def __init__(self, scene: str, type_: Union[str, type], *,
                  type_name: Optional[str], stream: Optional[str],
                  qos_profile: Union[str, Profile, None], version: str,
-                 problems: List[str]) -> None:
+                 problems: List[str], topic: Optional[str] = None) -> None:
         self.well_known: Optional[registry.WellKnown] = None
         self.type_name, self.cls, self.fqn = "", None, ""
         self.topic, self.profile = "", None
+        #: True when the caller named the topic (`topic=`), rather than the
+        #: registry building it from the participant's scene.
+        self.explicit = topic is not None
+        if topic is not None and stream is not None:
+            problems.append(f"topic= names the whole topic ({topic}); "
+                            f"stream= would name a second one")
+            return
         try:
             if isinstance(type_, type):
                 # A deployment extension: its own generated class, a name per
@@ -135,10 +142,17 @@ class _Lane:
                                     f"Profile(...) object for qos_profile=")
                     return
                 self.type_name, self.profile = type_name, qos_profile
-                self.topic = registry.topic_name(scene, stream, type_name,
-                                                 version)
+                self.topic = (registry.check_topic(topic, type_name)
+                              if topic is not None else
+                              registry.topic_name(scene, stream, type_name,
+                                                  version))
             elif type_ in registry.well_known():
                 wk = registry.well_known(type_)
+                if topic is not None:
+                    problems.append(f"{type_} is a well-known topic "
+                                    f"({wk.topic}): its name is the spec's, so "
+                                    f"topic= is not accepted")
+                    return
                 if stream is not None or qos_profile is not None:
                     problems.append(f"{type_} is a well-known topic "
                                     f"({wk.topic}): its name and QoS are the "
@@ -152,7 +166,10 @@ class _Lane:
                 reg = registry.registration(type_)
                 self.type_name, self.fqn = type_, reg.fqn
                 self.profile = registry.resolve_profile(reg, qos_profile)
-                self.topic = registry.topic_name(scene, stream, type_, version)
+                self.topic = (registry.check_topic(topic, type_)
+                              if topic is not None else
+                              registry.topic_name(scene, stream, type_,
+                                                  version))
                 self.cls = _types_class(reg.fqn)
         except RegistryError as e:
             problems.append(str(e))
@@ -303,12 +320,13 @@ class Writer:
     def topic_meta(self) -> Dict[str, Any]:
         """This lane as one `TopicMeta`, through the web layer's builder."""
         p = self.profile
+        segs = self.topic.split("/")
+        where = (dict(name=self.topic) if self._lane.explicit else
+                 dict(stream=segs[2], version=segs[4]))
         return records.topic(
-            self.type_name, scene=self._p.scene,
-            stream=self.topic.split("/")[2], version=self.topic.split("/")[4],
-            qos_profile=p.name,
+            self.type_name, scene=self._p.scene, qos_profile=p.name,
             durability=None if p.registered else p.durability,
-            rate_hz=float(self.floor_hz or 0.0))
+            rate_hz=float(self.floor_hz or 0.0), **where)
 
 
 class Reader:
@@ -506,6 +524,8 @@ class Participant:
         self._announce_w: Optional[DataWriter] = None
         self._depart_w: Optional[DataWriter] = None
         self._next_refresh = 0.0
+        #: The announce as last published; None until one has been.
+        self._last_announce: Any = None
         self._recorders: List[Any] = []
         self._closed = False
 
@@ -524,8 +544,14 @@ class Participant:
                on_exit: Optional[str] = None,
                floor_hz: Optional[float] = None, validate: bool = True,
                version: str = "v1", type_name: Optional[str] = None,
-               lifespan_sec: Optional[float] = None) -> Writer:
-        """A writer for a registered type, a well-known topic, or an extension."""
+               lifespan_sec: Optional[float] = None,
+               topic: Optional[str] = None) -> Writer:
+        """A writer for a registered type, a well-known topic, or an extension.
+
+        `topic=` gives the whole name instead of building it from this
+        participant's scene, for another scene's lane or one the spec names
+        only by example (`registry.check_topic` says what is accepted).
+        """
         self._open()
         problems: List[str] = []
         if not self.service_id:
@@ -537,7 +563,7 @@ class Participant:
                             f"announce(), and close() departs")
         lane = _Lane(self.scene, type_, type_name=type_name, stream=stream,
                      qos_profile=qos_profile, version=version,
-                     problems=problems)
+                     problems=problems, topic=topic)
         if lane.profile is not None and lane.fqn:
             keyed = codec.key_member(lane.fqn) is not None
             if lane.profile.latched and keyed:
@@ -573,13 +599,31 @@ class Participant:
     def reader(self, type_: Union[str, type], *, stream: Optional[str] = None,
                qos_profile: Union[str, Profile, None] = None,
                version: str = "v1", type_name: Optional[str] = None,
-               settle_s: float = 1.0) -> Reader:
-        """A reader for a registered type, a well-known topic, or an extension."""
+               settle_s: float = 1.0, topic: Optional[str] = None,
+               history: Union[str, int, None] = None) -> Reader:
+        """A reader for a registered type, a well-known topic, or an extension.
+
+        `topic=` is as for `writer()`. `history=` overrides the reader's own
+        cache, `"KEEP_ALL"` or a depth: a reply reader that must not lose
+        replies arriving together. History is the reader's own policy, so
+        matching is unaffected.
+        """
         self._open()
         problems: List[str] = []
         lane = _Lane(self.scene, type_, type_name=type_name, stream=stream,
                      qos_profile=qos_profile, version=version,
-                     problems=problems)
+                     problems=problems, topic=topic)
+        if history is not None and lane.profile is not None:
+            if history == "KEEP_ALL":
+                lane.profile = dataclasses.replace(lane.profile,
+                                                   history="KEEP_ALL")
+            elif isinstance(history, int) and not isinstance(history, bool) \
+                    and history >= 1:
+                lane.profile = dataclasses.replace(
+                    lane.profile, history="KEEP_LAST", depth=history)
+            else:
+                problems.append(f"history={history!r}: 'KEEP_ALL' or a depth "
+                                f">= 1")
         if problems:
             raise ParticipantRefused(problems)
         r = Reader(self, lane, settle_s)
@@ -657,7 +701,10 @@ class Participant:
         return doc
 
     def _depart(self, reason: str) -> None:
-        if self._announce_w is None:
+        # Nothing published, nothing to depart: an announce() that failed on
+        # its first publish leaves no presence, and must not turn close() into
+        # an AttributeError that hides why it failed.
+        if self._announce_w is None or self._last_announce is None:
             return
         wk = registry.well_known("Announce")
         terminal = dataclasses.replace(self._last_announce, stamp=_now_time())

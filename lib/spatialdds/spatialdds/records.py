@@ -445,8 +445,13 @@ def capabilities(*, supported: Iterable[Dict[str, Any]] = (),
 def topic(type_name: str, *, scene: str, stream: Optional[str] = None,
           version: str = "v1", durability: Optional[str] = None,
           qos_profile: str = "", rate_hz: float = 0.0,
-          max_chunk_bytes: int = 0) -> Dict[str, Any]:
+          max_chunk_bytes: int = 0,
+          name: Optional[str] = None) -> Dict[str, Any]:
     """One `TopicMeta`, with the §3.3.1 topic name built from its segments.
+
+    Or, with `name=`, a lane whose full name the caller gives: another
+    scene's, or one the spec names only by example. It is held to §3.3.1's
+    grammar by `registry.check_topic`, and its version is its last segment.
 
     The name comes from `spatialdds.dds.registry.topic_name`, the one function
     the native layer names its topics with. So a registered type whose §3.3.2
@@ -469,7 +474,11 @@ def topic(type_name: str, *, scene: str, stream: Optional[str] = None,
     """
     from .dds import registry
     try:
-        name = registry.topic_name(scene, stream, type_name, version)
+        if name is not None:
+            name = registry.check_topic(name, type_name)
+            version = name.rsplit("/", 1)[1]
+        else:
+            name = registry.topic_name(scene, stream, type_name, version)
     except registry.RegistryError as e:
         raise ValueError(str(e)) from None
     derived = None

@@ -11,6 +11,16 @@ process.
   `EndOfReplay` carrying that count, then live samples. A VOLATILE lane's
   marker comes on the first call, with `replayed=0`. `events()` on a second
   reader yields the same sequence, because it is `take()` in a loop.
+* **S2, `topic=` and `history=`.**
+  - A reader in one scene reads another scene's entity lane by its full
+    name. A four-segment GeoPose lane carries a sample end to end.
+  - A writer on the VPS query lane, a name the spec gives only by example,
+    is announced under exactly that name.
+  - Five names are refused: six segments, a well-known topic by name, a
+    templated type off its template, `topic=` with `stream=`, and a message
+    type with `topic=`.
+  - `history=` holds: a burst of ten poses on one key reaches a depth-1
+    reader as one, a `KEEP_ALL` reader as ten, and a depth-3 reader as three.
 
 Usage:  gates/native_additions.py
 """
@@ -147,9 +157,116 @@ def s1(checks: list, domain: int) -> None:
                        f"{ek}"))
 
 
+def s2(checks: list, domain: int) -> None:
+    other = SCENE + "-other"
+    with sd.participant(other, domain=domain, service_id=SVC + ":other") as pb, \
+            sd.participant(SCENE, domain=domain, service_id=SVC) as pa:
+        bw = pb.writer("model_entity", qos_profile="MAP_META", on_exit="keep")
+        bw.write(entity("ent:gate:elsewhere"))
+        far = pa.reader("model_entity", qos_profile="MAP_META", settle_s=0.5,
+                        topic=f"spatialdds/{other}/world/entity/v1")
+        got = kinds(drain(far, time.time() + 15))
+        checks.append(("S2: a reader in one scene reads another scene's entity "
+                       "lane by its full name",
+                       far.topic == f"spatialdds/{other}/world/entity/v1"
+                       and "sample:ent:gate:elsewhere" in got, f"{got}"))
+
+        lane = "spatialdds/geo/geopose/v1"
+        gw = pa.writer("geopose", topic=lane)
+        gr = pb.reader("geopose", topic=lane)
+        deadline, seen = time.time() + 10, []
+        while time.time() < deadline and not any(
+                isinstance(e, sd.Sample) for e in seen):
+            if gr.matched():
+                gw.write(sd.geopose(30.28, -97.73))
+            seen += gr.take()
+            time.sleep(0.05)
+        checks.append(("S2: a four-segment lane with no domain carries a "
+                       "GeoPose end to end",
+                       gw.topic == lane and any(isinstance(e, sd.Sample)
+                                                for e in seen),
+                       f"{kinds(seen)}"))
+
+        vw = pa.writer("vps_query", topic="spatialdds/vps/query/v1")
+        doc = pa.announce("VPS", coverage=sd.circle(30.28, -97.73, 50),
+                          manifest_uri="spatialdds://gate.example/"
+                                       f"{SCENE}/service/additions")
+        names = sorted(t["name"] for t in doc["topics"])
+        vps = [t for t in doc["topics"] if t["name"] == vw.topic]
+        checks.append(("S2: a writer on the VPS query lane is announced under "
+                       "exactly that name and version",
+                       vps and vps[0]["type"] == "vps_query"
+                       and vps[0]["version"] == "v1", f"{names}"))
+
+        refused = {}
+        for label, call in (
+                ("six segments", lambda: pa.reader(
+                    "video_frame", topic="spatialdds/ds/vision/cam/frame/v1")),
+                ("a well-known topic by name", lambda: pa.reader(
+                    "geopose", topic="spatialdds/discovery/announce/v1")),
+                ("a templated type off its template", lambda: pa.reader(
+                    "model_entity", qos_profile="MAP_META",
+                    topic=f"spatialdds/{SCENE}/frames/entity/v1")),
+                ("topic= with stream=", lambda: pa.reader(
+                    "geopose", stream="geo", topic=lane)),
+                ("a message type with topic=", lambda: pa.reader(
+                    "ContentAnnounce", topic="spatialdds/x/discovery/content/v1"))):
+            try:
+                call()
+                refused[label] = None
+            except sd.dds.ParticipantRefused as e:
+                refused[label] = str(e)
+        # Each for its own reason: a refusal for some other reason would pass
+        # a check that only asked whether it was refused.
+        why = {"six segments": "is not a §3.3.1 name",
+               "a well-known topic by name": "is the well-known Announce topic",
+               "a templated type off its template": "is another topic",
+               "topic= with stream=": "stream= would name a second one",
+               "a message type with topic=": "so topic= is not accepted"}
+        wrong = {k: v for k, v in refused.items() if not v or why[k] not in v}
+        checks.append(("S2: refused, each for its own reason: "
+                       + "; ".join(refused), not wrong, f"{wrong}"))
+
+        one = sd.dds.Profile("GATE_REPLY", reliability="RELIABLE",
+                             durability="VOLATILE", history="KEEP_LAST",
+                             depth=1)
+        pw = pb.writer("model_pose", qos_profile=one)
+        r1 = pa.reader("model_pose", qos_profile=one, topic=pw.topic)
+        rall = pa.reader("model_pose", qos_profile=one, topic=pw.topic,
+                         history="KEEP_ALL")
+        r3 = pa.reader("model_pose", qos_profile=one, topic=pw.topic,
+                       history=3)
+        deadline = time.time() + 10
+        while time.time() < deadline and min(
+                r.matched() for r in (r1, rall, r3)) < 1:
+            time.sleep(0.05)
+        for i in range(10):
+            pw.write(sd.records.model_pose("ent:gate:burst", position=(i, 0, 0),
+                                           source_id=SVC + ":other"))
+            time.sleep(0.02)
+        time.sleep(1.0)
+        n = {k: sum(isinstance(e, sd.Sample) for e in r.take())
+             for k, r in (("depth 1", r1), ("KEEP_ALL", rall), ("depth 3", r3))}
+        checks.append((f"S2: history= holds: a ten-pose burst on one key is "
+                       f"{n['depth 1']} / {n['KEEP_ALL']} / {n['depth 3']} at "
+                       f"depth 1 / KEEP_ALL / depth 3",
+                       n == {"depth 1": 1, "KEEP_ALL": 10, "depth 3": 3},
+                       f"{n}"))
+
+
+def arm(checks: list, name: str, fn) -> None:
+    """One arm on a domain of its own; whatever it raises is a reported FAIL."""
+    try:
+        fn(checks, random.randint(150, 229))
+    except Exception as e:
+        checks.append((f"{name}: the arm ran to its end", False,
+                       f"{type(e).__name__}: {e}"))
+
+
 def run() -> int:
     checks: list = []
-    s1(checks, random.randint(150, 229))
+    arm(checks, "S1", s1)
+    arm(checks, "S2", s2)
     return report("native additions", checks,
                   "0.7.1's additions do what finding 67 asked")
 

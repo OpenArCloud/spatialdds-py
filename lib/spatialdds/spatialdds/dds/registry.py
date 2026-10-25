@@ -232,6 +232,59 @@ def resolve_profile(reg: Registration,
     return chosen
 
 
+VERSION = re.compile(r"^v[0-9]+$")
+
+
+def check_topic(name: str, type_name: str) -> str:
+    """An explicit topic name, held to §3.3.1's grammar. Returns it, or raises.
+
+    For the lanes `topic_name` does not build, because their names are not
+    `spatialdds/<scene>/<stream>/<type>/<version>` of the participant's own
+    scene:
+
+    * another scene's lanes, for a program that bridges or records several;
+    * names the spec gives only by example (the VPS lanes);
+    * a reply lane the asker names;
+    * a deployment's four-segment lanes.
+
+    The rules:
+
+    * `spatialdds/`, then three or four segments, each a §3.3.1 segment, and
+      the last a version (`v1`);
+    * a well-known discovery topic is refused, because it is reached by its
+      message name, so its QoS is the spec's;
+    * a registered type whose row gives a template is held to that template
+      in every segment but the scene.
+    """
+    segs = (name or "").split("/")
+    if segs[0] != "spatialdds" or len(segs) not in (4, 5):
+        raise RegistryError(
+            f"topic {name!r} is not a §3.3.1 name: spatialdds/<domain>/"
+            f"<stream>/<type>/<version>, or four segments for a lane with no "
+            f"domain")
+    for seg in segs[1:-1]:
+        if not SEGMENT.match(seg):
+            raise RegistryError(f"topic {name!r}: segment {seg!r} is not a "
+                                f"§3.3.1 segment ({SEGMENT.pattern})")
+    if not VERSION.match(segs[-1]):
+        raise RegistryError(f"topic {name!r} must end in a version (v1), not "
+                            f"{segs[-1]!r}")
+    for msg, wk in _well_known().items():
+        if wk.topic == name:
+            raise RegistryError(
+                f"{name} is the well-known {msg} topic: ask for it as "
+                f"{msg!r}, so its QoS is the spec's")
+    reg = registrations().get(type_name)
+    if reg is not None and reg.topic_template:
+        want = reg.topic_template.split("/")
+        if len(segs) != len(want) or any(
+                w != s for w, s in zip(want, segs) if w != "<scene>"):
+            raise RegistryError(
+                f"§3.3.2 puts {type_name!r} on {reg.topic_template}; {name!r} "
+                f"is another topic")
+    return name
+
+
 def topic_name(scene: str, stream: Optional[str], type_name: str,
                version: str = "v1") -> str:
     """The §3.3.1 topic name for a registered type in a scene.
