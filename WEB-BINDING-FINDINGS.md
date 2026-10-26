@@ -2420,3 +2420,64 @@ blocked the demo: each has a labelled workaround there, said below.
   would see two types. Recorded so it is not rediscovered; whether the
   generator should rename aliases to the IDL's scoped names is a question
   for this package's generator, not a change requested.
+
+## The OWM 0.2 prototype on 0.7.3: what an extension meets, 2026-10-26
+
+SpatialDDS-demo prototyped the OWM 0.2 Relationship as a demo-owned
+extension, `oarc.relationship`, registered with `sd.dds.extend()`
+(`docs/owm-02-census.md` there). It is the first extension in that repo
+served over the binding and recorded. Three defects and two observations
+came up, each worked around demo-side and labelled there.
+
+### 72. An extension is served, but not described, classified or terminated in full (S18–S20)
+
+- **S18. `withdraw()` cannot set a type's other terminal members.**
+  `Writer._terminal` finds `state`, `state_reason` and `stamp` by name and
+  rewrites only those. A relationship's terminal sample must also close its
+  validity interval (`has_valid_until`, `valid_until`), which `withdraw()`
+  cannot do. So the demo's asserter writes the full terminal sample itself
+  and then calls `withdraw()`, which writes it again, restamped, before the
+  dispose. Two terminal samples per retirement, in every recording.
+  *Smallest change:* `withdraw(key, *, reason, **changes)`, the changes
+  applied with `dataclasses.replace` before the terminal sample is written.
+  *Demo's workaround:* `spatialdds_demo/claims.py`, `ClaimWriter.retire`.
+- **S19. The gateway publishes no schema for an extension, live or
+  replayed.** The schema index and `/schemas/{type}` serve
+  `webjson.schemas()`, the vendored set, whatever the gateway's model holds.
+  An extension's model comes from its `extend()` record (live) or from the
+  IDL the recording embeds (replayed), and either way is served without a
+  schema. Measured: `tools/validate_served_owm.py` against
+  `spatialdds.serve --mcap recordings/owm-02-lifecycle.mcap` validated all
+  9,104 pinned-type payloads and reported `oarc_owm.Relationship: the
+  endpoint serves it and publishes no schema for it`; the live binding's
+  index (112 entries) has no extension either. A consumer holding only the
+  endpoint cannot check what it is handed.
+  *Smallest change:* list each served type the index has no schema for,
+  with `"schema": null` and the reason, so its absence is a published fact
+  rather than a 404. A generated schema from the model is the full fix;
+  the generator lives in SpatialDDS-spec.
+  *Demo's workaround:* the film report checks those payloads by the
+  gateway's own decoder and projector reading back strictly to
+  CycloneDDS's sample, with `validate()` passing.
+- **S20. `serve --mcap` classifies an extension lane as volatile and
+  operator-scoped.** `gateway.DURABILITY` has no row for an extension and
+  falls through to `(False, OPERATOR)`, and `serve` offers no override.
+  Measured on the same recording: `operator-scoped
+  /ut-austin-littlefield/world/oarc.relationship/v1`, 401 to an
+  uncredentialed GET, and no latched snapshot, for a lane every writer
+  opened TRANSIENT_LOCAL. An embedder can set `Resource.latched` and
+  `access` itself (the demo's binding does); a recording served as-is
+  cannot.
+  *Smallest change:* the recorder writes each channel's QoS profile in
+  the channel metadata, and the loader reads latching from it before
+  falling back to the table; access stays a deployment's call, so `serve`
+  takes a `--public <fqn>` list.
+- **Observation: registrations cannot be looked up.** `extend()` returns
+  the `Extension`, whose `record` a gateway needs, but `codec.extensions()`
+  and `extension_of()` are not re-exported from `sd.dds`, so a bridge has
+  to keep the return value of whoever registered the type.
+- **Observation: `extend()` resolves includes from the pin's root.**
+  `#include "owm.idl"` is refused ("which the pinned IDL does not have")
+  while idlc, given the provisional directory with `-I`, accepts it; the
+  accepted spelling is `provisional/owm.idl`. The refusal could name the
+  rooted path when the bare name exists under a subdirectory.
