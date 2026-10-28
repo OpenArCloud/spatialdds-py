@@ -86,7 +86,7 @@ What it asks of you, and what it will not guess:
 | `service_id` and `authority` | to write or announce |
 | `qos_profile` | where the §3.3.2 row names none, as `model_entity`'s and `model_pose`'s do; the refusal lists the §3.3.3 profiles that fit, or pass a `sd.dds.Profile(...)` extension |
 | `on_exit="keep"` or `"withdraw"` | on every latched, keyed writer: whether a record outlives its writer is a claim only you can make |
-| `withdraw(key, reason=...)` | with an empty reason |
+| `withdraw(key, reason=..., **changes)` | with an empty reason, or a change to the members it sets itself or to the key |
 
 And what it does without being asked:
 
@@ -574,6 +574,22 @@ explicitly was tried first and is what missed two paths.
 
 If your clients are not browsers, nothing here changes anything for you.
 
+## New in 0.7.4: what the first extension found
+
+A deployment's own type, registered with `sd.dds.extend()`, is now served
+the way a pinned one is. The gateway publishes a schema for it, written from
+the model it decodes the type with by the specification generator's rules,
+because N.2 requires a schema for every type an endpoint serves. A
+recording's extension lane is served latched when its writer opened it so,
+and `serve --public FQN` opens it to uncredentialed readers.
+
+- `withdraw(key, reason=..., **changes)` sets other members on the terminal
+  sample, such as a closed validity interval.
+- `close()` finishes when a reader is slow to acknowledge (cyclonedds-python
+  11.0.1 raised on that timeout).
+- `sd.stamp` keeps `nanosec` in range, and floors a time before the epoch.
+- `sd.dds.extensions()` and `sd.dds.extension_of()` are exported.
+
 ## New in 0.7.3: what the first migration found
 
 Mostly additive; one fix changes bytes. Every frame this package builds now
@@ -651,7 +667,7 @@ Two changes may need a line of yours:
 The security fixes, the limits table and the details are in the
 [changelog](https://github.com/OpenArCloud/spatialdds-py/blob/main/lib/spatialdds/CHANGELOG.md).
 
-## Not in 0.7.3
+## Not in 0.7.4
 
 Stated so nobody waits for them:
 

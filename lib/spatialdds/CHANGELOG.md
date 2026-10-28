@@ -1,5 +1,39 @@
 # Changelog
 
+## 0.7.4: what the first extension found
+
+Found by SpatialDDS-demo's OWM 0.2 prototype, the first deployment
+extension served over the binding and recorded, and by its adoption on
+0.7.3 (WEB-BINDING-FINDINGS.md, findings 71 and 72). Additive, except where
+a served index grows: an endpoint serving an extension now lists it.
+
+- **Fixed: an extension was served with no schema** (S19). Appendix N.2:
+  "An endpoint MUST publish a schema for every type it serves." The
+  gateway now writes one for each served type the vendored set lacks, from
+  the model it decodes the type with (`webjson.schema_from_model`), and
+  `/.well-known/spatialdds/schemas` and `/schemas/{type}` serve it. The
+  writer follows the specification's generator and is held to it: from the
+  pin's model it reproduces all 112 vendored schemas exactly. The IDL model
+  now resolves a sequence bound given by name (`SZ_SMALL`).
+- **Fixed: `serve --mcap` served an extension lane volatile and
+  operator-scoped** (S20). The recording tap writes each channel's
+  durability, and the loader serves a type with no row in the gateway's
+  table latched when its writer opened it TRANSIENT_LOCAL. Who may read it
+  stays the deployment's call: **`serve --public FQN`**, or
+  `build_state(public=)`.
+- **`withdraw(key, *, reason, **changes)`** (S18) sets the type's other
+  members on the terminal sample, such as a validity interval closed at
+  retirement, so an instance ends in one terminal sample, not two. The
+  members it sets itself and the key are refused.
+- **Fixed: `close()` raised when a reader did not acknowledge in time**
+  (S17). cyclonedds-python 11.0.1's `wait_for_acks` raises AttributeError
+  on its timeout; that error, and only that one, is now the timeout, so a
+  clean stop with a slow peer finishes its flushes and its recordings.
+- **Fixed: `sd.stamp` could emit `nanosec` = 10^9, and misread a time before
+  the epoch** (S16). It is one count of nanoseconds, floored.
+- `sd.dds.extensions()` and `sd.dds.extension_of()` are exported, and
+  `extend()`'s refusal of a bare include names the rooted spelling.
+
 ## 0.7.3: what the first migration found
 
 Found by SpatialDDS-demo's migration onto 0.7.2 (WEB-BINDING-FINDINGS.md,
