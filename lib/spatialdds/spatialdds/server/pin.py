@@ -181,6 +181,7 @@ def model_from_records(records: list[tuple[str, bytes]],
         m = parsed[d]
         model.aggregates.update(m.aggregates)
         model.typedefs.update(m.typedefs)
+        model.constants.update(m.constants)
         # A closure defines several aggregates; the one the record is named
         # for is the one a journal should register under that name.
         for fqn in m.aggregates:

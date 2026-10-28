@@ -66,6 +66,10 @@ class Member:
     sequence: bool = False
     seq_bound: int | None = None
     is_key: bool = False
+    # A bound spelled as a named constant (`sequence<FusedTrack, SZ_SMALL>`),
+    # kept by name. Decoding never needs it; a schema's `maxItems` does, and
+    # `Model.bound()` resolves it against the IDL's integer constants.
+    bound_name: str | None = None
 
 
 @dataclass
@@ -107,6 +111,9 @@ class Model:
     def __init__(self) -> None:
         self.aggregates: dict[str, Aggregate] = {}
         self.typedefs: dict[str, Member] = {}
+        #: Integer constants, by fully qualified dotted name. Read only so a
+        #: sequence bound given by name can be stated in a schema.
+        self.constants: dict[str, int] = {}
         self._leaves: dict[str, list[str]] | None = None
 
     # -- lookup -------------------------------------------------------------
@@ -182,6 +189,26 @@ class Model:
                 return name          # an array/sequence typedef is concrete
             name = self.lookup(td.type)
         return name
+
+    def bound(self, m: Member) -> int | None:
+        """A sequence member's bound, a named one resolved, or None if unbounded.
+
+        A name is resolved as `lookup` resolves a type: exact, then a unique
+        dotted suffix, then a unique leaf. A name that resolves to nothing
+        raises, because a bound the IDL states and a schema omits is the
+        schema saying something false.
+        """
+        if m.bound_name is None:
+            return m.seq_bound
+        name = _dot(m.bound_name)
+        if name in self.constants:
+            return self.constants[name]
+        cands = [c for c in self.constants
+                 if c.endswith("." + name) or c.rsplit(".", 1)[-1] == name]
+        if len(cands) == 1:
+            return self.constants[cands[0]]
+        raise KeyError(f"sequence bound {m.bound_name!r} of {m.name!r} "
+                       f"names no single integer constant ({cands or 'none'})")
 
     def get(self, name: str) -> Aggregate | None:
         a = self.aggregates.get(name)
@@ -288,6 +315,13 @@ def parse(text: str) -> Model:
             i = en.end()
             continue
 
+        co = re.compile(r"const\s+[\w\s:]+?\s+([A-Za-z_]\w*)\s*=\s*(-?\d+)\s*;"
+                        ).match(src, i)
+        if co:
+            model.constants[qual(co.group(1))] = int(co.group(2))
+            i = co.end()
+            continue
+
         td = re.compile(r"typedef\s+(.+?)\s+([A-Za-z_]\w*)((?:\s*\[\s*\d+\s*\])*)\s*;",
                         re.S).match(src, i)
         if td:
@@ -336,6 +370,8 @@ def _member_from(type_text: str, name: str, arr_text: str,
         bound = int(raw_bound) if raw_bound and raw_bound.isdigit() else None
         mem = Member(name, _resolve_name(inner, scope), sequence=True,
                      seq_bound=bound)
+        if raw_bound and not raw_bound.isdigit():
+            mem.bound_name = raw_bound
         mem.array = bounds
         return mem
     if t.startswith("string") or t.startswith("wstring"):

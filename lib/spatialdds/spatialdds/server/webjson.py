@@ -56,7 +56,8 @@ from ..canonjson import canon, digest, ecma262
 #: Re-exported from the shared leaf. Named here so that "this module still
 #: answers to `webjson.canon`" is a statement rather than an accident.
 __all__ = ["canon", "digest", "ecma262", "ARTIFACTS", "Lifter", "Projector",
-           "OCTET_RUN", "tables", "schemas", "schema_file_for"]
+           "OCTET_RUN", "tables", "schemas", "schema_file_for",
+           "schema_from_model", "served_schemas"]
 
 
 @lru_cache(maxsize=1)
@@ -88,6 +89,131 @@ def schemas() -> dict[str, dict]:
 def schema_file_for(fqn: str) -> str:
     """`spatial.core.GeoAnchor` -> `spatial_core_GeoAnchor`."""
     return fqn.replace(".", "_")
+
+
+# -- a schema for a type the vendored set does not have -----------------------
+# Appendix N.2: "An endpoint MUST publish a schema for every type it serves."
+# The vendored schemas cover the pin; a deployment's own type (a §3.3.2
+# extension, registered with `sd.dds.extend()` or carried in a recording's
+# IDL) was served with none until 0.7.4 (S19). So the gateway writes one from
+# the same model it decodes the type with, by the rules the specification's
+# generator (web-binding/gen.py) uses. gates/schema_from_model.py holds the
+# two to each other: from the pin's model this reproduces every vendored
+# schema exactly, so a schema it writes for an extension is the one the
+# specification's generator would have written.
+
+_INTEGER = {"int8": (-128, 127), "uint8": (0, 255), "int16": (-32768, 32767),
+            "uint16": (0, 65535), "int32": (-2147483648, 2147483647),
+            "uint32": (0, 4294967295)}
+_BASE64 = {"type": "string", "contentEncoding": "base64"}
+
+
+def _primitive(name: str) -> dict | None:
+    wire = PRIMITIVES[name][1] if name in PRIMITIVES else name
+    if wire == "bool":
+        return {"type": "boolean"}
+    if wire in _INTEGER:
+        lo, hi = _INTEGER[wire]
+        return {"type": "integer", "minimum": lo, "maximum": hi}
+    if wire == "int64":
+        return {"type": "string", "pattern": r"^-?\d+$"}
+    if wire == "uint64":
+        return {"type": "string", "pattern": r"^\d+$"}
+    if wire in ("float32", "float64"):
+        return {"type": "number"}
+    if wire == "string":
+        return {"type": "string"}
+    return None
+
+
+class _SchemaWriter:
+    def __init__(self, model: Model) -> None:
+        self.model = model
+        self.defs: dict[str, dict] = {}
+        self.seen: set[str] = set()
+
+    def _octets(self, t: str) -> bool:
+        return self.model.resolve(t) in OCTET_RUN
+
+    def member(self, m: Member) -> dict:
+        if m.sequence:
+            s = _BASE64 if self._octets(m.type) else {
+                "type": "array", "items": self.element(m.type)}
+            bound = self.model.bound(m)
+            if s is not _BASE64 and bound is not None:
+                s["maxItems"] = bound
+        else:
+            s = self.element(m.type)
+        for n in reversed(m.array):
+            s = _BASE64 if (not m.sequence and self._octets(m.type)) else {
+                "type": "array", "items": s, "maxItems": n, "minItems": n}
+        return dict(s)
+
+    def element(self, name: str) -> dict:
+        t = self.model.lookup(name)
+        if t in self.model.typedefs:
+            return self.member(self.model.typedefs[t])
+        p = _primitive(t)
+        if p is not None:
+            return p
+        agg = self.model.aggregates.get(t)
+        if agg is None:
+            raise KeyError(f"the model has no type {name!r}")
+        if agg.kind == "enum":
+            return {"type": "string", "enum": list(agg.enumerators)}
+        self.define(t)
+        return {"$ref": f"#/$defs/{schema_file_for(t)}"}
+
+    def define(self, fqn: str) -> None:
+        if fqn in self.seen:
+            return
+        self.seen.add(fqn)
+        agg = self.model.aggregates[fqn]
+        if agg.kind == "struct":
+            self.defs[schema_file_for(fqn)] = {
+                "type": "object",
+                "properties": {m.name: self.member(m) for m in agg.members},
+                "required": [m.name for m in agg.members],
+                "additionalProperties": True}
+            return
+        branches = []
+        for labels, m in agg.cases:
+            b = {"type": "object", "required": ["type"],
+                 "properties": {"type": {"const": labels[0].split(".")[-1]}},
+                 "additionalProperties": True}
+            if m.name != "none":
+                b["properties"][m.name] = self.member(m)
+            branches.append(b)
+        self.defs[schema_file_for(fqn)] = {"oneOf": branches}
+
+
+def schema_from_model(model: Model, fqn: str) -> dict:
+    """The JSON Schema for one struct, written from the wire model."""
+    w = _SchemaWriter(model)
+    w.define(fqn)
+    doc = {"$schema": "https://json-schema.org/draft/2020-12/schema",
+           "$id": f"spatialdds:webjson:{fqn}", "title": fqn}
+    doc.update(w.defs.pop(schema_file_for(fqn)))
+    if w.defs:
+        doc["$defs"] = dict(sorted(w.defs.items()))
+    return doc
+
+
+def served_schemas(model: Model | None, served: Any) -> dict[str, dict]:
+    """The vendored schemas, plus one written for each served type without one.
+
+    `served` is the dotted FQNs the endpoint serves. A served type the model
+    cannot describe is left out, and so stays visible as a gap to anything
+    that checks the index against what is served.
+    """
+    out = dict(schemas())
+    if model is None:
+        return out
+    for fqn in sorted(set(served) - set(out)):
+        agg = model.aggregates.get(fqn)
+        if agg is not None and agg.kind == "struct":
+            out[fqn] = schema_from_model(model, fqn)
+    return out
 
 
 # The IDL spellings of an octet run. N.1 makes such a run base64, and the

@@ -158,8 +158,15 @@ def extend(type_name: str, cls: type, idl: Any) -> Extension:
     files: list = []
     for inc in re.findall(r'^\s*#include\s+"([^"]+)"', text, re.M):
         if not (pin.IDL_DIR / inc).is_file():
+            # Includes are rooted at the pin, where idlc given a subdirectory
+            # with -I would take a bare name. Name the rooted spelling when
+            # there is exactly one, rather than leave the author to find it.
+            rooted = sorted(str(f.relative_to(pin.IDL_DIR)) for f in
+                            pin.IDL_DIR.rglob(Path(inc).name))
+            hint = (f"; includes are rooted at the pin: did you mean "
+                    f"{rooted[0]!r}?" if len(rooted) == 1 else "")
             problems.append(f"the extension's IDL includes {inc!r}, which the "
-                            f"pinned IDL does not have")
+                            f"pinned IDL does not have{hint}")
             continue
         for f in pin.file_closure(inc):
             if f not in files:

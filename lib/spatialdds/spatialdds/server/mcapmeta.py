@@ -17,3 +17,8 @@ MANIFEST_RECORD = "spatialdds-web:manifest"
 MANIFEST_WITHDRAW_RECORD = "spatialdds-web:manifest-withdraw"
 #: Who wrote a journalled sample, and into which scene, keyed by `seq`.
 WRITTEN_BY_RECORD = "spatialdds-web:written-by"
+#: A channel's durability as its writer opened it, `TRANSIENT_LOCAL` or
+#: `VOLATILE`, in the channel's own metadata. The loader reads it for a type
+#: the gateway's table has no row for, so a deployment's own latched lane is
+#: served latched (S20).
+CHANNEL_DURABILITY = "spatialdds:durability"

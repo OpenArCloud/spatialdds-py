@@ -2389,6 +2389,9 @@ blocked the demo: each has a labelled workaround there, said below.
   (`round(t * 1e9)`), then `divmod(ns, 10**9)`, which floors both parts.
   *Demo's workaround:* its `payloads.stamp`, which normalises both, stays,
   labelled (the census has it REPLACED by `sd.stamp`).
+  - *Fixed in 0.7.4:* as the smallest change says, one integer count of
+    nanoseconds split by `divmod`; an integer is taken exactly.
+    `gates/native_additions.py` holds both cases and 20,000 random times.
 - **S17. `close()` raises when an ack wait times out.** `close()` writes
   each dispose and Depart, then awaits acks with
   `DataWriter.wait_for_acks`. In cyclonedds-python 11.0.1 that method's
@@ -2407,6 +2410,13 @@ blocked the demo: each has a labelled workaround there, said below.
   *Demo's workaround:* `spatialdds_demo.lanes` restores the documented
   contract at one point, with a test that fails once cyclonedds no longer
   has the bug.
+  - *Fixed in 0.7.4:* `_wait_for_acks` reads that AttributeError, and only
+    that one, as the timeout, and logs it. Measured in
+    `gates/native_additions.py` with a reader in another process,
+    SIGSTOPped: `close()` waits out its flush and finishes, and its
+    recording holds every withdrawal. With the fix removed from the close
+    path, the same arm raises the 11.0.1 AttributeError and leaves the
+    recording unreadable.
 - **An observation, not a defect here: two complete type objects for one
   type.** cyclonedds-python names each typedef in a type's *complete*
   XTypes TypeObject by the Python package it was generated into:
@@ -2441,6 +2451,10 @@ came up, each worked around demo-side and labelled there.
   *Smallest change:* `withdraw(key, *, reason, **changes)`, the changes
   applied with `dataclasses.replace` before the terminal sample is written.
   *Demo's workaround:* `spatialdds_demo/claims.py`, `ClaimWriter.retire`.
+  - *Fixed in 0.7.4:* `withdraw(key, *, reason, **changes)`. The changes
+    are applied to the last sample before the terminal members, and
+    validated; the members `withdraw()` sets, the key and members the type
+    lacks are refused, and the instance stays held.
 - **S19. The gateway publishes no schema for an extension, live or
   replayed.** The schema index and `/schemas/{type}` serve
   `webjson.schemas()`, the vendored set, whatever the gateway's model holds.
@@ -2459,6 +2473,16 @@ came up, each worked around demo-side and labelled there.
   *Demo's workaround:* the film report checks those payloads by the
   gateway's own decoder and projector reading back strictly to
   CycloneDDS's sample, with `validate()` passing.
+  - *Fixed in 0.7.4, fully rather than by the smallest change:* the
+    gateway writes a schema for each served type the vendored set lacks,
+    from the model it decodes the type with, so the index lists it and
+    `/schemas/{type}` serves it. The writer
+    (`webjson.schema_from_model`) follows `web-binding/gen.py`'s rules, and
+    `gates/extension_served.py` holds it to that generator: from the pin's
+    model it reproduces all 112 vendored schemas exactly. Doing so needed
+    the model to resolve a sequence bound given by name (`SZ_SMALL`), which
+    `idlmodel` now reads from the IDL's integer constants; without it, 14
+    of the 112 lost their `maxItems`.
 - **S20. `serve --mcap` classifies an extension lane as volatile and
   operator-scoped.** `gateway.DURABILITY` has no row for an extension and
   falls through to `(False, OPERATOR)`, and `serve` offers no override.
@@ -2472,12 +2496,20 @@ came up, each worked around demo-side and labelled there.
   the channel metadata, and the loader reads latching from it before
   falling back to the table; access stays a deployment's call, so `serve`
   takes a `--public <fqn>` list.
+  - *Fixed in 0.7.4:* the tap writes each channel's durability
+    (`mcapmeta.CHANNEL_DURABILITY`), and `serve --public FQN` (or
+    `build_state(public=)`) opens a type's lanes. One change from the
+    smallest change: the loader reads the channel only for a type the table
+    has no row for, because a row is the specification's and a recording
+    does not override it.
 - **Observation: registrations cannot be looked up.** `extend()` returns
   the `Extension`, whose `record` a gateway needs, but `codec.extensions()`
   and `extension_of()` are not re-exported from `sd.dds`, so a bridge has
-  to keep the return value of whoever registered the type.
+  to keep the return value of whoever registered the type. *Exported in
+  0.7.4.*
 - **Observation: `extend()` resolves includes from the pin's root.**
   `#include "owm.idl"` is refused ("which the pinned IDL does not have")
   while idlc, given the provisional directory with `-I`, accepts it; the
   accepted spelling is `provisional/owm.idl`. The refusal could name the
-  rooted path when the bare name exists under a subdirectory.
+  rooted path when the bare name exists under a subdirectory. *It does in
+  0.7.4.*

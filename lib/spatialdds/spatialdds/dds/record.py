@@ -69,7 +69,8 @@ class Recorder:
         self._last = t
         return t
 
-    def sample(self, topic: str, fqn: str, sample: Any) -> None:
+    def sample(self, topic: str, fqn: str, sample: Any,
+               durability: str = "") -> None:
         with self._lock:
             if self._closed:
                 return
@@ -82,7 +83,9 @@ class Recorder:
             if topic not in self._channels:
                 self._channels[topic] = self._w.register_channel(
                     topic=topic, message_encoding="cdr",
-                    schema_id=self._schemas[fqn])
+                    schema_id=self._schemas[fqn],
+                    metadata=({mcapmeta.CHANNEL_DURABILITY: durability}
+                              if durability else {}))
             t = self._now()
             self._w.add_message(channel_id=self._channels[topic], log_time=t,
                                 publish_time=t, data=sample.serialize(),

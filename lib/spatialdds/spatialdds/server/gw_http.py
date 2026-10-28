@@ -497,18 +497,29 @@ def _text_response(request: web.Request, text: str,
                         charset="utf-8", headers=headers)
 
 
+def _schemas(request: web.Request) -> dict[str, dict]:
+    """The vendored schemas, and one for each served type they lack (S19).
+
+    N.2: an endpoint MUST publish a schema for every type it serves. A
+    deployment's own type is described by the model it is decoded with.
+    """
+    st: gateway.State = request.app["state"]
+    return webjson.served_schemas(st.model,
+                                  {r.fqn for r in st.resources.values()})
+
+
 async def schemas_index(request: web.Request) -> web.Response:
     base = request.app["base"]
     doc = [{"type": fqn,
             "url": f"{base}{WELL_KNOWN}/schemas/{webjson.schema_file_for(fqn)}",
             "digest": f"sha256:{webjson.digest(schema)}"}
-           for fqn, schema in sorted(webjson.schemas().items())]
+           for fqn, schema in sorted(_schemas(request).items())]
     return _json_response(request, doc, gateway.PUBLIC)
 
 
 async def schema_one(request: web.Request) -> web.Response:
     name = request.match_info["type"]
-    for fqn, schema in webjson.schemas().items():
+    for fqn, schema in _schemas(request).items():
         if webjson.schema_file_for(fqn) == name:
             return _json_response(request, schema, gateway.PUBLIC)
     raise web.HTTPNotFound(

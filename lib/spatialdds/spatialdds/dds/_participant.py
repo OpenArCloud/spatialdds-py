@@ -109,6 +109,28 @@ def _now_time():
     return Time(sec=int(t), nanosec=int((t % 1) * 1e9))
 
 
+def _wait_for_acks(dw: Any, timeout_s: float, what: str) -> bool:
+    """`DataWriter.wait_for_acks`, False on timeout, as it is documented.
+
+    cyclonedds-python 11.0.1's timeout branch reads
+    `Exception.DDS_RETCODE_TIMEOUT`, which does not exist (`cyclonedds/pub.py`
+    line 325), so every timeout raises AttributeError. `close()` awaits acks
+    after writing each dispose and Depart, so one slow peer made a clean stop
+    exit with a traceback and skip the remaining flushes and every recorder's
+    `flush()` (S17). That AttributeError, and only that one, is the timeout.
+    """
+    try:
+        acked = bool(dw.wait_for_acks(duration(seconds=timeout_s)))
+    except AttributeError as error:
+        if "DDS_RETCODE_TIMEOUT" not in str(error):
+            raise
+        acked = False
+    if not acked:
+        log.warning("%s: not every reader acknowledged within %.1f s",
+                    what, timeout_s)
+    return acked
+
+
 def _has_member(sample: Any, name: str) -> bool:
     return any(f.name == name for f in dataclasses.fields(sample))
 
@@ -275,7 +297,8 @@ class Writer:
         with self._lock:
             self._dw.write(sample)
             self._last[key] = sample
-        self._p._recorded(self.topic, self._lane.fqn, sample)
+        self._p._recorded(self.topic, self._lane.fqn, sample,
+                          self._lane.profile.durability)
         return sample
 
     def _terminal(self, sample: Any, reason: str) -> Any:
@@ -298,27 +321,51 @@ class Writer:
             changes["stamp"] = _now_time()
         return dataclasses.replace(sample, **changes) if changes else sample
 
-    def withdraw(self, key: str, *, reason: str) -> None:
+    def withdraw(self, key: str, *, reason: str, **changes: Any) -> None:
         """Remove an instance: its terminal sample, then the dispose (§2.14, N.5.2).
 
         `reason` is required and may not be empty. It is carried wherever a
         carrier exists: the type's own member when it has one, the recording's
         dispose metadata always, and this layer's log always.
+
+        `changes` are the type's other members as the terminal sample should
+        carry them, such as a validity interval closed at retirement
+        (`has_valid_until=True, valid_until=...`). They are applied to the
+        last sample before the terminal members, so the instance ends in one
+        terminal sample. Until 0.7.4 a type with such members had to write
+        its terminal state itself, and this wrote it again (S18). The members
+        this method sets (`state`, `state_reason`, `stamp`) and the key are
+        not changes a caller can make.
         """
         if not isinstance(reason, str) or not reason.strip():
             raise ValueError("withdraw() needs a non-empty reason=: a removal "
                              "is a claim, and §2.14 makes it say why")
+        fixed = {"state", "state_reason", "stamp", codec.key_member(self._lane.fqn)}
+        refused = sorted(set(changes) & fixed)
+        if refused:
+            raise ValueError(f"withdraw() sets {', '.join(refused)} itself; "
+                             f"pass reason=, and the other members to change")
         with self._lock:
             if key not in self._last:
                 raise KeyError(f"{self.topic} holds no instance keyed {key!r} "
                                f"from this writer (held: "
                                f"{', '.join(sorted(self._last)) or 'none'})")
-            terminal = self._terminal(self._last.pop(key), reason)
+            last = self._last[key]
+            unknown = sorted(n for n in changes if not _has_member(last, n))
+            if unknown:
+                raise ValueError(f"{self._lane.fqn} has no member "
+                                 f"{', '.join(unknown)}")
+            terminal = self._terminal(dataclasses.replace(last, **changes),
+                                      reason)
+            if changes and self.validate:
+                codec.validate(terminal)
+            del self._last[key]
             # Immediately: nothing of this writer's may come between the
             # terminal sample and its dispose (N.5.2).
             self._dw.write(terminal)
             self._dw.dispose(terminal)
-        self._p._recorded(self.topic, self._lane.fqn, terminal)
+        self._p._recorded(self.topic, self._lane.fqn, terminal,
+                          self._lane.profile.durability)
         self._p._recorded_dispose(self.topic, key, reason)
         log.info("withdrew %s from %s: %s", key, self.topic, reason)
 
@@ -353,7 +400,7 @@ class Writer:
                 self._dw.unregister_instance(sample)
 
     def _flush(self, timeout_s: float) -> bool:
-        return bool(self._dw.wait_for_acks(duration(seconds=timeout_s)))
+        return _wait_for_acks(self._dw, timeout_s, self.topic)
 
     def topic_meta(self) -> Dict[str, Any]:
         """This lane as one `TopicMeta`, through the web layer's builder."""
@@ -1008,9 +1055,10 @@ class Participant:
                                svc["last"])
         return r
 
-    def _recorded(self, topic: str, fqn: str, sample: Any) -> None:
+    def _recorded(self, topic: str, fqn: str, sample: Any,
+                  durability: str = "") -> None:
         for r in self._recorders:
-            r.sample(topic, fqn, sample)
+            r.sample(topic, fqn, sample, durability)
 
     def _recorded_dispose(self, topic: str, key: str, reason: str) -> None:
         for r in self._recorders:
@@ -1039,7 +1087,7 @@ class Participant:
             for w in self._writers:
                 w._flush(flush_s)
             for dw in self._presence_writers():
-                dw.wait_for_acks(duration(seconds=flush_s))
+                _wait_for_acks(dw, flush_s, "presence")
             for r in self._recorders:
                 r.flush()
         finally:

@@ -58,6 +58,11 @@ def build_parser(ap: argparse.ArgumentParser) -> argparse.ArgumentParser:
                     help="a typed SpatialDDS MCAP to seed from. Optional: "
                          "with no recording the registry starts empty and "
                          "takes its types from the IDL pinned in this package.")
+    ap.add_argument("--public", action="append", default=[], metavar="FQN",
+                    help="serve this type's lanes public (repeatable), for a "
+                         "deployment's own type in --mcap, which is "
+                         "operator-scoped otherwise: who may read it is the "
+                         "deployment's call, not the recording's")
     ap.add_argument("--authority", default=None,
                     help="the DNS name this registry answers as, e.g. "
                          "registry.mytown.example. Every URI it accepts and "
@@ -202,7 +207,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         st = gateway.build_state(
             a.mcap, a.manifests if a.manifests and a.manifests.is_dir()
-            else None)
+            else None, public=a.public)
     except gateway.RecordingRefused as e:
         raise SystemExit(str(e))
     # The manifest hands clients absolute URLs, so the base has to be the

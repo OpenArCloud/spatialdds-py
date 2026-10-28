@@ -237,9 +237,17 @@ def stamp(when: Any = None) -> Dict[str, Any]:
     elif isinstance(when, str):
         w = _dt.datetime.fromisoformat(when.replace("Z", "+00:00"))
         t = (w if w.tzinfo else w.replace(tzinfo=_dt.timezone.utc)).timestamp()
+    elif isinstance(when, int):
+        t = when                        # exact: no float on the way through
     else:
         t = float(when)
-    return {"sec": str(int(t)), "nanosec": int(round((t % 1) * 1e9))}
+    # One integer count of nanoseconds, split by divmod, which floors both
+    # parts: `nanosec` is always in [0, 10^9), and a time before the epoch
+    # keeps its sign in `sec`. Until 0.7.4 the parts were computed apart, so
+    # 5.9999999999 gave nanosec 10^9, and -0.25 gave +0.75 s (S16).
+    ns = t * 1_000_000_000 if isinstance(t, int) else round(t * 1e9)
+    sec, nanosec = divmod(ns, 1_000_000_000)
+    return {"sec": str(sec), "nanosec": nanosec}
 
 
 def earth_fixed() -> Dict[str, Any]:

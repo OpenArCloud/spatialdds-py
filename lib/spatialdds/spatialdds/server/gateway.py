@@ -351,7 +351,8 @@ def _non_finite(v: Any, at: str = "") -> tuple[str, float] | None:
 
 
 def build_state(path: Path | None, manifests: Path | None = None,
-                idl_dir: Path | None | object = PINNED) -> State:
+                idl_dir: Path | None | object = PINNED,
+                public: Iterable[str] = ()) -> State:
     """The state a recording describes, or an empty registry if given none.
 
     A seed is optional because the publish surface makes the recording one
@@ -363,7 +364,16 @@ def build_state(path: Path | None, manifests: Path | None = None,
     a directory without the IDL in it, leaves the gateway typeless -- which is
     still a legitimate read-only state, and the refusal that follows belongs
     where publishing is switched on.
+
+    A type `DURABILITY` has no row for, a deployment's own, is latched if
+    the recording says its writer opened the lane TRANSIENT_LOCAL
+    (`mcapmeta.CHANNEL_DURABILITY`), and operator-scoped unless named in
+    `public`: who may read a lane is the deployment's call, and the file
+    cannot make it. Until 0.7.4 such a lane was always volatile and
+    operator-scoped (S20). A type with a row keeps its row: the table is
+    the specification's, and a recording does not override it.
     """
+    public = frozenset(public)
     if path is None:
         where = pin.IDL_DIR if idl_dir is PINNED else idl_dir
         model, idl = pin.wire_model(where) if where is not None \
@@ -437,7 +447,14 @@ def build_state(path: Path | None, manifests: Path | None = None,
                 agg = model.get(fqn)
                 keys = [m.name for m in (agg.members if agg else [])
                         if m.is_key]
-                latched, access = DURABILITY.get(fqn, (False, OPERATOR))
+                if fqn in DURABILITY:
+                    latched, access = DURABILITY[fqn]
+                else:
+                    latched = (ch.metadata.get(mcapmeta.CHANNEL_DURABILITY)
+                               == "TRANSIENT_LOCAL")
+                    access = OPERATOR
+                if fqn in public:
+                    access = PUBLIC
                 res = Resource(scene, stream, type_seg, version, ch.topic, fqn,
                                keys[0] if keys else "", access, latched)
                 st.resources[res.path] = res

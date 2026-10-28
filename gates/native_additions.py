@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""What 0.7.x adds for programs that own their loop, lanes outside a scene, their own types, and what the first migration found.
+"""What 0.7.x adds for programs that own their loop, lanes outside a scene, their own types, and what the migration and the first extension found.
 
 Each check is one of finding 67's filings, by number, held against a bus on a
 domain of its own: a writer participant and a reader participant in this
@@ -73,6 +73,20 @@ process.
     the lane as written. Refused: a seventh segment, the plan template for
     another type, and a placeholder that is not a §3.3.1 segment. A
     five-segment plan lane is still admitted, because §2 says SHOULD.
+* **S16–S18, and finding 72's observations** (findings 71 and 72).
+  - S16: `sd.stamp` keeps `nanosec` in [0, 10^9) and a time before the
+    epoch signed, and 20,000 random times read back within 1 µs.
+  - S17: cyclonedds-python 11.0.1's timeout AttributeError is read as the
+    timeout, and only that one. A reader in another process is SIGSTOPped:
+    `close()` waits out its flush, finishes, and its recording holds every
+    withdrawal.
+  - S18: `withdraw(..., has_extent=False)` ends an Entity in one terminal
+    sample carrying the change; the members it sets, the key and an unknown
+    member are refused, and the instance stays held.
+  - Registrations are looked up from `sd.dds`, and a bare include that
+    exists under a subdirectory is refused naming the rooted spelling.
+
+`gates/extension_served.py` holds S19 and S20, which need the gateway.
 
 Usage:  gates/native_additions.py
 """
@@ -775,6 +789,164 @@ def s14(checks: list, domain: int) -> None:
                    f"{got}"))
 
 
+def s16(checks: list, domain: int) -> None:
+    got = {t: sd.stamp(t) for t in (5.9999999999, -0.25, 1700000000)}
+    want = {5.9999999999: {"sec": "6", "nanosec": 0},
+            -0.25: {"sec": "-1", "nanosec": 750000000},
+            1700000000: {"sec": "1700000000", "nanosec": 0}}
+    rng = random.Random(16)
+    stray = [t for t in (rng.uniform(-2e9, 2e9) for _ in range(20000))
+             if not 0 <= sd.stamp(t)["nanosec"] < 10**9
+             or abs(int(sd.stamp(t)["sec"]) + sd.stamp(t)["nanosec"] / 1e9 - t)
+             > 1e-6]
+    checks.append(("S16: a stamp is one count of nanoseconds, floored: "
+                   "nanosec stays in [0, 10^9), before the epoch keeps its "
+                   "sign, and 20,000 random times read back within 1 µs",
+                   got == want and not stray, f"{got} stray={stray[:3]}"))
+
+
+# A reader in another process, so it can be stopped: a stopped reader acks
+# nothing, and the writer's close() then waits out its flush.
+_STOPPED_READER = """
+import sys, time
+sys.path.insert(0, sys.argv[3])
+import spatialdds as sd
+with sd.participant(sys.argv[1], domain=int(sys.argv[2])) as p:
+    r = p.reader("model_entity", qos_profile="MAP_META")
+    print("READY", flush=True)
+    while True:
+        r.take(); time.sleep(0.05)
+"""
+
+
+def s17(checks: list, domain: int) -> None:
+    import os
+    import signal
+    import subprocess
+    from spatialdds.dds import _participant
+    from spatialdds.dds._participant import _wait_for_acks
+
+    class Raises:
+        def __init__(self, error):
+            self.error = error
+
+        def wait_for_acks(self, _timeout):
+            raise self.error
+
+    timeout = _wait_for_acks(Raises(AttributeError(
+        "type object 'Exception' has no attribute 'DDS_RETCODE_TIMEOUT'")),
+        0.1, "gate")
+    try:
+        _wait_for_acks(Raises(AttributeError("something else")), 0.1, "gate")
+        other = "swallowed"
+    except AttributeError:
+        other = "raised"
+    checks.append(("S17: the 11.0.1 timeout AttributeError is False, and "
+                   "any other AttributeError still raises",
+                   timeout is False and other == "raised",
+                   f"timeout={timeout} other={other}"))
+
+    child = subprocess.Popen(
+        [sys.executable, "-c", _STOPPED_READER, SCENE, str(domain),
+         str(ROOT / "lib" / "spatialdds")],
+        stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+    try:
+        ready = child.stdout.readline().strip() == "READY"
+        with tempfile.TemporaryDirectory() as tmp:
+            rec = Path(tmp) / "close.mcap"
+            p = sd.participant(SCENE, domain=domain, service_id=SVC)
+            p.record(rec)
+            w = p.writer("model_entity", qos_profile="MAP_META",
+                         on_exit="withdraw")
+            matched = w.wait_matched(1, timeout=10)
+            os.kill(child.pid, signal.SIGSTOP)
+            for i in range(200):
+                w.write(entity(f"ent:gate:s17-{i}", float(i)))
+            t0 = time.time()
+            try:
+                p.close(reason="the gate stopped", flush_s=0.5)
+                raised = None
+            except Exception as e:                          # noqa: BLE001
+                raised = f"{type(e).__name__}: {e}"
+            took = time.time() - t0
+            try:
+                flushed = len(_metadata(rec)) == 200
+            except Exception as e:                          # noqa: BLE001
+                flushed = f"unreadable, never finished: {type(e).__name__}"
+        checks.append(("S17: close() with a stopped reader waits out its "
+                       "flush and finishes: no traceback, and the recording "
+                       "is flushed with every withdrawal",
+                       ready and matched and raised is None
+                       and flushed is True and took >= 0.45, f"ready={ready} matched={matched} "
+                       f"raised={raised} flushed={flushed} took={took:.1f}s"))
+    finally:
+        os.kill(child.pid, signal.SIGCONT)
+        child.kill()
+        child.wait()
+
+
+def s18(checks: list, domain: int) -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        rec = Path(tmp) / "withdraw.mcap"
+        with sd.participant(SCENE, domain=domain, service_id=SVC) as p:
+            p.record(rec)
+            w = p.writer("model_entity", qos_profile="MAP_META",
+                         on_exit="keep")
+            w.write(sd.records.entity("ent:gate:s18", frame_ref=FRAME,
+                                      source_id=SVC, position=(0, 0, 0),
+                                      extent=((0, 0, 0), (1, 1, 1))))
+            refused = {}
+            for label, kw in (("state", {"state": None}),
+                              ("the key", {"entity_id": "other"}),
+                              ("an unknown member", {"no_such": 1})):
+                try:
+                    w.withdraw("ent:gate:s18", reason="gate", **kw)
+                    refused[label] = None
+                except ValueError as e:
+                    refused[label] = str(e)
+            held = w.keys() == ["ent:gate:s18"]
+            w.withdraw("ent:gate:s18", reason="the gate is done with it",
+                       has_extent=False)
+        from mcap.reader import make_reader
+        E = sd.dds.class_for("spatial.owm.Entity")
+        with open(rec, "rb") as f:
+            samples = [E.deserialize(m.data) for _s, ch, m
+                       in make_reader(f).iter_messages()
+                       if ch.topic.endswith("/world/entity/v1")]
+    last = samples[-1] if samples else None
+    checks.append(("S18: withdraw() refuses changes to the members it sets, "
+                   "the key, and members the type lacks, and the instance "
+                   "is still held after each",
+                   all(refused.values()) and held, f"{refused} held={held}"))
+    checks.append(("S18: withdraw(..., has_extent=False) ends the instance in "
+                   "one terminal sample carrying the change, RETIRED, with "
+                   "its reason",
+                   len(samples) == 2 and last.has_extent is False
+                   and last.state.name == "RETIRED"
+                   and last.state_reason == "the gate is done with it",
+                   f"{len(samples)} samples, last={last}"))
+
+
+def observations(checks: list, domain: int) -> None:
+    from _ext_type import EXT_IDL, Reading
+    ext = sd.dds.extend("gate.reading", Reading, EXT_IDL)
+    checks.append(("finding 72: registrations can be looked up from sd.dds, "
+                   "by name and by dotted identity",
+                   sd.dds.extensions().get("gate.reading") is ext
+                   and sd.dds.extension_of("gate_ext.Reading") is ext,
+                   f"{sorted(sd.dds.extensions())}"))
+    try:
+        sd.dds.extend("gate.bare", Reading,
+                      EXT_IDL.replace('"common.idl"', '"owm.idl"'))
+        why = None
+    except sd.dds.RegistryError as e:
+        why = str(e)
+    checks.append(("finding 72: a bare include that exists under a "
+                   "subdirectory is refused naming the rooted spelling",
+                   why is not None and "'provisional/owm.idl'" in why,
+                   f"{why}"))
+
+
 def _metadata(path: Path) -> list:
     from mcap.reader import make_reader
     from spatialdds.server.mcapmeta import DISPOSE_RECORD
@@ -804,8 +976,13 @@ def run() -> int:
     arm(checks, "S12", s12)
     arm(checks, "S13", s13)
     arm(checks, "S14", s14)
+    arm(checks, "S16", s16)
+    arm(checks, "S17", s17)
+    arm(checks, "S18", s18)
+    arm(checks, "finding 72's observations", observations)
     return report("native additions", checks,
-                  "0.7.x's additions do what findings 67, 69 and 70 asked")
+                  "0.7.x's additions do what findings 67, 69, 70, 71 and 72 "
+                  "asked")
 
 
 if __name__ == "__main__":
