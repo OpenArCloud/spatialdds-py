@@ -377,6 +377,30 @@ leases, per-provider scopes, server-set identity, upstream subscriptions are
 listed in `docs/MYTOWN.md`'s closing section and in the package's README, so
 nobody has to read this file to learn what a registry does not do.
 
+**Updated 2026-10-29, package 0.8.0: world lanes.** The write surface now
+takes the world model's `entity` lane and a deployment's own keyed types
+(`extend()`-registered, `serve --extension`). Normative-shaped, what it adds to
+the verbs above:
+
+* A type with a basis and a lifecycle (`basis`, `state`, `state_reason`,
+  `stamp`) is withdrawn by `DELETE` as a writer withdraws it on the bus: a
+  terminal sample, RETIRED with the reason, then the dispose. A record type
+  disposes alone, as before.
+* Freshness for such types is entry 12; the asserter of a claim arriving over
+  HTTP is entry 13.
+* A gateway joined to a DDS domain writes what its world lanes accept there,
+  from its own participant, so bus readers see ordinary samples. Measured: a
+  DDS reader on another participant received each HTTP write as a sample whose
+  N.1 projection equals what the gateway serves (`gates/entity_publishing.py`).
+
+Two of the deferrals above move: leases now exist for world lanes (entry 12;
+records' `ttl_sec` is still unenforced), and one identity field now comes from
+the credential, a claim's asserter (entry 13; `provider_id` and `org` still
+come from the body). Gates: 49 of 49 with `entity_publishing`; the
+conformance suite against `serve --demo`, 15 checks: 14 passed, 0 failed, 1
+skipped (§8.2, unexercised: the demo endpoint is not an authority), the same
+as 0.7.4.
+
 ## 5. The GeoPose Protocol successor, as a service profile
 
 **Status:** scoped, not drafted. A prerequisite census comes first, recorded
@@ -749,3 +773,62 @@ will disagree on the URL of the same lane. 1.9 should do one of these:
   segments joined into the stream segment, or appended before the version);
 - say explicitly that templated lanes are bus-only and that a gateway omits
   them from its manifest.
+
+## 12. Freshness for an observed claim with no writer liveliness
+
+*Measured origin: spatialdds-py 0.8.0 (2026-10-29), `gates/entity_publishing.py`.*
+
+§2.14 lets a reader tell a stale claim from a withdrawn one by the writer's
+liveliness. A claim arriving over HTTP has no writer liveliness: a request
+ends and says nothing about the next one. 1.8 is silent on what a web write
+of an observed thing promises, so every gateway will either fake liveliness
+or let an observation stand forever. The contract implemented, offered as
+text:
+
+* **Basis decides.** A DECLARED or AUTHORED write is a declaration and holds
+  until withdrawn. An OBSERVED or DERIVED write declares a refresh interval
+  (`?refresh=<seconds>`), and is written again within it.
+* **The gateway withdraws what lapses, as the writer.** It owns the DDS
+  writer, so a lapse is a deliberate removal (terminal sample, then dispose,
+  reason `refresh lapsed`), never a disposal synthesized on another
+  participant's behalf.
+* **No interval on an observed write is refused**, with a problem document
+  naming the rule; an interval on a declaration likewise.
+* **A restart re-arms the interval** from the restart: the journal records
+  each observed write's interval.
+
+Measured: a 2 s interval unrefreshed was withdrawn 2.05, 2.35 and 2.05 s
+after its PUT in three runs, terminal sample then dispose on a WebSocket
+subscriber and on a DDS reader alike; a declared entity under the same
+silence stayed; re-PUTs every 0.5 s kept a 1 s interval alive for 5 s; a
+curl session against `serve` saw a 5 s interval withdrawn about 4.9 s after
+its last PUT. Failable: with the gateway's reaper stopped the lapse check
+fails, and with the basis rule removed the basis, lapse and declared checks
+fail.
+
+Open for 1.9: whether the interval belongs in the request (as here), in the
+type (a member), or in the lane's QoS, which DDS would spell as a lifespan.
+
+## 13. An HTTP claim's asserter is its credential's principal
+
+*Measured origin: spatialdds-py 0.8.0 (2026-10-29), `gates/entity_publishing.py`.
+Extends entry 4's design rule ("identity fields come from the credential").*
+
+A bus claim's asserter is grounded in the participant that wrote it. Over
+HTTP the only thing a gateway knows about who is speaking is the bearer
+token, so the 0.2 design's `asserter`, and any member that names who makes a
+claim, is grounded there:
+
+* an empty asserter is stamped with the token's principal;
+* any other value must equal it, or the write is refused (`403`, naming both);
+* an endpoint with no credentials has nothing to ground a claim in and refuses
+  claims rather than accept an asserter nobody vouched for.
+
+Measured: principal bob asserting as alice refused `403
+asserter-not-principal`; alice's empty asserter stored as `alice`; a single
+`--token` endpoint stamps `operator`. Failable: with grounding that verifies
+nothing, both checks fail.
+
+Open for 1.9: whether the principal's name is the asserter, or a URI the
+credential maps to (provider plus name), so that asserters from two
+gateways cannot collide.
