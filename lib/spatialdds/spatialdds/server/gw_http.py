@@ -31,6 +31,8 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -1016,6 +1018,99 @@ async def post_command(request: web.Request) -> web.Response:
         outcome.reason, outcome="declined", type=res.fqn), request)
 
 
+#: Who the journal says withdrew an instance whose refresh lapsed: the
+#: gateway, which owns the writer and made the removal.
+GATEWAY_PRINCIPAL = "spatialdds-gateway"
+#: How often the gateway looks for lapsed refreshes. A withdrawal arrives at
+#: most this long after its interval ends.
+REAP_EVERY_S = 0.25
+
+
+def withdraw(app: web.Application, topic: str, res: gateway.Resource,
+             key: str, reason: str, principal: str = "",
+             scene: str = "") -> None:
+    """Remove one instance, as its writer: journal, state, subscribers.
+
+    On a world lane (a type with a basis and a lifecycle) the terminal sample
+    goes first, RETIRED with the reason, then the dispose, as §2.14 and N.5.2
+    have a writer remove an instance and as the SDK's `Writer.withdraw()`
+    does on the bus. A record lane disposes alone, exactly as before 0.8.0.
+    Raises `publish.JournalUnwritable` with nothing changed if the journal
+    refuses the first entry.
+    """
+    st: gateway.State = app["state"]
+    jr: publish.Journal | None = app["journal"]
+    events: list[dict] = []
+    held = st.latched.get(topic, {}).get(key)
+    if held is not None and publish.is_world(st, res.fqn):
+        data, raw = publish.terminal(st, res.fqn, held.data, reason)
+        if jr is not None:
+            jr.record_sample(topic, res.fqn, key, raw, principal=principal,
+                             scene=scene or res.scene)
+        publish.apply_sample(st, topic, res, key, data)
+        events.append({"event": "sample", "topic": topic, "key": key,
+                       "data": data})
+    if jr is not None:
+        jr.record_dispose(topic, key, reason, principal=principal,
+                          scene=scene or res.scene)
+    publish.apply_dispose(st, topic, key)
+    st.leases.pop((topic, key), None)
+    events.append({"event": "dispose", "topic": topic, "key": key,
+                   "reason": reason})
+    for ev in events:
+        notify(app, topic, ev)
+
+
+def reap(app: web.Application, now: float | None = None) -> list[tuple[str, str]]:
+    """Withdraw every instance whose refresh has lapsed. Returns them.
+
+    The gateway owns the writer, so this is a deliberate removal by that
+    writer with the reason "refresh lapsed", never a disposal synthesized on
+    somebody else's behalf. A journal that refuses the write leaves the lease
+    in place, so the next pass tries again rather than forgetting it.
+    """
+    st: gateway.State = app["state"]
+    now = time.monotonic() if now is None else now
+    done: list[tuple[str, str]] = []
+    for (topic, key), lease in sorted(st.leases.items()):
+        if lease.deadline > now:
+            continue
+        seg = gateway.split_topic(topic)
+        res = st.resources.get(gateway.resource_path(*seg)) if seg else None
+        if res is None or key not in st.latched.get(topic, {}):
+            st.leases.pop((topic, key), None)
+            continue
+        try:
+            withdraw(app, topic, res, key, publish.LAPSED,
+                     principal=GATEWAY_PRINCIPAL)
+        except publish.JournalUnwritable as e:
+            print(f"spatialdds: could not withdraw lapsed {topic} {key}: {e}",
+                  file=sys.stderr)
+            continue
+        done.append((topic, key))
+    return done
+
+
+async def _reaper(app: web.Application) -> None:
+    while True:
+        await asyncio.sleep(REAP_EVERY_S)
+        reap(app)
+
+
+async def _start_reaper(app: web.Application) -> None:
+    app["reaper"] = asyncio.get_running_loop().create_task(_reaper(app))
+
+
+async def _stop_reaper(app: web.Application) -> None:
+    task = app.get("reaper")
+    if task is not None:
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+
 async def put_instance(request: web.Request) -> web.Response:
     """PUT on the same instance URL a GET already serves."""
     if not request.app["publish"]:
@@ -1039,6 +1134,10 @@ async def put_instance(request: web.Request) -> web.Response:
         publish.validate_schema(res.fqn, body, st)
         publish.check_authority(request.app["base"], body)
         data, raw = publish.canonicalize(st, res.fqn, body)
+        # The basis rule: an observed or derived claim declares how often it
+        # will be said again, a declaration declares nothing.
+        lease = publish.lease_for(st, res.fqn, data,
+                                  request.query.get("refresh"))
     except publish.Rejected as r:
         return _rejected(r, request)
 
@@ -1081,10 +1180,16 @@ async def put_instance(request: web.Request) -> web.Response:
     if jr is not None:
         try:
             jr.record_sample(topic, res.fqn, key, raw, principal=who.name,
-                             scene=res.scene)
+                             scene=res.scene, refresh=lease)
         except publish.JournalUnwritable as e:
             return _unwritable(request, e)
     created = publish.apply_sample(st, topic, res, key, data)
+    # A re-PUT inside the interval is the refresh: it starts the interval
+    # again. A body whose basis became a declaration drops the lease.
+    if lease is not None:
+        st.leases[(topic, key)] = publish.Lease.starting(lease)
+    else:
+        st.leases.pop((topic, key), None)
     await _broadcast(request, topic,
                      {"event": "sample", "topic": topic, "key": key,
                       "data": data})
@@ -1117,17 +1222,11 @@ async def delete_instance(request: web.Request) -> web.Response:
             f"Topic {topic} holds no instance keyed {key!r}, so there is "
             f"nothing to dispose.", topic=topic, key=key), request)
     reason = request.query.get("reason") or "withdrawn"
-    jr: publish.Journal | None = request.app["journal"]
-    if jr is not None:
-        try:
-            jr.record_dispose(topic, key, reason, principal=who.name,
-                              scene=m["scene"])
-        except publish.JournalUnwritable as e:
-            return _unwritable(request, e)
-    publish.apply_dispose(st, topic, key)
-    await _broadcast(request, topic,
-                     {"event": "dispose", "topic": topic, "key": key,
-                      "reason": reason})
+    try:
+        withdraw(request.app, topic, res, key, reason, principal=who.name,
+                 scene=m["scene"])
+    except publish.JournalUnwritable as e:
+        return _unwritable(request, e)
     return web.Response(status=204,
                         headers=_cache_headers(
                             gateway.OPERATOR, None,
@@ -1415,6 +1514,9 @@ def make_app(state: gateway.State, base: str, token: str | None,
     #: correct -- nothing can be subscribed before the app is running.
     app["loop"] = None
     app.on_startup.append(_remember_loop)
+    # The refresh rule's other half: the gateway withdraws what lapsed.
+    app.on_startup.append(_start_reaper)
+    app.on_cleanup.append(_stop_reaper)
     app["assets"] = assets
     app.add_routes([
         web.get("/", root),

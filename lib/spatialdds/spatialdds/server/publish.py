@@ -33,6 +33,7 @@ import json
 import os
 import tempfile
 import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -280,6 +281,122 @@ def apply_dispose(st: gateway.State, topic: str, key: str) -> bool:
     return had
 
 
+# ---- liveliness, by basis ---------------------------------------------------
+#
+# A DDS writer's liveliness says whether anybody is still asserting what it
+# wrote. An HTTP client has none: a request ends and says nothing about the
+# next one. So the write surface cannot fake liveliness, and does not try.
+# What it does instead is ruled by basis:
+#
+# * DECLARED and AUTHORED are declarations. They hold until withdrawn, like
+#   any record, and have no liveliness to fake.
+# * OBSERVED and DERIVED say somebody is watching. The PUT declares how
+#   often it will say so again (`?refresh=` seconds); a re-PUT inside that
+#   interval keeps it; when it lapses the gateway withdraws it itself, with a
+#   terminal sample and the reason "refresh lapsed". The gateway owns the
+#   writer, so that is a deliberate removal by the writer, as §2.14 has it,
+#   not a disposal synthesized on somebody else's behalf.
+
+#: The bases that say somebody is watching, and so must keep saying it.
+LIVE_BASES = frozenset({"OBSERVED", "DERIVED"})
+#: The refresh interval a PUT may declare, in seconds. A second is the
+#: shortest a client over HTTP can honestly promise; an hour is long enough
+#: that "observed" has stopped meaning anything.
+REFRESH_MIN_S, REFRESH_MAX_S = 1.0, 3600.0
+#: The reason on a withdrawal the gateway made because nobody refreshed.
+LAPSED = "refresh lapsed"
+#: The members a type needs for its basis to gate it and its withdrawal to
+#: be a terminal sample: the world model's lifecycle, as Entity spells it.
+WORLD_MEMBERS = frozenset({"basis", "state", "state_reason", "stamp"})
+
+
+@dataclass
+class Lease:
+    """An observed or derived instance's promise to be refreshed."""
+    interval: float
+    #: `time.monotonic()` at which it lapses.
+    deadline: float
+
+    @classmethod
+    def starting(cls, interval: float) -> "Lease":
+        return cls(interval, time.monotonic() + interval)
+
+
+def members_of(st: gateway.State, fqn: str) -> set[str]:
+    agg = st.model.get(fqn) if st.model else None
+    return {m.name for m in agg.members} if agg is not None else set()
+
+
+def is_world(st: gateway.State, fqn: str) -> bool:
+    """Whether a type's basis gates it: the entity lane, or a deployment's
+    own keyed type spelled with the same lifecycle members (a claim)."""
+    if fqn in WORLD_LANES:
+        return True
+    return fqn in st.publishable.values() and \
+        WORLD_MEMBERS <= members_of(st, fqn)
+
+
+def lease_for(st: gateway.State, fqn: str, doc: dict,
+              refresh: str | None) -> float | None:
+    """The refresh interval this write promises, or None for a declaration.
+
+    Refuses an observed or derived write with no interval, a declaration with
+    one, and an interval out of range, each naming the rule.
+    """
+    if not is_world(st, fqn):
+        if refresh is not None:
+            raise Rejected(
+                400, "refresh-not-applicable", "This lane has no refresh",
+                f"{fqn} is a record, not a claim about the world: it has no "
+                f"basis, holds until withdrawn, and takes no ?refresh=.",
+                rule="basis")
+        return None
+    basis = str(doc.get("basis", ""))
+    if basis not in LIVE_BASES:
+        if refresh is not None:
+            raise Rejected(
+                400, "refresh-not-applicable", "A declaration has no refresh",
+                f"basis {basis} is a declaration: it holds until withdrawn, "
+                f"has no liveliness to keep, and takes no ?refresh=. Only "
+                f"{' and '.join(sorted(LIVE_BASES))} say somebody is "
+                f"watching, and only they must keep saying it.",
+                rule="basis", basis=basis)
+        return None
+    if refresh is None:
+        raise Rejected(
+            400, "refresh-required", "An observed claim needs a refresh interval",
+            f"basis {basis} says somebody is watching, and over HTTP nothing "
+            f"else can say whether they still are. Declare how often you will "
+            f"re-PUT it with ?refresh=<seconds> ({REFRESH_MIN_S:g} to "
+            f"{REFRESH_MAX_S:g}); if a refresh does not arrive in time this "
+            f"endpoint withdraws it with the reason {LAPSED!r}. A DECLARED or "
+            f"AUTHORED body needs none.", rule="basis", basis=basis)
+    try:
+        interval = float(refresh)
+    except ValueError:
+        interval = float("nan")
+    if not (REFRESH_MIN_S <= interval <= REFRESH_MAX_S):
+        raise Rejected(
+            400, "refresh-invalid", "Refresh interval out of range",
+            f"?refresh={refresh!r} is not a number of seconds from "
+            f"{REFRESH_MIN_S:g} to {REFRESH_MAX_S:g}.", rule="basis",
+            refresh=refresh)
+    return interval
+
+
+def terminal(st: gateway.State, fqn: str, data: dict,
+             reason: str) -> tuple[dict, bytes]:
+    """The instance as its last sample says it is, retired, with the reason.
+
+    What the SDK's `Writer.withdraw()` writes on the bus, written here for
+    HTTP: the last sample with `state` RETIRED, `state_reason` the reason and
+    `stamp` now, canonicalized by the same round trip as any accepted body.
+    """
+    doc = {**data, "state": "RETIRED", "state_reason": reason,
+           "stamp": now_stamp()}
+    return canonicalize(st, fqn, doc)
+
+
 # ---- the journal -----------------------------------------------------------
 
 class Journal:
@@ -334,9 +451,18 @@ class Journal:
                 data = proj.project(e["fqn"], dec.decode(e["fqn"], e["raw"]))
                 key = str(data.get(res.key, "")) if res.key else ""
                 apply_sample(self.state, topic, res, key, data)
+                # A lease restarts from now: the gateway was down, and a
+                # client cannot be held to a deadline that passed while
+                # nobody was there to refresh to. It still has to refresh
+                # within its own interval, or it lapses as it would have.
+                if e.get("refresh"):
+                    self.state.leases[(topic, key)] = Lease.starting(e["refresh"])
+                else:
+                    self.state.leases.pop((topic, key), None)
                 self.entries.append({**e, "seq": seq, "key": key})
             else:
                 apply_dispose(self.state, e["topic"], e["key"])
+                self.state.leases.pop((e["topic"], e["key"]), None)
                 self.entries.append({**e, "seq": seq})
         return len(self.entries)
 
@@ -347,11 +473,14 @@ class Journal:
 
     def record_sample(self, topic: str, fqn: str, key: str,
                       raw: bytes, principal: str = "",
-                      scene: str = "") -> None:
+                      scene: str = "", refresh: float | None = None) -> None:
+        """An accepted sample; `refresh` the interval an observed one promised,
+        so a restarted gateway still withdraws it if nobody keeps it."""
         self.entries.append({"kind": "sample", "seq": self._next(),
                              "topic": topic, "fqn": fqn, "key": key,
                              "raw": raw, "principal": principal,
-                             "scene": scene or _topic_scene(topic)})
+                             "scene": scene or _topic_scene(topic),
+                             "refresh": refresh})
         self._flush()
 
     def record_manifest(self, uri: str, doc: dict, principal: str = "",
@@ -414,7 +543,7 @@ def read_entries(path: Path) -> tuple[list[tuple[int, dict]], dict]:
     entries back without a gateway or a specification checkout.
     """
     items: list[tuple[int, dict]] = []
-    who: dict[int, tuple[str, str]] = {}
+    who: dict[int, tuple[str, str, float | None]] = {}
     idl: dict[str, tuple[str, bytes]] = {}
     with open(path, "rb") as f:
         r = make_reader(f)
@@ -430,7 +559,9 @@ def read_entries(path: Path) -> tuple[list[tuple[int, dict]], dict]:
                     "scene": m.get("scene", "")}
             if md.name == WRITTEN_BY_RECORD:
                 who[int(m["seq"])] = (m.get("principal", ""),
-                                      m.get("scene", ""))
+                                      m.get("scene", ""),
+                                      float(m["refresh"]) if m.get("refresh")
+                                      else None)
             elif md.name == DISPOSE_RECORD:
                 items.append((int(m["seq"]),
                               {"kind": "dispose", "topic": m["topic"],
@@ -446,8 +577,9 @@ def read_entries(path: Path) -> tuple[list[tuple[int, dict]], dict]:
                                "reason": m.get("reason", ""), **attr}))
     for seq, e in items:
         if e["kind"] == "sample":
-            p, sc = who.get(seq, ("", ""))
+            p, sc, refresh = who.get(seq, ("", "", None))
             e["principal"], e["scene"] = p, sc or _topic_scene(e["topic"])
+            e["refresh"] = refresh
         elif not e.get("scene"):
             e["scene"] = (gateway.uri_scene(e["uri"]) if "uri" in e
                           else _topic_scene(e["topic"]))
@@ -489,8 +621,12 @@ def write_entries(path: Path, entries: list[dict],
                 attr = {"principal": e.get("principal", ""),
                         "scene": e.get("scene", "")}
                 if e["kind"] == "sample":
+                    # `refresh` only when there is one, so a journal of
+                    # records is the same bytes it was before 0.8.0.
+                    extra = {"refresh": f"{e['refresh']:g}"} \
+                        if e.get("refresh") else {}
                     w.add_metadata(name=WRITTEN_BY_RECORD, data={
-                        "seq": str(e["seq"]), **attr})
+                        "seq": str(e["seq"]), **attr, **extra})
                 elif e["kind"] == "dispose":
                     w.add_metadata(name=DISPOSE_RECORD, data={
                         "seq": str(e["seq"]), "topic": e["topic"],
