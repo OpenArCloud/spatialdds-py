@@ -1,5 +1,49 @@
 # Changelog
 
+## 0.8.0: a world from HTTP
+
+An HTTP client can put living things into a world, not only records about
+one. Additive: every record lane behaves exactly as in 0.7.4, byte for byte,
+and a gateway started without the new flags serves what it served.
+
+- **The `entity` lane is publishable**, and so is any keyed type a
+  deployment registers with `sd.dds.extend()` (**`serve --extension
+  MODULE`**, or `gateway.add_extension`): the same PUT/DELETE, scene tokens,
+  schema validation, wire round trip, quota and journal as the record lanes.
+  A deployment type is validated against the schema N.2 publishes for it.
+- **Basis gates liveliness** on a world lane (a type with `basis`, `state`,
+  `state_reason`, `stamp`). DECLARED and AUTHORED hold until withdrawn.
+  OBSERVED and DERIVED declare **`?refresh=<seconds>`** (1 to 3600) and are
+  PUT again within it; when it lapses **the gateway withdraws the instance
+  itself**, a terminal sample (RETIRED) then the dispose, both "refresh
+  lapsed". Refused, naming the rule: `refresh-required`,
+  `refresh-not-applicable`, `refresh-invalid`. The journal records the
+  interval, so a restart re-arms it.
+- **A world lane's DELETE is a withdrawal**: terminal sample with
+  `?reason=`, then the dispose. Record lanes dispose alone, as before.
+- **A claim's asserter is the token's principal**: stamped when empty,
+  refused `asserter-not-principal` when it names someone else, and
+  `asserter-ungrounded` on an endpoint with no token table. A single
+  `--token` is the principal `operator`.
+- **The gateway can own a DDS writer**: **`serve --dds-domain N`** (or
+  `make_app(bus=)`) writes what the world lanes accept to that domain from
+  its own participant, latched, and withdraws there through the SDK's
+  `Writer.withdraw()`. On start it republishes what its journal holds. A
+  world lane it cannot write is refused `not-on-bus` before anything is
+  journalled. Record lanes are not written to the bus.
+- **Every registry knows `spatial.owm.Entity`**: an empty one boots it from
+  the pin, and a seeded one takes the pin's definition of any boot type its
+  recording does not define (a gateway seeded with the fountain recording
+  refused entity PUTs 503).
+- OpenAPI regenerated: the refresh parameter, the basis rule and the new
+  refusals on the entity lane's operations.
+
+Suite: 49 gates, 49 passed; the new `entity_publishing` holds the lapse, the
+asserter rule and the basis rule, each shown failable by a planted fault.
+The spec's conformance suite against `serve --demo`: 15 checks, 14 passed,
+0 failed, 1 skipped (the §8.2 resolve flow), as at 0.7.4. Details and a
+measured curl session: docs/PUBLISH.md, "World lanes".
+
 ## 0.7.4: what the first extension found
 
 Found by SpatialDDS-demo's OWM 0.2 prototype, the first deployment

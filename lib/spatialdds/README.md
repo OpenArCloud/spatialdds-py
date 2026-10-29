@@ -574,6 +574,19 @@ explicitly was tried first and is what missed two paths.
 
 If your clients are not browsers, nothing here changes anything for you.
 
+## New in 0.8.0: a world from HTTP
+
+The `entity` lane is publishable, and so is any keyed type a deployment
+registers (`serve --extension MODULE`), so a browser or curl can populate an
+OWM scene. A DECLARED or AUTHORED entity holds until withdrawn. An OBSERVED or
+DERIVED one declares how often it will be said again, `?refresh=<seconds>`,
+and when nobody says it again the gateway withdraws it, a terminal sample and
+then a dispose, "refresh lapsed". A claim's asserter is the bearer token's
+principal. With `serve --dds-domain N` the gateway writes all of it to a DDS
+bus too, from its own participant. The record lanes are unchanged. The rules
+and a measured session are in
+[docs/PUBLISH.md](https://github.com/OpenArCloud/spatialdds-py/blob/main/docs/PUBLISH.md#world-lanes-entities-and-claims-080).
+
 ## New in 0.7.4: what the first extension found
 
 A deployment's own type, registered with `sd.dds.extend()`, is now served
@@ -667,7 +680,7 @@ Two changes may need a line of yours:
 The security fixes, the limits table and the details are in the
 [changelog](https://github.com/OpenArCloud/spatialdds-py/blob/main/lib/spatialdds/CHANGELOG.md).
 
-## Not in 0.7.4
+## Not in 0.8.0
 
 Stated so nobody waits for them:
 
@@ -699,8 +712,11 @@ supplied. That second form is `sd.asset_ref`. A published release has to stay
 reproducible from a public commit, so the API could not change under the same
 number.
 
-On the registry, four things are deferred rather than missing, and the same
-four are on the 1.9 candidates list: **leases** (nothing expires; `ttl_sec` is
-advice to caches), **per-provider scopes** (one token, one operator),
-**server-set identity** (`provider_id` is whatever the publisher says), and
-**upstream subscriptions** (a registry does not follow another registry).
+On the registry, these are deferred rather than missing, and each is on the
+1.9 candidates list: **leases for records** (world lanes have them since
+0.8.0; a record's `ttl_sec` is still advice to caches), **per-record
+ownership** (a token is scoped to scenes, and within a scene to everything),
+**server-set identity for records** (a claim's asserter comes from the
+credential since 0.8.0; a record's `provider_id` is whatever the publisher
+says), and **upstream subscriptions** (a registry does not follow another
+registry).
