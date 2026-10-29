@@ -83,6 +83,27 @@ hashed asset in the same one call each:
 `gates/builders.py` rebuilds this repository's hand-authored records through
 the builders to prove nothing is out of reach.
 
+**A world, too (0.8.0).** The `entity` lane is publishable, and so is any keyed
+type a deployment registers (`--extension MODULE`), so curl can populate an
+OWM scene. A DECLARED entity holds until withdrawn; an OBSERVED one declares
+how often it will be said again and the gateway withdraws it, "refresh
+lapsed", when it is not:
+
+```console
+$ curl -X PUT -H "$H" --data @bench.json $E/ent:bench
+201
+$ curl -X PUT -H "$H" --data @cyclist.json "$E/ent:cyclist?refresh=5"
+201
+... 7 s, nobody refreshes the cyclist
+$ curl -o /dev/null -w "%{http_code}" $E/ent:cyclist
+404
+```
+
+A claim's asserter is the token's principal, and with `--dds-domain N` the
+gateway writes all of it to a DDS bus as well.
+[docs/PUBLISH.md](docs/PUBLISH.md#world-lanes-entities-and-claims-080) has the
+rules and the whole session.
+
 ## Resolve
 
 <!-- bar: resolve -->

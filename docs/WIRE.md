@@ -127,6 +127,37 @@ keeps an N.5 subscription open past the end of a recorded stream, and
 `live_subscriptions` defaults to following `publish_enabled`, so nothing that
 worked before changed.
 
+### Writing to a bus (0.8.0)
+
+The other direction. `serve --dds-domain N`, or `make_app(..., bus=Bus(N))`
+for an embedder, gives the gateway a DDS participant of its own
+(`svc:spatialdds:gateway`), and what the **world lanes** accept over HTTP (the
+`entity` lane, and a deployment's keyed claim types: see
+[PUBLISH.md](PUBLISH.md#world-lanes-entities-and-claims-080)) is written there
+as ordinary samples:
+
+- one SDK writer per topic, opened on first use: RELIABLE, TRANSIENT_LOCAL,
+  KEEP_LAST 1 (a latched model lane's four columns, since the 1.8 owm rows
+  name no profile), `on_exit="keep"`;
+- a specification type through the registry row that names it (`Entity` is
+  `model_entity`); a deployment's own type only if the gateway's process
+  registered it with `sd.dds.extend()`, because DDS writes a generated class;
+- a `DELETE`, or a refresh that lapsed, through the SDK's `Writer.withdraw()`:
+  the terminal sample from the last one, then the dispose with the reason;
+- on start, every world instance the journal holds is written again
+  (`Bus.prime`), so the bus holds what the endpoint serves.
+
+The writers' liveliness is the gateway's, which is the honest liveliness for
+samples the gateway owns; an HTTP client's own freshness is the refresh rule.
+The record lanes (`announce`, `content_announce`, `geo_anchor`) are not
+written to the bus.
+
+**An embedder that feeds the gateway from the same bus will read these writes
+back.** Its pump sees the gateway's samples as it sees anyone's, applies them
+(an equal sample changes nothing in the latched set) and notifies subscribers
+a second time. A backend that already owns the bus side of its world lanes,
+as SpatialDDS-demo's binding does, should not pass `bus=`.
+
 ## What it serves
 
 Any typed SpatialDDS 1.8 MCAP whose schema records carry omgidl. The recording

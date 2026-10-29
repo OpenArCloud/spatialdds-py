@@ -198,6 +198,31 @@ def write_paths(seg: str, fqn: str, latched: bool, access: str) -> dict:
     ref = {"$ref": snake_ref(fqn)}
     name = opname(seg)
     read_sec = [] if access == gateway.PUBLIC else [{"bearer": []}]
+    # A world lane (the entity lane): basis gates liveliness, and a withdrawal
+    # is a terminal sample before the dispose. Said on the operations, from
+    # the same constants the gateway refuses with.
+    world = fqn in publish.WORLD_LANES
+    put_extra = (
+        f" **Basis gates liveliness.** A DECLARED or AUTHORED body is a "
+        f"declaration and holds until withdrawn; it takes no `refresh`. An "
+        f"{' or '.join(sorted(publish.LIVE_BASES))} body must declare "
+        f"`refresh`, and be PUT again within it; when it lapses the gateway "
+        f"withdraws the instance itself, a terminal sample (RETIRED) then the "
+        f"dispose, both with the reason `{publish.LAPSED}`. On a gateway with "
+        f"a DDS domain the instance is written there too, from the gateway's "
+        f"own participant.") if world else ""
+    put_params = [{"name": "If-Match", "in": "header", "required": False,
+                   "schema": {"type": "string"}}]
+    if world:
+        put_params.append({
+            "name": "refresh", "in": "query", "required": False,
+            "schema": {"type": "number", "minimum": publish.REFRESH_MIN_S,
+                       "maximum": publish.REFRESH_MAX_S},
+            "description": "Seconds within which this instance will be PUT "
+                           "again. Required for an "
+                           f"{' or '.join(sorted(publish.LIVE_BASES))} body, "
+                           "refused for any other (`refresh-required`, "
+                           "`refresh-not-applicable`, `refresh-invalid`)."})
     return {
         coll: {
             "parameters": [{"$ref": "#/components/parameters/scene"},
@@ -250,11 +275,10 @@ def write_paths(seg: str, fqn: str, latched: bool, access: str) -> dict:
                 "operationId": f"put{name}", "tags": [seg],
                 "summary": f"Publish or replace a {fqn}",
                 "description": SCENE_RULE + " The body's key must equal the "
-                               "URL's. `If-Match` is honoured when present.",
+                               "URL's. `If-Match` is honoured when present."
+                               + put_extra,
                 "security": [{"bearer": []}],
-                "parameters": [{"name": "If-Match", "in": "header",
-                                "required": False,
-                                "schema": {"type": "string"}}],
+                "parameters": put_params,
                 "requestBody": {"required": True, "content": {
                     "application/json": {"schema": ref}}},
                 "responses": {
@@ -265,17 +289,27 @@ def write_paths(seg: str, fqn: str, latched: bool, access: str) -> dict:
                     **problem(400, "Not JSON, not valid for the schema, not "
                                    "encodable, the key differs from the URL, "
                                    "or the key has a control character "
-                                   "(`bad-key`)."),
+                                   "(`bad-key`)" + (
+                                       "; or the basis rule: a refresh "
+                                       "missing, not applicable, or out of "
+                                       "range" if world else "") + "."),
                     **refusals(*tenancy.WRITE_REFUSALS),
                     **problem(405, "Publishing is off on this endpoint."),
                     **problem(412, "If-Match did not match."),
+                    **(problem(503, "This gateway has a DDS domain and cannot "
+                                    "write this type to it (`not-on-bus`).")
+                       if world else {}),
                 }},
             "delete": {
                 "operationId": f"withdraw{name}", "tags": [seg],
                 "summary": f"Withdraw (dispose) a {fqn}",
-                "description": SCENE_RULE.split(" Every member")[0] + " The "
-                               "dispose streams on the collection's WebSocket "
-                               "with its `reason`.",
+                "description": SCENE_RULE.split(" Every member")[0] + (
+                    " A terminal sample (RETIRED, with the reason) streams "
+                    "first, then the dispose with its `reason`, on the "
+                    "collection's WebSocket and, on a gateway with a DDS "
+                    "domain, on the bus." if world else " The "
+                    "dispose streams on the collection's WebSocket "
+                    "with its `reason`."),
                 "security": [{"bearer": []}],
                 "parameters": [{"name": "reason", "in": "query",
                                 "required": False,
@@ -542,7 +576,16 @@ def document() -> dict:
                            "Schemas; never edited by hand. Reads are open; "
                            "writes take a bearer token scoped to scenes. "
                            "The WebSocket streams (N.5) are described on each "
-                           "collection path, not modelled.",
+                           "collection path, not modelled. A deployment's own "
+                           "keyed types (`serve --extension`) are publishable "
+                           "on their own collection paths, under the same "
+                           "rules as the entity lane when they carry `basis`, "
+                           "`state`, `state_reason` and `stamp`; a type that "
+                           "names an `asserter` has it stamped or verified as "
+                           "the bearer token's principal "
+                           "(`asserter-not-principal`, `asserter-ungrounded`). "
+                           "Their paths are not listed here, because the "
+                           "deployment chooses them.",
         },
         "servers": [{"url": DEFAULT_BASE}],
         "tags": [{"name": t} for t in

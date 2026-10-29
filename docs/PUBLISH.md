@@ -97,9 +97,12 @@ choice rather than a reading, and it is recorded in the candidates entry as an
 open question for 1.9 rather than settled here forever.
 
 Three record kinds are publishable: `announce`, `content_announce`, and
-`geo_anchor`. Everything else this endpoint serves stays read-only, and a `PUT`
-to any other topic is a `405` naming the three. All three types require every
-member, so a body is a whole record and never a patch; there is no `PATCH`.
+`geo_anchor`. Since 0.8.0 so is the world model's `entity` lane, and any keyed
+type the deployment registers (`serve --extension`); those are the **world
+lanes**, below. Everything else this endpoint serves stays read-only, and a
+`PUT` to any other topic is a `405` naming what is publishable. Every
+publishable type requires every member, so a body is a whole record and never
+a patch; there is no `PATCH`.
 
 ### What publishing an anchor means
 
@@ -134,6 +137,91 @@ observing once: a self-describing anchor published to a web registry, able to
 bind content at its own stated precision, is the open-anchors direction taking
 its first real step — which is also why the deferred provenance questions stop
 being theoretical.
+
+## World lanes: entities and claims (0.8.0)
+
+An HTTP client can put living things into a world, not only records about one.
+The `entity` lane (`spatial.owm.Entity`) and a deployment's own keyed types
+take the same `PUT`/`DELETE`, scene check, schema validation, wire round trip,
+quota and journal as the record lanes. What is new is what a write promises.
+
+**Basis gates liveliness.** A DDS writer's liveliness says whether anybody is
+still asserting what it wrote; an HTTP client has none, and the gateway does
+not fake one. So:
+
+- A `DECLARED` or `AUTHORED` body is a declaration. It holds until withdrawn,
+  like a record, and a `?refresh=` on it is refused (`refresh-not-applicable`).
+- An `OBSERVED` or `DERIVED` body says somebody is watching. It must declare
+  `?refresh=<seconds>` (1 to 3600) and be `PUT` again within that interval; a
+  re-PUT starts the interval again. With no interval it is refused
+  (`refresh-required`, `rule: basis`), and out of range as `refresh-invalid`.
+- When an interval lapses the gateway withdraws the instance itself: a terminal
+  sample (`state` RETIRED, `state_reason` `refresh lapsed`, `stamp` now) then
+  the dispose with the same reason. The gateway owns the writer, so this is the
+  writer's own deliberate removal (§2.14), never a disposal synthesized on
+  somebody else's behalf. The journal attributes it to `spatialdds-gateway`.
+
+A `DELETE` on a world lane is the same shape with your `?reason=`: terminal
+sample, then dispose. The record lanes still dispose alone, unchanged.
+
+The journal records each observed write's interval, so a restarted gateway
+re-arms the lease from its restart: a client that stops refreshing while the
+gateway is down still lapses, one interval after it comes back.
+
+**A claim's asserter is the token's principal.** A type that names an
+`asserter` (the 0.2 design's Relationship, or any deployment type spelled the
+same way) has it grounded the way a bus claim is grounded in its participant:
+an empty asserter is stamped with the principal's name, and any other value
+must be that name or the `PUT` is a `403` `asserter-not-principal` naming
+both. An endpoint with no token table has no principal and refuses claims
+(`asserter-ungrounded`). A single `--token` is the principal `operator`.
+
+**A deployment's own types.** `serve --extension MODULE` imports a module that
+calls `sd.dds.extend()`; each keyed type it registers is served and publishable
+on its own topic, validated against the schema N.2 publishes for it. It is a
+world lane if it has `basis`, `state`, `state_reason` and `stamp`.
+
+**On a bus.** `serve --dds-domain N` joins a DDS domain, and what the world
+lanes accept is written there too, from the gateway's own participant
+(`svc:spatialdds:gateway`), latched, so DDS readers see ordinary samples; a
+lapse or a `DELETE` is the SDK's own `Writer.withdraw()` on the bus. A world
+lane the gateway cannot write to its bus is refused `503` `not-on-bus` before
+anything is journalled. On start the gateway republishes what its journal
+holds. The record lanes are not written to the bus. See
+[WIRE.md](WIRE.md#writing-to-a-bus-080).
+
+Measured with curl against `python -m spatialdds.serve --publish --token tok
+--dds-domain 177 --extension curl_claims --public spatial.owm.Entity`, a DDS
+reader on another participant printing what arrived:
+
+```console
+$ curl -X PUT -H "$H" --data @bench.json $E/ent:bench
+201
+$ curl -X PUT -H "$H" --data @cyclist.json $E/ent:cyclist        # OBSERVED, no ?refresh=
+400 urn:spatialdds-web:problem:refresh-required
+$ curl -X PUT -H "$H" --data @cyclist.json "$E/ent:cyclist?refresh=5"
+201
+$ curl -X PUT -H "$H" --data @claim.json $C/near-1               # asserter left empty
+asserter 'operator'
+... 7 s, nobody refreshes the cyclist
+$ curl -o /dev/null -w "%{http_code}" $E/ent:cyclist
+404
+$ curl -o /dev/null -w "%{http_code}" $E/ent:bench
+200
+```
+
+```console
+bus   3.6s entity sample  ent:bench      basis=DECLARED state=ACTIVE
+bus   3.6s entity sample  ent:cyclist    basis=OBSERVED state=ACTIVE
+bus   3.6s claim  sample  near-1         basis=DECLARED state=CREATED asserter='operator'
+bus   8.5s entity sample  ent:cyclist    basis=OBSERVED state=RETIRED reason='refresh lapsed'
+bus   8.5s entity dispose ent:cyclist    reason='refresh lapsed'
+```
+
+Restarted on the same journal, five entries replayed: the bench and the claim,
+and not the cyclist. `gates/entity_publishing.py` holds all of it, with the
+lapse, the asserter rule and the basis rule each shown failable by a planted
+fault.
 
 ## Access
 
@@ -284,13 +372,15 @@ terminates exactly as before, which every existing WebSocket gate depends on and
 
 ## Deferred, and recorded rather than silently absent
 
-- **Leases and expiry.** A registry must eventually shed dead publishers, and
-  SSD parity requires it. Both records carry `ttl_sec` and nothing enforces it.
+- **Leases and expiry for records.** The world lanes have them since 0.8.0
+  (`?refresh=`, above). The record lanes do not: `Announce` and
+  `ContentAnnounce` carry `ttl_sec` and nothing enforces it yet.
 - **Per-record ownership.** Tokens are scoped to scenes (above); within a
   scene every principal granted it may replace or withdraw every record in it.
   A lane is the unit of ownership, not a record.
-- **Server-set identity fields.** `provider_id` and `org` are read from the
-  request body. They should come from the credential — the OSCP census's
+- **Server-set identity fields.** A claim's `asserter` comes from the
+  credential since 0.8.0 (above). The records' `provider_id` and `org` are
+  still read from the request body. They should come from the credential — the OSCP census's
   platform-set SCR fields are the precedent — and the design rule that outlives
   this batch is that identity never comes from the body. This batch does not
   honour it, which is why the rule is written into the candidates entry rather
@@ -301,7 +391,7 @@ terminates exactly as before, which every existing WebSocket gate depends on and
 
 `golden_publish`, `publish_reject`, `journal_replay`, `publish_live`,
 `publish_offswitch`, `publish_duck`, `publish_anchor`, `tenancy`, `limits`,
-`fuzz`, `security`; and `tools/torture/` for disk-full, torn writes and the
+`fuzz`, `security`, `entity_publishing`; and `tools/torture/` for disk-full, torn writes and the
 soak, which need a container rather than a gate's minutes. The walkthrough in
 [WALKTHROUGH.md](WALKTHROUGH.md) is walked command by command by
 `gates/quickstart.py`, including its step 8, which prints the three published
