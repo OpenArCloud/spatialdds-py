@@ -384,6 +384,45 @@ def lease_for(st: gateway.State, fqn: str, doc: dict,
     return interval
 
 
+#: The member a claim names its asserter in (the 0.2 design's
+#: Relationship, and any deployment type spelled the same way).
+ASSERTER = "asserter"
+
+
+def ground_asserter(st: gateway.State, fqn: str, doc: Any,
+                    principal: str) -> Any:
+    """A claim's asserter is the credential's principal, stamped or verified.
+
+    A bus claim's asserter is grounded in the participant that wrote it; an
+    HTTP claim's is grounded in the bearer token, the same way. An empty
+    asserter is stamped with the principal's name; any other value must be
+    that name. An endpoint with no token table has no principal, so it has
+    nothing to ground a claim in and refuses one rather than accept an
+    asserter nobody vouched for.
+    """
+    if ASSERTER not in members_of(st, fqn) or not isinstance(doc, dict):
+        return doc
+    claimed = doc.get(ASSERTER, "")
+    if not principal:
+        raise Rejected(
+            403, "asserter-ungrounded", "No principal to assert this claim",
+            f"A {fqn} names its asserter, and over HTTP the asserter is the "
+            f"bearer token's principal. This endpoint has no token table "
+            f"(--tokens), so no request carries a principal, and a claim "
+            f"cannot be grounded in one.", rule="asserter")
+    if claimed in ("", None):
+        return {**doc, ASSERTER: principal}
+    if claimed != principal:
+        raise Rejected(
+            403, "asserter-not-principal", "You may only assert as yourself",
+            f"The body's asserter is {claimed!r} and this token's principal "
+            f"is {principal!r}. A claim's asserter is who is making it, and "
+            f"over HTTP that is the credential's principal: leave asserter "
+            f"empty and it is stamped, or set it to {principal!r}.",
+            rule="asserter", asserter=claimed, principal=principal)
+    return doc
+
+
 def terminal(st: gateway.State, fqn: str, data: dict,
              reason: str) -> tuple[dict, bytes]:
     """The instance as its last sample says it is, retired, with the reason.

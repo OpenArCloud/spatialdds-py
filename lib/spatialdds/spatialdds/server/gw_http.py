@@ -1131,6 +1131,9 @@ async def put_instance(request: web.Request) -> web.Response:
     try:
         topic, res = publish.resource_for_put(
             st, m["scene"], m["stream"], m["type"], m["version"])
+        # Before validation: an empty asserter is stamped, and the stamped
+        # body is the one checked, encoded and stored.
+        body = publish.ground_asserter(st, res.fqn, body, who.name)
         publish.validate_schema(res.fqn, body, st)
         publish.check_authority(request.app["base"], body)
         data, raw = publish.canonicalize(st, res.fqn, body)
