@@ -55,7 +55,7 @@ import aiohttp                                                 # noqa: E402
 from mcap.reader import make_reader                            # noqa: E402
 
 from harness import FOUNTAIN, TOKEN, Gateway, report          # noqa: E402
-from spatialdds.server import gateway, pin, webjson            # noqa: E402
+from spatialdds.server import gateway, pin, publish, webjson   # noqa: E402
 
 PUB = ROOT / "samples" / "published-records.input.json"
 
@@ -134,9 +134,10 @@ def pin_vs_tables(checks: list) -> None:
     print(f"  note the pin covers {len(common)} of {len(T)} table entries; "
           f"{len(uncovered)} types are not in any closure (e.g. "
           f"{', '.join(q.split('.')[-1] for q in uncovered[:3])})")
-    want = {"spatial.disco.Announce", "spatial.disco.ContentAnnounce",
-            "spatial.core.GeoAnchor"}
-    checks.append((f"all three publishable kinds are in the pin, each with "
+    # Every publishable kind, from the table that makes it publishable,
+    # rather than a list here that a new kind would have to remember.
+    want = set(publish.PUBLISHABLE.values())
+    checks.append((f"all {len(want)} publishable kinds are in the pin, each with "
                    "its @key -- which is why the IDL and not the tables is "
                    "the type source",
                    want <= set(model.aggregates)
@@ -157,13 +158,21 @@ def pin_vs_recording(checks: list) -> None:
             if sch.encoding == "omgidl":
                 recorded[sch.name] = sch.data
     mine = dict(pin.schema_records())
-    same = {n: recorded.get(n) == mine.get(n)
-            for n in sorted(set(recorded) | set(mine))}
+    # Over the recording's records, as the check says: the pin boots more
+    # types than the fountain recording carries (the entity lane, 0.8.0), and
+    # a type the recording never embedded has nothing to be compared with.
+    same = {n: recorded.get(n) == mine.get(n) for n in sorted(recorded)}
     checks.append((f"the pin flattens to the same bytes "
                    f"{FOUNTAIN.name} embeds, for all "
                    f"{len(recorded)} of its schema records",
                    bool(recorded) and all(same.values()),
                    f"{ {n: ('same' if v else 'DIFFERS') for n, v in same.items()} }"))
+    checks.append((f"the pin boots every type the recording carries, and "
+                   f"the publishable ones beyond it "
+                   f"({', '.join(sorted(set(mine) - set(recorded))) or 'none'})",
+                   set(recorded) <= set(mine)
+                   and {f.replace('.', '::') for f in publish.PUBLISHABLE.values()}
+                   <= set(mine), f"{sorted(mine)}"))
     digests = sorted({hashlib.sha256(d).hexdigest()[:12]
                       for d in mine.values()})
     print(f"  note the pin's schema records: "

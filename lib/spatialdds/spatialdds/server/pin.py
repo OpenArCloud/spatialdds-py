@@ -43,7 +43,11 @@ IDL_DIR = ARTIFACTS / "idl"
 #: choice and is listed. Which files define them is a fact about the IDL, and
 #: is computed (`closure_for`).
 BOOT_TYPES = ("spatial::core::GeoAnchor", "spatial::disco::ContentAnnounce",
-              "spatial::disco::Announce")
+              "spatial::disco::Announce",
+              # 0.8.0: the entity lane is publishable, so an empty registry
+              # has to know what an Entity is before anybody puts one in.
+              # Provisional (`spatial.owm/0.1`), and vendored as such.
+              "spatial::owm::Entity")
 
 PREAMBLE = """// Flattened for the MCAP schema payload: includes resolved and
 // preprocessor directives removed, so this is a single

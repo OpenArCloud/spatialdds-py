@@ -101,8 +101,13 @@ def valid_record(seg: str, fqn: str, key_name: str,
     for _ in range(50):
         rec = generate(root, root, rng)
         key_field = {"announce": "service_id", "content_announce": "content_id",
-                     "geo_anchor": "anchor_id"}[seg]
+                     "geo_anchor": "anchor_id", "entity": "entity_id"}[seg]
         rec[key_field] = key_name
+        # A valid entity is a declaration: an observed one with no
+        # ?refresh= is correctly refused (0.8.0's basis rule), and the
+        # baseline case has to be one the endpoint accepts.
+        if "basis" in rec:
+            rec["basis"] = "DECLARED"
         for k in ("manifest_uri",):
             if k in rec:
                 rec[k] = ""
@@ -225,7 +230,7 @@ async def run_cases(s, base: str, tok: str, rng: random.Random,
     auth = {"Authorization": f"Bearer {tok}"}
     for seg, fqn in sorted(publish.PUBLISHABLE.items()):
         stream = {"announce": "discovery", "content_announce": "content",
-                  "geo_anchor": "frames"}[seg]
+                  "geo_anchor": "frames", "entity": "world"}[seg]
         key = f"fuzz-{seg}"
         rec, _kf = valid_record(seg, fqn, key, rng)
         path = f"/{SCENE}/{stream}/{seg}/v1/{quote(key, safe='')}"

@@ -267,6 +267,37 @@ def base_authority(base: str) -> str:
     return base.split("//", 1)[-1].split("/", 1)[0] if "//" in base else ""
 
 
+def _boot_missing(model: idlmodel.Model, idl: dict[str, tuple[str, bytes]],
+                  idl_dir: "Path | None | object") -> None:
+    """The pin's definition of every boot type the recording does not define.
+
+    A recording describes the types it carries and no others, and the write
+    surface has to know every publishable kind whatever the seed was: a
+    gateway seeded with the fountain recording, which carries no Entity,
+    answered an entity PUT 503 until 0.8.0 (found by `gates/fuzz.py` the day
+    the entity lane became publishable). Only gaps are filled: a type the
+    recording does define is read as the recording says, never replaced.
+    """
+    where = pin.IDL_DIR if idl_dir is PINNED else idl_dir
+    if where is None:
+        return
+    wanted = [r for r in pin.schema_records(where)
+              if r[0].replace("::", ".") not in model.aggregates]
+    if not wanted:
+        return
+    boot, boot_idl = pin.model_from_records(wanted, whence="the pin")
+    for k, v in boot.aggregates.items():
+        model.aggregates.setdefault(k, v)
+    for k, v in boot.typedefs.items():
+        model.typedefs.setdefault(k, v)
+    for k, v in boot.constants.items():
+        model.constants.setdefault(k, v)
+    model._leaves = None
+    for name, _data in wanted:
+        fqn = name.replace("::", ".")
+        idl.setdefault(fqn, boot_idl[fqn])
+
+
 def add_extension(st: State, type_name: str, fqn: str, record: bytes) -> None:
     """Serve, and accept writes for, a deployment's own keyed type.
 
@@ -431,6 +462,7 @@ def build_state(path: Path | None, manifests: Path | None = None,
                      manifests=load_manifests(manifests)
                      if manifests else {}, public=frozenset(public))
     model, idl = _wire_model(path)
+    _boot_missing(model, idl, idl_dir)
     tables = webjson.tables()
     dec = xcdr2.Decoder(model)
     proj = webjson.Projector(model, tables)

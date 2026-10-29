@@ -105,15 +105,19 @@ def main() -> int:
     from mcap.writer import Writer as McapWriter
     with tempfile.TemporaryDirectory() as tmp:
         rec = Path(tmp) / "k.mcap"
-        model, idl = pin.wire_model()
-        samples = [codec.from_json(_types_class(f), d) for f, d in built.items()
-                   if f in idl]
+        # Every built type, each under its own schema record, exactly as the
+        # native recorder embeds one (`pin.schema_record`). It used to pick
+        # its types from `pin.wire_model()`'s IDL map, whose entry for a type
+        # is the record that *defined* it: once the pin booted Entity, whose
+        # closure also defines ModelPose, a ModelPose sample was written under
+        # the schema name spatial::owm::Entity and read back as one.
+        samples = [codec.from_json(_types_class(f), d) for f, d in built.items()]
         with open(rec, "wb") as f:
             w = McapWriter(f)
             w.start(profile="spatialdds", library="gates/native_codec")
             for i, s in enumerate(samples):
                 fqn = codec.fqn_of(s)
-                name, data = idl[fqn]
+                name, data = pin.schema_record(fqn.replace(".", "::"))
                 sid = w.register_schema(name=name, encoding="omgidl", data=data)
                 cid = w.register_channel(
                     topic=f"spatialdds/plaza/k{i}/{fqn.rsplit('.', 1)[1].lower()}/v1",
@@ -122,7 +126,11 @@ def main() -> int:
                               data=s.serialize())
             w.finish()
         st = gateway.build_state(rec, None)
-        served = sorted(k for t in st.latched.values() for k in t)
+        # Latched instances and live samples both: ModelPose is a volatile
+        # lane, served as events rather than as latched state.
+        served = sorted([k for t in st.latched.values() for k in t]
+                        + [e["key"] for evs in st.live.values() for e in evs
+                           if e.get("event") == "sample"])
     native = sorted(codec.key_of(s) for s in samples)
     checks.append((f"key_of names each instance exactly as the gateway "
                    f"indexes the same bytes ({', '.join(native)})",
