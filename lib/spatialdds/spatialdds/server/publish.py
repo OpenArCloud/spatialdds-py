@@ -53,7 +53,17 @@ PUBLISHABLE: dict[str, str] = {
     # asserts a pose at the confidence its own `method` and `cov` declare, and
     # publishing does not upgrade that claim. See docs/PUBLISH.md.
     "geo_anchor": "spatial.core.GeoAnchor",
+    # The world model's entity lane, 0.8.0: an HTTP client can put things
+    # into a world, not only records about one. Its basis decides whether it
+    # has to keep saying so (`lease_for`). See docs/PUBLISH.md.
+    "entity": "spatial.owm.Entity",
 }
+
+#: Every row above is a record lane except these: a world-model lane, whose
+#: type carries a basis and a lifecycle, so its basis gates liveliness and
+#: its withdrawal is a terminal sample before the dispose. A deployment's own
+#: keyed type (`State.publishable`) is decided by its members instead.
+WORLD_LANES = frozenset({"spatial.owm.Entity"})
 
 # A dispose has no 1.8 record. `Depart` is a service withdrawal and nothing
 # expresses a content withdrawal, so the journal carries disposes as MCAP
@@ -139,8 +149,13 @@ def check_authority(base: str, doc: Any) -> None:
             f"{', '.join(foreign)}.", authority=mine, foreign=foreign)
 
 
-def validate_schema(fqn: str, doc: Any) -> None:
-    """The vendored generated schema, checked with the gates' own checker."""
+def validate_schema(fqn: str, doc: Any, st: "gateway.State | None" = None) -> None:
+    """The vendored generated schema, checked with the gates' own checker.
+
+    A deployment's own type has no vendored schema; it is checked against the
+    one this endpoint publishes for it under N.2, written from the same model
+    by the specification generator's rules (`webjson.schema_from_model`).
+    """
     try:
         import jsonschema
     except ImportError as e:                                  # pragma: no cover
@@ -149,6 +164,9 @@ def validate_schema(fqn: str, doc: Any) -> None:
                        f"vendored schemas and jsonschema is not installed: "
                        f"{e}") from e
     schema = webjson.schemas().get(fqn)
+    if schema is None and st is not None and st.model is not None \
+            and fqn in st.publishable.values():
+        schema = webjson.schema_from_model(st.model, fqn)
     if schema is None:
         raise Rejected(500, "no-schema", "No schema for that type",
                        f"No vendored schema for {fqn}, so a body cannot be "
@@ -159,7 +177,7 @@ def validate_schema(fqn: str, doc: Any) -> None:
         where = "/".join(str(p) for p in e.absolute_path) or "(root)"
         raise Rejected(
             400, "schema-invalid", "Body does not match its schema",
-            f"{fqn} at {where}: {e.message}. Both publishable records require "
+            f"{fqn} at {where}: {e.message}. Every publishable type requires "
             f"every member, so a body is a whole record and never a patch.",
             fqn=fqn, at=where) from e
 
@@ -188,13 +206,14 @@ def canonicalize(st: gateway.State, fqn: str,
 def resource_for_put(st: gateway.State, scene: str, stream: str,
                      type_seg: str, version: str) -> tuple[str, gateway.Resource]:
     """The resource a PUT addresses, created if this topic is new."""
-    fqn = PUBLISHABLE.get(type_seg)
+    fqn = PUBLISHABLE.get(type_seg) or st.publishable.get(type_seg)
+    every = sorted(set(PUBLISHABLE) | set(st.publishable))
     if fqn is None:
         raise Rejected(
             405, "not-publishable", "That topic is not publishable",
-            f"This endpoint publishes exactly the two SSD/SCD successors: "
-            f"{', '.join(sorted(PUBLISHABLE))}. Everything else it serves is "
-            f"read-only.", publishable=sorted(PUBLISHABLE))
+            f"This endpoint publishes {', '.join(every)}, and the "
+            f"deployment's own keyed types once registered (`extend()`). "
+            f"Everything else it serves is read-only.", publishable=every)
     if version != "v1":
         raise Rejected(404, "no-such-version", "No such version",
                        f"Version {version!r} is not served.")
@@ -204,7 +223,7 @@ def resource_for_put(st: gateway.State, scene: str, stream: str,
         raise Rejected(405, "not-publishable", "That topic is not publishable",
                        "A topic with no scene segment is served read-only; "
                        "this endpoint's write surface is per scene.",
-                       publishable=sorted(PUBLISHABLE))
+                       publishable=every)
     topic = f"spatialdds/{scene}/{stream}/{type_seg}/{version}"
     res = st.resources.get(gateway.resource_path(scene, stream, type_seg, version))
     if res is None:
@@ -215,7 +234,13 @@ def resource_for_put(st: gateway.State, scene: str, stream: str,
                            f"it cannot serve it. Seed it with a recording or "
                            f"journal that carries the type.")
         keys = [m.name for m in agg.members if m.is_key]
-        latched, access = gateway.DURABILITY.get(fqn, (False, gateway.OPERATOR))
+        # A deployment's keyed type, published into, is state a late joiner
+        # is handed: latched. Who may read it is still the deployment's
+        # call, by the same `--public` rule a recorded lane follows.
+        latched, access = gateway.DURABILITY.get(
+            fqn, (fqn in st.publishable.values(), gateway.OPERATOR))
+        if fqn in st.public:
+            access = gateway.PUBLIC
         res = gateway.Resource(scene, stream, type_seg, version, topic, fqn,
                                keys[0] if keys else "", access, latched)
         st.resources[res.path] = res

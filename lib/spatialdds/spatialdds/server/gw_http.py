@@ -1036,7 +1036,7 @@ async def put_instance(request: web.Request) -> web.Response:
     try:
         topic, res = publish.resource_for_put(
             st, m["scene"], m["stream"], m["type"], m["version"])
-        publish.validate_schema(res.fqn, body)
+        publish.validate_schema(res.fqn, body, st)
         publish.check_authority(request.app["base"], body)
         data, raw = publish.canonicalize(st, res.fqn, body)
     except publish.Rejected as r:

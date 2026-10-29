@@ -167,6 +167,19 @@ class State:
     # embed is the one this gateway itself learned the type from, byte for
     # byte, not a re-flattened copy from somewhere else.
     idl: dict[str, tuple[str, bytes]] = field(default_factory=dict)
+    #: The deployment's own keyed types its write surface accepts, by the
+    #: type segment of their topics (`oarc.relationship`), each to its fqn.
+    #: Filled by `add_extension`; the spec's publishable types are
+    #: `publish.PUBLISHABLE` and are not repeated here.
+    publishable: dict[str, str] = field(default_factory=dict)
+    #: The types `--public` names. Kept, and not only applied at load, so a
+    #: lane that first exists because somebody published into it is public
+    #: by the same rule as one a recording carried.
+    public: frozenset[str] = frozenset()
+    #: Instances whose basis says somebody is watching (OBSERVED, DERIVED),
+    #: by (topic, key): the interval their writer declared and the moment it
+    #: lapses. `publish.Lease`. The gateway withdraws one that lapses.
+    leases: dict[tuple[str, str], Any] = field(default_factory=dict)
 
     def resource_for(self, path: str) -> Resource | None:
         return self.resources.get(path.rstrip("/"))
@@ -252,6 +265,40 @@ def base_authority(base: str) -> str:
     process happens to have bound. `--public-url` is what makes the two agree.
     """
     return base.split("//", 1)[-1].split("/", 1)[0] if "//" in base else ""
+
+
+def add_extension(st: State, type_name: str, fqn: str, record: bytes) -> None:
+    """Serve, and accept writes for, a deployment's own keyed type.
+
+    The type is what `sd.dds.extend()` registered: its §3.3.2-style name,
+    which is also the type segment of its topics (`oarc.relationship`), its
+    fqn, and the flattened IDL a recording embeds for it. The IDL joins the
+    wire model, so the gateway can encode, decode, journal and describe the
+    type (N.2's schema comes from the same model, `webjson.schema_from_model`),
+    and the name joins `State.publishable`, so the write surface accepts it.
+
+    Keyed only: a write is addressed to an instance, and an unkeyed type has
+    none to address.
+    """
+    model, idl = pin.model_from_records([(fqn.replace(".", "::"), record)],
+                                        whence=f"extension {type_name}")
+    agg = model.get(fqn)
+    if agg is None:
+        raise ValueError(f"extension {type_name}'s IDL does not define {fqn}")
+    if not any(m.is_key for m in agg.members):
+        raise ValueError(f"extension {type_name} ({fqn}) has no @key member, "
+                         f"so it has no instances a write could address")
+    if st.model is None:
+        st.model = model
+    else:
+        st.model.aggregates.update(model.aggregates)
+        st.model.typedefs.update(model.typedefs)
+        st.model.constants.update(model.constants)
+        st.model._leaves = None
+    for k, v in idl.items():
+        st.idl.setdefault(k, v)
+    st.idl[fqn] = idl[fqn]
+    st.publishable[type_name] = fqn
 
 
 def load_manifests(d: Path) -> dict[str, dict]:
@@ -382,7 +429,7 @@ def build_state(path: Path | None, manifests: Path | None = None,
                      type_source=pin.describe(where) if where is not None
                      else "none: no type source given",
                      manifests=load_manifests(manifests)
-                     if manifests else {})
+                     if manifests else {}, public=frozenset(public))
     model, idl = _wire_model(path)
     tables = webjson.tables()
     dec = xcdr2.Decoder(model)
@@ -391,7 +438,8 @@ def build_state(path: Path | None, manifests: Path | None = None,
     st = State(source=str(path), model=model, idl=idl,
                source_sha256=hashlib.sha256(path.read_bytes()).hexdigest(),
                type_source=f"the recording's own embedded IDL ({path.name})",
-               manifests=load_manifests(manifests) if manifests else {})
+               manifests=load_manifests(manifests) if manifests else {},
+               public=public)
     # Which latched instances were in force when the window opened. A
     # recording does not carry QoS, so "the latched set at t0" is not stated
     # anywhere in the file; what it does carry is log times, and a definition

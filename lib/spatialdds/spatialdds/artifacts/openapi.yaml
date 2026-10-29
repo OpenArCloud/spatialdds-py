@@ -13,6 +13,7 @@ tags:
 - name: assets
 - name: announce
 - name: content_announce
+- name: entity
 - name: geo_anchor
 - name: read-only
 security:
@@ -169,7 +170,7 @@ paths:
         '200':
           description: '`{authority, https_base, …}`.'
           headers: &id002
-            ETag: &id009
+            ETag: &id011
               schema:
                 type: string
               description: Revalidate with `If-None-Match`; `304` when unchanged.
@@ -987,6 +988,290 @@ paths:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/Problem'
+  /{scene}/{stream}/entity/v1:
+    parameters:
+    - $ref: '#/components/parameters/scene'
+    - $ref: '#/components/parameters/stream'
+    get:
+      operationId: listEntity
+      tags:
+      - entity
+      summary: Every spatial.owm.Entity instance in the latched set
+      description: '**The same URL is also a WebSocket** (N.5): connect with `wss://` and receive the latched set as `sample` events, exactly one `end_of_replay` carrying the replay count, then live `sample` and `dispose` events (`{event, topic, key, data | reason}`). Not modelled here; see [Appendix N.5](https://spatialdds.org/v1.8/appendix-n/).'
+      security: &id008
+      - bearer: []
+      responses:
+        '200':
+          description: The latched set.
+          headers: *id002
+          content:
+            application/json:
+              schema:
+                type: array
+                items: &id007
+                  $ref: '#/components/schemas/spatial_owm_Entity'
+        '304':
+          description: Not modified.
+        '404':
+          description: No such resource on this endpoint.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '429':
+          description: '`rate-limited` -- Too many requests: more requests from one client than its rate allows.'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '503':
+          description: '`too-many-subscriptions` -- Too many subscriptions: the endpoint''s WebSocket cap is reached.'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+    post:
+      operationId: commandEntity
+      tags:
+      - entity
+      summary: An N.6 command addressed through the entity lane
+      description: 'Accepted only on a lane whose topic advertises `accepts_commands`; otherwise `405`. **Writes are per lane.** The path''s first segment is the scene; the bearer token must be granted it (`tenancy.WRITE_REFUSALS`). Every member of the record is required: a body is a whole record, never a patch.'
+      security:
+      - bearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: *id007
+      responses:
+        '202':
+          description: Accepted (not completed).
+        '400':
+          description: Body not valid for the type.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '401':
+          description: '`operator-scoped` -- Operator-scoped resource: no bearer token, or one this endpoint did not issue.'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: '`not-your-lane` -- Not your lane: a valid token writing a scene outside its grant. `scene-creation-not-granted` -- No such scene: a scene that exists nowhere, from a principal that may not create scenes. `quota-exceeded` -- Record quota reached: a new record in a scene already holding the principal''s `max_records`.'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '405':
+          description: No command lane here.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '409':
+          description: Declined by the backend, with a reason.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '429':
+          description: '`rate-limited` -- Too many requests: more requests from one client than its rate allows.'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '413':
+          description: '`body-too-large` -- Request body too large: a request body over the endpoint''s stated limit.'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '415':
+          description: '`unsupported-media-type` -- Body is not JSON by its content type: a request body sent as anything but application/json.'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+  /{scene}/{stream}/entity/v1/{key}:
+    parameters:
+    - $ref: '#/components/parameters/scene'
+    - $ref: '#/components/parameters/stream'
+    - $ref: '#/components/parameters/key'
+    get:
+      operationId: getEntity
+      tags:
+      - entity
+      summary: One spatial.owm.Entity instance
+      security: *id008
+      responses:
+        '200':
+          description: The instance.
+          headers: *id002
+          content:
+            application/json:
+              schema: *id007
+        '304':
+          description: Not modified.
+        '404':
+          description: No such instance.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '429':
+          description: '`rate-limited` -- Too many requests: more requests from one client than its rate allows.'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+    put:
+      operationId: putEntity
+      tags:
+      - entity
+      summary: Publish or replace a spatial.owm.Entity
+      description: '**Writes are per lane.** The path''s first segment is the scene; the bearer token must be granted it (`tenancy.WRITE_REFUSALS`). Every member of the record is required: a body is a whole record, never a patch. The body''s key must equal the URL''s. `If-Match` is honoured when present.'
+      security:
+      - bearer: []
+      parameters:
+      - name: If-Match
+        in: header
+        required: false
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: *id007
+      responses:
+        '200':
+          description: Replaced.
+          headers: *id002
+          content:
+            application/json:
+              schema: *id007
+        '201':
+          description: Created.
+          headers: *id002
+          content:
+            application/json:
+              schema: *id007
+        '400':
+          description: Not JSON, not valid for the schema, not encodable, the key differs from the URL, or the key has a control character (`bad-key`).
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '401':
+          description: '`operator-scoped` -- Operator-scoped resource: no bearer token, or one this endpoint did not issue.'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: '`not-your-lane` -- Not your lane: a valid token writing a scene outside its grant. `scene-creation-not-granted` -- No such scene: a scene that exists nowhere, from a principal that may not create scenes. `quota-exceeded` -- Record quota reached: a new record in a scene already holding the principal''s `max_records`.'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '405':
+          description: Publishing is off on this endpoint.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '412':
+          description: If-Match did not match.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '429':
+          description: '`rate-limited` -- Too many requests: more requests from one client than its rate allows.'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '413':
+          description: '`body-too-large` -- Request body too large: a request body over the endpoint''s stated limit.'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '415':
+          description: '`unsupported-media-type` -- Body is not JSON by its content type: a request body sent as anything but application/json.'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '503':
+          description: '`journal-unwritable` -- the journal could not be written (disk full); nothing was accepted, reads are unaffected, retry after `Retry-After`.'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+    delete:
+      operationId: withdrawEntity
+      tags:
+      - entity
+      summary: Withdraw (dispose) a spatial.owm.Entity
+      description: '**Writes are per lane.** The path''s first segment is the scene; the bearer token must be granted it (`tenancy.WRITE_REFUSALS`). The dispose streams on the collection''s WebSocket with its `reason`.'
+      security:
+      - bearer: []
+      parameters:
+      - name: reason
+        in: query
+        required: false
+        schema:
+          type: string
+        description: Carried on the dispose event; `withdrawn` if absent.
+      responses:
+        '204':
+          description: Withdrawn.
+        '400':
+          description: '`bad-key` -- a key with a control character.'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '401':
+          description: '`operator-scoped` -- Operator-scoped resource: no bearer token, or one this endpoint did not issue.'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: '`not-your-lane` -- Not your lane: a valid token writing a scene outside its grant. `scene-creation-not-granted` -- No such scene: a scene that exists nowhere, from a principal that may not create scenes. `quota-exceeded` -- Record quota reached: a new record in a scene already holding the principal''s `max_records`.'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '404':
+          description: No such instance.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '405':
+          description: Publishing is off on this endpoint.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '429':
+          description: '`rate-limited` -- Too many requests: more requests from one client than its rate allows.'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '503':
+          description: '`journal-unwritable` -- the journal could not be written (disk full); nothing was accepted, reads are unaffected, retry after `Retry-After`.'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
   /{scene}/{stream}/geo_anchor/v1:
     parameters:
     - $ref: '#/components/parameters/scene'
@@ -997,7 +1282,7 @@ paths:
       - geo_anchor
       summary: Every spatial.core.GeoAnchor instance in the latched set
       description: '**The same URL is also a WebSocket** (N.5): connect with `wss://` and receive the latched set as `sample` events, exactly one `end_of_replay` carrying the replay count, then live `sample` and `dispose` events (`{event, topic, key, data | reason}`). Not modelled here; see [Appendix N.5](https://spatialdds.org/v1.8/appendix-n/).'
-      security: &id008 []
+      security: &id010 []
       responses:
         '200':
           description: The latched set.
@@ -1006,7 +1291,7 @@ paths:
             application/json:
               schema:
                 type: array
-                items: &id007
+                items: &id009
                   $ref: '#/components/schemas/spatial_core_GeoAnchor'
         '304':
           description: Not modified.
@@ -1040,7 +1325,7 @@ paths:
         required: true
         content:
           application/json:
-            schema: *id007
+            schema: *id009
       responses:
         '202':
           description: Accepted (not completed).
@@ -1102,14 +1387,14 @@ paths:
       tags:
       - geo_anchor
       summary: One spatial.core.GeoAnchor instance
-      security: *id008
+      security: *id010
       responses:
         '200':
           description: The instance.
           headers: *id002
           content:
             application/json:
-              schema: *id007
+              schema: *id009
         '304':
           description: Not modified.
         '404':
@@ -1142,20 +1427,20 @@ paths:
         required: true
         content:
           application/json:
-            schema: *id007
+            schema: *id009
       responses:
         '200':
           description: Replaced.
           headers: *id002
           content:
             application/json:
-              schema: *id007
+              schema: *id009
         '201':
           description: Created.
           headers: *id002
           content:
             application/json:
-              schema: *id007
+              schema: *id009
         '400':
           description: Not JSON, not valid for the schema, not encodable, the key differs from the URL, or the key has a control character (`bad-key`).
           content:
@@ -1281,7 +1566,7 @@ paths:
       tags:
       - read-only
       summary: Any other served topic, read-only
-      description: 'Latched types answer with the latched set; streamed types with the replayed window. Public or operator-scoped per the type: `spatial.core.FrameTransform` latched public, `spatial.events.CrossingLine` latched public, `spatial.events.SpatialEvent` stream bearer, `spatial.events.SpatialZone` latched public, `spatial.owm.Entity` latched bearer, `spatial.owm.ModelPose` stream bearer, `spatial.semantics.Detection2DSet` stream bearer, `spatial.semantics.Detection3DSet` stream bearer, `spatial.semantics.FusedTrackSet` stream bearer. **The same URL is also a WebSocket** (N.5): connect with `wss://` and receive the latched set as `sample` events, exactly one `end_of_replay` carrying the replay count, then live `sample` and `dispose` events (`{event, topic, key, data | reason}`). Not modelled here; see [Appendix N.5](https://spatialdds.org/v1.8/appendix-n/).'
+      description: 'Latched types answer with the latched set; streamed types with the replayed window. Public or operator-scoped per the type: `spatial.core.FrameTransform` latched public, `spatial.events.CrossingLine` latched public, `spatial.events.SpatialEvent` stream bearer, `spatial.events.SpatialZone` latched public, `spatial.owm.ModelPose` stream bearer, `spatial.semantics.Detection2DSet` stream bearer, `spatial.semantics.Detection3DSet` stream bearer, `spatial.semantics.FusedTrackSet` stream bearer. **The same URL is also a WebSocket** (N.5): connect with `wss://` and receive the latched set as `sample` events, exactly one `end_of_replay` carrying the replay count, then live `sample` and `dispose` events (`{event, topic, key, data | reason}`). Not modelled here; see [Appendix N.5](https://spatialdds.org/v1.8/appendix-n/).'
       security:
       - {}
       - bearer: []
@@ -1289,7 +1574,7 @@ paths:
         '200':
           description: The instances; `X-SpatialDDS-Type` names which schema.
           headers:
-            ETag: *id009
+            ETag: *id011
             X-SpatialDDS-Type:
               schema:
                 type: string
@@ -1303,7 +1588,6 @@ paths:
                   - $ref: '#/components/schemas/spatial_events_CrossingLine'
                   - $ref: '#/components/schemas/spatial_events_SpatialEvent'
                   - $ref: '#/components/schemas/spatial_events_SpatialZone'
-                  - $ref: '#/components/schemas/spatial_owm_Entity'
                   - $ref: '#/components/schemas/spatial_owm_ModelPose'
                   - $ref: '#/components/schemas/spatial_semantics_Detection2DSet'
                   - $ref: '#/components/schemas/spatial_semantics_Detection3DSet'
@@ -1336,11 +1620,11 @@ paths:
                 $ref: '#/components/schemas/Problem'
   /.well-known/spatialdds/{stream}/{type}/{version}:
     parameters:
-    - &id010
-      $ref: '#/components/parameters/stream'
-    - &id011
-      $ref: '#/components/parameters/type'
     - &id012
+      $ref: '#/components/parameters/stream'
+    - &id013
+      $ref: '#/components/parameters/type'
+    - &id014
       $ref: '#/components/parameters/version'
     get:
       operationId: listWellKnownInstances
@@ -1351,7 +1635,7 @@ paths:
       security:
       - {}
       - bearer: []
-      responses: &id013
+      responses: &id015
         '200':
           description: As for a scene-scoped topic.
           headers: *id002
@@ -1386,9 +1670,9 @@ paths:
                 $ref: '#/components/schemas/Problem'
   /.well-known/spatialdds/{stream}/{type}/{version}/{key}:
     parameters:
-    - *id010
-    - *id011
     - *id012
+    - *id013
+    - *id014
     - $ref: '#/components/parameters/key'
     get:
       operationId: getWellKnownInstance
@@ -1399,7 +1683,7 @@ paths:
       security:
       - {}
       - bearer: []
-      responses: *id013
+      responses: *id015
 components:
   securitySchemes:
     bearer:
