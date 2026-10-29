@@ -82,7 +82,8 @@ class Gateway:
                  journal: Path | None = None,
                  commands: "object | None" = None,
                  live: bool | None = None,
-                 tokens: "object | None" = None) -> None:
+                 tokens: "object | None" = None,
+                 bus: "object | None" = None) -> None:
         self.state = st
         self.token = token
         self.advertise = advertise
@@ -99,6 +100,9 @@ class Gateway:
         #: A `tenancy.TokenTable`, for a gate that needs principals and
         #: lanes; None keeps the one-`token` shape every other gate uses.
         self.tokens = tokens
+        #: The gateway's DDS writer (`server.bus.Bus`), for a gate that reads
+        #: what the world lanes put on a bus; None for every other gate.
+        self.bus = bus
         self._runner: web.AppRunner | None = None
         self.base = ""
         #: The app itself, for a gate that acts as an embedder: `notify`
@@ -114,7 +118,7 @@ class Gateway:
                                self.publish, self.journal, ASSETS,
                                command_registry=self.commands,
                                live_subscriptions=self.live,
-                               tokens=self.tokens)
+                               tokens=self.tokens, bus=self.bus)
         # The parser limits `serve` runs with, so a gate sees what a deployed
         # endpoint does with a long request target.
         from spatialdds.server.limits import HANDLER_ARGS

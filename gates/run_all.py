@@ -291,6 +291,9 @@ def gates() -> list[dict]:
         {"name": "unservable", "what": "a non-finite double refuses its recording by name",
          "cmd": ["gates/unservable.py"],
          "skip": None},
+        {"name": "entity_publishing", "what": "entities and claims are published, refreshed, lapsed and grounded as ruled, over HTTP and on the bus",
+         "cmd": ["gates/entity_publishing.py"],
+         "skip": no_dds or no_web},
     ]
 
 
