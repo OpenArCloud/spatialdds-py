@@ -1057,8 +1057,25 @@ def withdraw(app: web.Application, topic: str, res: gateway.Resource,
     st.leases.pop((topic, key), None)
     events.append({"event": "dispose", "topic": topic, "key": key,
                    "reason": reason})
+    bus = app["bus"]
+    if bus is not None and publish.is_world(st, res.fqn):
+        _to_bus(app, lambda: bus.withdraw(topic, res.fqn, key, reason))
     for ev in events:
         notify(app, topic, ev)
+
+
+def _to_bus(app: web.Application, act: Any) -> None:
+    """Write to the bus after the journal and the state already took it.
+
+    The writer was opened before the journal entry, so what remains is DDS
+    itself; a failure there is said on stderr and not undone, because the
+    endpoint has accepted the write and the journal holds it.
+    """
+    try:
+        act()
+    except Exception as e:
+        print(f"spatialdds: bus write failed: {type(e).__name__}: {e}",
+              file=sys.stderr)
 
 
 def reap(app: web.Application, now: float | None = None) -> list[tuple[str, str]]:
@@ -1109,6 +1126,11 @@ async def _stop_reaper(app: web.Application) -> None:
             await task
         except asyncio.CancelledError:
             pass
+
+
+async def _close_bus(app: web.Application) -> None:
+    if app.get("bus") is not None:
+        app["bus"].close()
 
 
 async def put_instance(request: web.Request) -> web.Response:
@@ -1177,6 +1199,17 @@ async def put_instance(request: web.Request) -> web.Response:
         over = _over_quota(request, who, res.scene)
         if over is not None:
             return over
+    # A world lane on a gateway with a bus: refuse before anything is
+    # journalled if the bus cannot carry it, so the two never disagree.
+    bus = request.app["bus"]
+    on_bus = bus is not None and publish.is_world(st, res.fqn)
+    if on_bus:
+        try:
+            bus.writer(topic, res.fqn)
+        except Exception as e:
+            return _rejected(publish.Rejected(
+                503, "not-on-bus", "This gateway cannot write that to its bus",
+                str(e), topic=topic, type=res.fqn), request)
     # Journal first: a write the disk refuses is refused to the client, and
     # the registry never holds what its journal does not.
     jr: publish.Journal | None = request.app["journal"]
@@ -1193,6 +1226,8 @@ async def put_instance(request: web.Request) -> web.Response:
         st.leases[(topic, key)] = publish.Lease.starting(lease)
     else:
         st.leases.pop((topic, key), None)
+    if on_bus:
+        _to_bus(request.app, lambda: bus.write(topic, res.fqn, data))
     await _broadcast(request, topic,
                      {"event": "sample", "topic": topic, "key": key,
                       "data": data})
@@ -1454,7 +1489,8 @@ def make_app(state: gateway.State, base: str, token: str | None,
              command_registry: "commands.Registry | None" = None,
              live_subscriptions: bool | None = None,
              tokens: "tenancy.TokenTable | None" = None,
-             limits: "limits_.Limits | None" = None) -> web.Application:
+             limits: "limits_.Limits | None" = None,
+             bus: "Any | None" = None) -> web.Application:
     """The app, with two switches that used to be one.
 
     `publish_enabled` means what its name says and nothing else: the
@@ -1511,6 +1547,9 @@ def make_app(state: gateway.State, base: str, token: str | None,
     app["commands"] = (command_registry if command_registry is not None
                        else commands.Registry())
     app["journal"] = journal
+    #: The gateway's DDS writer (`bus.Bus`), or None for a gateway with no
+    #: domain: what the world lanes accept goes out on it as well.
+    app["bus"] = bus
     app["subs"] = {}
     #: The serving loop, filled in at startup. `notify` needs it to hand an
     #: event across a thread boundary safely; None until then, which is
@@ -1520,6 +1559,7 @@ def make_app(state: gateway.State, base: str, token: str | None,
     # The refresh rule's other half: the gateway withdraws what lapsed.
     app.on_startup.append(_start_reaper)
     app.on_cleanup.append(_stop_reaper)
+    app.on_cleanup.append(_close_bus)
     app["assets"] = assets
     app.add_routes([
         web.get("/", root),

@@ -108,6 +108,15 @@ def build_parser(ap: argparse.ArgumentParser) -> argparse.ArgumentParser:
                     help="a token table: per-principal tokens, each scoped "
                          "to scenes (python -m spatialdds.tokens manages it). "
                          "Replaces --token; reloaded on SIGHUP")
+    ap.add_argument("--dds-domain", type=int, default=None, metavar="N",
+                    help="join DDS domain N and write what the world lanes "
+                         "accept (entities, claims) there as well, from the "
+                         "gateway's own participant. Needs spatialdds[dds]")
+    ap.add_argument("--extension", action="append", default=[],
+                    metavar="MODULE",
+                    help="import MODULE, which registers the deployment's own "
+                         "types with sd.dds.extend(); each keyed one is then "
+                         "served and publishable (repeatable)")
     ap.add_argument("--max-body", type=int, default=256 * 1024,
                     help="largest request body accepted, in bytes "
                          "(413 problem document beyond it)")
@@ -210,6 +219,21 @@ def main(argv: list[str] | None = None) -> int:
             else None, public=a.public)
     except gateway.RecordingRefused as e:
         raise SystemExit(str(e))
+    # The deployment's own types, registered by importing the modules that
+    # call sd.dds.extend(). Each keyed one joins the wire model and the
+    # write surface (gateway.add_extension).
+    if a.extension:
+        import importlib
+        from .dds import codec as _codec
+        for mod in a.extension:
+            importlib.import_module(mod)
+        for ext in _codec.extensions().values():
+            try:
+                gateway.add_extension(st, ext.type_name, ext.fqn, ext.record)
+            except ValueError as e:
+                print(f"extension     {ext.type_name}: not publishable ({e})")
+                continue
+            print(f"extension     {ext.type_name} ({ext.fqn}): publishable")
     # The manifest hands clients absolute URLs, so the base has to be the
     # address a client can reach rather than the socket this process bound.
     # Behind a TLS terminator those differ, and the failure is quiet: the
@@ -368,6 +392,17 @@ def main(argv: list[str] | None = None) -> int:
     # an operator starting a registry needs to see.
     sys.stdout.flush()
 
+    bus = None
+    if a.dds_domain is not None:
+        from .server import bus as bus_
+        try:
+            bus = bus_.Bus(a.dds_domain)
+        except ImportError as e:
+            raise SystemExit(f"--dds-domain needs spatialdds[dds]: {e}")
+        n = bus.prime(st, publish.is_world)
+        print(f"  bus         DDS domain {a.dds_domain}: the world lanes are "
+              f"written there too; {n} instance(s) republished")
+        sys.stdout.flush()
     try:
         app = gw_http.make_app(st, base, token, a.publish, jr,
                                a.assets if a.assets
@@ -376,7 +411,8 @@ def main(argv: list[str] | None = None) -> int:
                                limits=Limits(max_body=a.max_body,
                                              max_ws=a.max_ws,
                                              rate_per_s=a.rate,
-                                             burst=int(a.rate * 3)))
+                                             burst=int(a.rate * 3)),
+                               bus=bus)
         if table is not None:
             app.on_startup.append(_reload_on_hup(table))
         web.run_app(app, host=a.host, port=a.port, print=None,
