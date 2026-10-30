@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.8.1: a missing asserter is a missing member
+
+One fix to 0.8.0's write surface, found by the fuzz gate once it reached the
+0.8.0 paths.
+
+- **A claim body with no `asserter` member is refused (`400`)**, as any body
+  missing a required member is. 0.8.0 grounded the asserter before schema
+  validation and read a missing member as an empty one, so it stamped and
+  accepted a body the published schema rejects. The body is now validated as
+  sent, then grounded: an empty asserter is still stamped with the token's
+  principal, and any other name is still `403` `asserter-not-principal`.
+
+The fuzz corpus now covers every 0.8.0 path: the world lanes and a
+deployment's claim type, `?refresh=` and basis, the asserter, a scene the
+token does not grant, `DELETE ?reason=`, and the gateway's bus writer. A
+gateway SIGKILLed with a reader on its entity is shown to be liveliness lost,
+never a dispose, with a control arm at the DDS default (`gates/entity_publishing.py`).
+
 ## 0.8.0: a world from HTTP
 
 An HTTP client can put living things into a world, not only records about
