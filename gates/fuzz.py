@@ -17,6 +17,17 @@ The assertion is the same for every case:
 * every answer arrives within `DEADLINE` seconds;
 * the gateway logs **no traceback** for any of it.
 
+0.8.0's world lanes are fuzzed on the same terms: the entity lane and a
+deployment's keyed claim type (`gates/_claim_type.py`, schema as the endpoint
+publishes it under N.2), with their own cases on top of the mutations:
+`?refresh=` made hostile on OBSERVED and DERIVED bodies and offered to
+declarations and records, the asserter set to someone else, the body sent into
+a scene the token does not grant, and `DELETE ?reason=` made hostile. A
+`?refresh=` is accepted only when it is a finite number of seconds in range,
+an asserter only when it is empty or the principal's own. The gateway is on a
+bus of its own, so what the world lanes accept, and what they withdraw, also
+goes through the DDS writer; a bus write that fails fails the gate.
+
 Two passes. The fixed corpus (`gates/fuzz_corpus.json` plus the deterministic
 seed) is the gate. The randomized pass draws a fresh seed, reports how many
 cases it ran, and on a failure prints the minimized case so it can be added to
@@ -45,7 +56,10 @@ import jsonschema                                              # noqa: E402
 
 from harness import FOUNTAIN, MANIFESTS, Gateway, report, state  # noqa: E402
 
-from spatialdds.server import publish, tenancy, webjson        # noqa: E402
+import spatialdds as sd                                        # noqa: E402
+from spatialdds.server import bus as bus_, gateway, publish, tenancy, webjson  # noqa: E402
+
+from _claim_type import CLAIM_IDL, Claim                       # noqa: E402
 
 AUTH = "demo.spatialdds.org"
 SCENE = "ut-austin-south-mall"
@@ -53,6 +67,37 @@ CORPUS = ROOT / "gates" / "fuzz_corpus.json"
 SEED = 1729
 DEADLINE = 5.0
 SCHEMAS = webjson.schemas()
+PRINCIPAL = "fuzz"
+#: A scene the fuzz token is not granted: a write there is another lane's.
+OTHER_SCENE = "fuzz-not-my-lane"
+EXT = sd.dds.extend("gate.claim", Claim, CLAIM_IDL)
+STREAM = {"announce": "discovery", "content_announce": "content",
+          "geo_anchor": "frames", "entity": "world", EXT.type_name: "world"}
+KEY = {"announce": "service_id", "content_announce": "content_id",
+       "geo_anchor": "anchor_id", "entity": "entity_id", EXT.type_name: "id"}
+HOSTILE_REFRESH = [
+    "", "0", "-1", "0.5", "0.999", "1", "3600", "3600.0001", "3601", "1e3",
+    "1e400", "-1e400", "nan", "NaN", "inf", "-inf", "Infinity", "abc", "30s",
+    " 30", "0x10", "1_0", "%00", "\u0030", "9" * 5000, "30&refresh=31",
+]
+HOSTILE_ASSERTER = ["someone-else", "FUZZ", "fuzz ", " fuzz", "fuzz\u0000",
+                    "fuzz\n", "A" * 200_000, "operator", "spatialdds-gateway"]
+HOSTILE_REASON = ["", "a" * 4000, "\r\nX-Injected: 1", "%00", "%ff%fe",
+                  "<script>x</script>", "refresh lapsed", "%E2%80%AE", "?&=#"]
+
+
+def schema_for(st: gateway.State, fqn: str) -> dict:
+    """The schema the endpoint publishes: vendored, or an extension's own."""
+    return SCHEMAS.get(fqn) or webjson.schema_from_model(st.model, fqn)
+
+
+def refresh_ok(v: str) -> bool:
+    """What the basis rule must accept: finite seconds in range, and no more."""
+    try:
+        f = float(v.split("&", 1)[0])
+    except ValueError:
+        return False
+    return publish.REFRESH_MIN_S <= f <= publish.REFRESH_MAX_S
 
 
 # ---- valid records from the published schemas -------------------------------
@@ -95,19 +140,21 @@ def generate(root: dict, node: dict, rng: random.Random, depth: int = 0):
     return None
 
 
-def valid_record(seg: str, fqn: str, key_name: str,
+def valid_record(seg: str, root: dict, key_name: str,
                  rng: random.Random) -> tuple[dict, str]:
-    root = SCHEMAS[fqn]
+    fqn = root.get("title", seg)
     for _ in range(50):
         rec = generate(root, root, rng)
-        key_field = {"announce": "service_id", "content_announce": "content_id",
-                     "geo_anchor": "anchor_id", "entity": "entity_id"}[seg]
+        key_field = KEY[seg]
         rec[key_field] = key_name
         # A valid entity is a declaration: an observed one with no
         # ?refresh= is correctly refused (0.8.0's basis rule), and the
         # baseline case has to be one the endpoint accepts.
         if "basis" in rec:
             rec["basis"] = "DECLARED"
+        # A claim's asserter is stamped from the principal when empty.
+        if publish.ASSERTER in rec:
+            rec[publish.ASSERTER] = ""
         for k in ("manifest_uri",):
             if k in rec:
                 rec[k] = ""
@@ -225,24 +272,23 @@ def is_problem(h, body: bytes) -> bool:
 
 
 async def run_cases(s, base: str, tok: str, rng: random.Random,
-                    per_type: int) -> tuple[int, list[dict]]:
+                    per_type: int, st: gateway.State
+                    ) -> tuple[int, list[dict]]:
     failures, n = [], 0
     auth = {"Authorization": f"Bearer {tok}"}
-    for seg, fqn in sorted(publish.PUBLISHABLE.items()):
-        stream = {"announce": "discovery", "content_announce": "content",
-                  "geo_anchor": "frames", "entity": "world"}[seg]
+    for seg, fqn in sorted({**publish.PUBLISHABLE, **st.publishable}.items()):
+        stream = STREAM[seg]
         key = f"fuzz-{seg}"
-        rec, _kf = valid_record(seg, fqn, key, rng)
+        root = schema_for(st, fqn)
+        rec, _kf = valid_record(seg, root, key, rng)
         path = f"/{SCENE}/{stream}/{seg}/v1/{quote(key, safe='')}"
         cases = [("valid record", json.dumps(rec).encode(),
-                  "application/json")] + mutations(rec, SCHEMAS[fqn], rng,
-                                                   per_type)
+                  "application/json")] + mutations(rec, root, rng, per_type)
         for label, body, ctype in cases:
             n += 1
             try:
                 doc = json.loads(body)
-                schema_ok = jsonschema.Draft202012Validator(
-                    SCHEMAS[fqn]).is_valid(doc)
+                schema_ok = jsonschema.Draft202012Validator(root).is_valid(doc)
             except (ValueError, RecursionError, UnicodeDecodeError):
                 schema_ok = False
             t0 = time.monotonic()
@@ -270,6 +316,9 @@ async def run_cases(s, base: str, tok: str, rng: random.Random,
             if why:
                 failures.append({"target": path, "case": label, "why": why,
                                  "seconds": round(dt, 3)})
+        wn, wf = await world_cases(s, base, auth, rng, st, seg, fqn, rec, path)
+        n += wn
+        failures += wf
     # The resolver, read and withdraw, with hostile URIs.
     for uri in HOSTILE_URIS + [f"spatialdds://{AUTH}/{SCENE}/content/"
                                + "".join(rng.choice("/%.\\:@?#") for _ in
@@ -292,6 +341,130 @@ async def run_cases(s, base: str, tok: str, rng: random.Random,
     return n, failures
 
 
+async def answer(s, verb: str, url: str, auth: dict, body: bytes | None = None
+                 ) -> tuple[int | None, dict, bytes]:
+    try:
+        async with s.request(verb, url, data=body,
+                             headers={**auth, "Content-Type": "application/json"},
+                             timeout=aiohttp.ClientTimeout(total=DEADLINE)) as r:
+            return r.status, dict(r.headers), await r.read()
+    except asyncio.TimeoutError:
+        return None, {}, b""
+
+
+def judge(code, h, rb, may_accept: bool, must_be: tuple = ()) -> str | None:
+    """None if the answer is one the write surface may give, else why not."""
+    if code is None:
+        return "hang"
+    if code >= 500:
+        return f"{code}: {rb[:120]!r}"
+    if code >= 400 and not is_problem(h, rb):
+        return f"{code} not a problem document"
+    if code < 300 and not may_accept:
+        return f"{code}: accepted what the rule refuses"
+    if must_be and code not in must_be:
+        return f"{code}, expected one of {must_be}: {rb[:120]!r}"
+    return None
+
+
+async def world_cases(s, base: str, auth: dict, rng: random.Random,
+                      st: gateway.State, seg: str, fqn: str, rec: dict,
+                      path: str) -> tuple[int, list[dict]]:
+    """0.8.0's own paths on one lane: refresh, basis, asserter, scene, reason."""
+    n, out = 0, []
+    world = publish.is_world(st, fqn)
+
+    def fail(case, why):
+        out.append({"target": path, "case": case, "why": why})
+
+    body = json.dumps(rec).encode()
+    for v in rng.sample(HOSTILE_REFRESH, 8) + ["30"]:
+        n += 1
+        q = "?refresh=" + (v if "&" in v or "%" in v else quote(v, safe=""))
+        if world:
+            live = {**rec, "basis": rng.choice(sorted(publish.LIVE_BASES))}
+            code, h, rb = await answer(s, "PUT", base + path + q, auth,
+                                       json.dumps(live).encode())
+            why = judge(code, h, rb, refresh_ok(v),
+                        (200, 201) if refresh_ok(v) else ())
+            if why:
+                fail(f"{live['basis']} ?refresh={v[:40]!r}", why)
+        n += 1
+        # A declaration, or a record lane, takes no interval at all.
+        code, h, rb = await answer(s, "PUT", base + path + q, auth, body)
+        why = judge(code, h, rb, False)
+        if why:
+            fail(f"declaration ?refresh={v[:40]!r}", why)
+    if world:
+        n += 1
+        live = {**rec, "basis": rng.choice(sorted(publish.LIVE_BASES))}
+        code, h, rb = await answer(s, "PUT", base + path, auth,
+                                   json.dumps(live).encode())
+        why = judge(code, h, rb, False, (400,))
+        if why:
+            fail(f"{live['basis']} with no ?refresh=", why)
+    if publish.ASSERTER in rec:
+        # Absent is not empty: the published schema requires the member, so
+        # the body as sent is refused, never stamped (found by this gate).
+        n += 1
+        code, h, rb = await answer(
+            s, "PUT", base + path, auth, json.dumps(
+                {k: v for k, v in rec.items() if k != publish.ASSERTER}).encode())
+        why = judge(code, h, rb, False, (400,))
+        if why:
+            fail("asserter absent", why)
+        for a in rng.sample(HOSTILE_ASSERTER, 5) + [PRINCIPAL]:
+            n += 1
+            code, h, rb = await answer(
+                s, "PUT", base + path, auth,
+                json.dumps({**rec, publish.ASSERTER: a}).encode())
+            why = judge(code, h, rb, a == PRINCIPAL,
+                        (200, 201) if a == PRINCIPAL else ())
+            if why:
+                fail(f"asserter {a[:40]!r}", why)
+    # Another lane: the same body into a scene the token does not grant.
+    n += 1
+    other = path.replace(f"/{SCENE}/", f"/{OTHER_SCENE}/", 1)
+    code, h, rb = await answer(s, "PUT", base + other, auth, body)
+    why = judge(code, h, rb, False, (403,))
+    if why:
+        out.append({"target": other, "case": "a scene not granted", "why": why})
+    # Withdrawals with hostile reasons, each of a freshly put instance.
+    for r in rng.sample(HOSTILE_REASON, 4):
+        n += 2
+        code, h, rb = await answer(s, "PUT", base + path, auth, body)
+        why = judge(code, h, rb, True, (200, 201))
+        if why:
+            fail("put before a withdrawal", why)
+        q = "?reason=" + (r if r.startswith("%") or r == "?&=#"
+                          else quote(r, safe=""))
+        code, h, rb = await answer(s, "DELETE", base + path + q, auth)
+        why = judge(code, h, rb, True, (200, 204))
+        if why:
+            fail(f"DELETE ?reason={r[:40]!r}", why)
+    n += 1
+    code, h, rb = await answer(s, "DELETE", base + path + "?reason=gone", auth)
+    why = judge(code, h, rb, False, (404,))
+    if why:
+        fail("DELETE of a withdrawn instance", why)
+    return n, out
+
+
+class BusErrors:
+    """The gateway's stderr, kept: `_to_bus` says a failed bus write there."""
+
+    def __init__(self, under):
+        self.under, self.seen = under, []
+
+    def write(self, text):
+        if "bus write failed" in text:
+            self.seen.append(text.strip()[:200])
+        return self.under.write(text)
+
+    def flush(self):
+        self.under.flush()
+
+
 async def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--random", type=int, default=150,
@@ -306,15 +479,21 @@ async def main() -> int:
         logging.getLogger(name).addHandler(tb)
     tok = tenancy.issue()
     table = tenancy.TokenTable([(tenancy.digest(tok), tenancy.Principal(
-        "fuzz", "openarcloud.org", frozenset({SCENE})))])
+        PRINCIPAL, "openarcloud.org", frozenset({SCENE})))])
     checks: list[tuple[str, bool, str]] = []
-    gw = await Gateway(state(FOUNTAIN, MANIFESTS), advertise=f"https://{AUTH}",
-                       publish=True, tokens=table).start()
+    st = state(FOUNTAIN, MANIFESTS)
+    gateway.add_extension(st, EXT.type_name, EXT.fqn, EXT.record)
+    bus = bus_.Bus(bus_.free_domain())
+    errs = BusErrors(sys.stderr)
+    sys.stderr = errs
+    gw = await Gateway(st, advertise=f"https://{AUTH}", publish=True,
+                       tokens=table, bus=bus).start()
     try:
         async with aiohttp.ClientSession() as s:
             total, fails = 0, []
             for seed in [SEED, *corpus["seeds"]]:
-                n, f = await run_cases(s, gw.base, tok, random.Random(seed), 60)
+                n, f = await run_cases(s, gw.base, tok, random.Random(seed), 60,
+                                       st)
                 total += n
                 fails += [{**x, "seed": seed} for x in f]
             checks.append((f"fixed corpus: {total} cases over seeds "
@@ -323,7 +502,7 @@ async def main() -> int:
                            not fails, json.dumps(fails[:5])))
             rseed = random.SystemRandom().randrange(2**31)
             n, f = await run_cases(s, gw.base, tok, random.Random(rseed),
-                                   a.random)
+                                   a.random, st)
             print(f"  randomized pass: seed {rseed}, {n} cases, "
                   f"{len(f)} failure(s)")
             if f:
@@ -334,8 +513,17 @@ async def main() -> int:
                     print(f"  seed {rseed} added to {CORPUS.name}")
             checks.append((f"randomized pass: {n} cases (seed {rseed})",
                            not f, json.dumps(f[:3])))
+            lanes = sorted({**publish.PUBLISHABLE, **st.publishable})
+            checks.append((f"the lanes fuzzed are every publishable one, the "
+                           f"world lanes and the extension included: {lanes}",
+                           {"entity", EXT.type_name} <= set(lanes)
+                           and set(publish.PUBLISHABLE) <= set(lanes),
+                           f"{lanes}"))
     finally:
         await gw.stop()
+        sys.stderr = errs.under
+    checks.append(("no bus write failed for anything the world lanes accepted "
+                   "or withdrew", not errs.seen, json.dumps(errs.seen[:3])))
     checks.append(("no traceback in the gateway's log for any case",
                    not tb.seen, json.dumps(tb.seen[:3])))
     return report("fuzz", checks,
