@@ -402,7 +402,7 @@ def ground_asserter(st: gateway.State, fqn: str, doc: Any,
     """
     if ASSERTER not in members_of(st, fqn) or not isinstance(doc, dict):
         return doc
-    claimed = doc.get(ASSERTER, "")
+    claimed = doc.get(ASSERTER)
     if not principal:
         raise Rejected(
             403, "asserter-ungrounded", "No principal to assert this claim",

@@ -173,7 +173,8 @@ gateway is down still lapses, one interval after it comes back.
 same way) has it grounded the way a bus claim is grounded in its participant:
 an empty asserter is stamped with the principal's name, and any other value
 must be that name or the `PUT` is a `403` `asserter-not-principal` naming
-both. An endpoint with no token table has no principal and refuses claims
+both. A body with no `asserter` member at all is a body the schema rejects,
+and is refused as one (`400`) before anything is stamped. An endpoint with no token table has no principal and refuses claims
 (`asserter-ungrounded`). A single `--token` is the principal `operator`.
 
 **A deployment's own types.** `serve --extension MODULE` imports a module that
