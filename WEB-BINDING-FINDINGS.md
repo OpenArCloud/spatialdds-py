@@ -2513,3 +2513,65 @@ came up, each worked around demo-side and labelled there.
   accepted spelling is `provisional/owm.idl`. The refusal could name the
   rooted path when the bare name exists under a subdirectory. *It does in
   0.7.4.*
+
+## Deploying 0.8.1 to demo.spatialdds.org: a lane nobody wrote, 2026-10-29
+
+Two sandbox deploys noted this in passing: the 0.6.0 deploy script skipped
+an own-lane probe for `wow` because a DELETE "would register an empty one in
+memory", and the 0.8.1 rehearsal found a conformance-relevant topic in search
+after DELETEs that had answered 404. Measured here, filed as a 0.8.x defect.
+
+### 73. A refused or empty-handed write creates a lane, and search advertises it
+
+**Rule (ruled 2026-10-29):** a 404 must not create a lane, and a phantom lane
+must not enter search.
+
+Measured on spatialdds 0.8.1, `serve --demo --publish --tokens` with the
+sandbox's two principals (`james` → `ut-austin-south-mall`, `wow` →
+`wow-world`), on a lane that did not exist before each request:
+
+| Request | Answer | Lane in search after | `GET` lane after |
+| --- | --- | --- | --- |
+| `DELETE` missing key, `world/entity`, own scene | 404 `no-such-instance` | **yes** | **200 `[]`** |
+| `DELETE` missing key, `world/entity`, new lane in own scene | 404 `no-such-instance` | **yes** | **200 `[]`** |
+| `PUT` schema-invalid body, `frames/geo_anchor`, new lane | 400 `schema-invalid` | **yes** | **200 `[]`** |
+| `PUT` OBSERVED body with no `?refresh=`, new lane | 400 `refresh-required` | **yes** | **200 `[]`** |
+| `DELETE` into another principal's scene | 403 `not-your-lane` | no | 404 |
+| `DELETE` with no token | 401 | no | 404 |
+| `GET` missing instance, new lane | 404 `no-such-resource` | no | 404 |
+
+Three topics entered the scenes' service manifests that no write ever
+populated. None is journalled: the gateway restarted on the same journal
+replays the same 14 entries and serves none of them. So the ghost lives until
+the next restart, and every restart silently changes the search response back.
+
+**Cause.** `publish.resource_for_put` (`lib/spatialdds/spatialdds/server/publish.py`,
+the `st.resources[res.path] = res` at the end of the lookup) registers the
+`Resource` for a missing lane as a side effect of finding it, and both
+`put_instance` and `delete_instance` (`server/gw_http.py`) call it after the
+lane check and before validation, existence, the basis rule or the journal.
+The 401 and 403 rows are clean only because those refusals come first.
+
+**Why it matters.**
+- Search is the binding's discovery surface. A topic that never held data,
+  advertised and answering 200, is a false claim about the endpoint, and its
+  appearance and disappearance change the manifest's ETag for no write.
+- Any token holder can add topics to its own scene's service manifest without
+  writing anything, including with a request the endpoint refused.
+- On a lane of a deployment's own type it reaches conformance: before 1.8.3 a
+  ghost `oarc.relationship` lane alone made the v1.8.2 suite fail four checks.
+- Operators have to work around it. The 0.6.0 deploy skipped a probe, and the
+  0.8.1 lane cleanup has to reset the journal to make the seed's search
+  response exact again.
+
+**Not the same thing:** a lane that held an accepted write and was emptied by
+withdrawals. It is journalled, replays empty, and stays listed; that is
+history, not a phantom (the 0.8.1 lane cleanup addresses it with
+`spatialdds.journal reset-scene`).
+
+**Smallest change.** Resolve a missing lane without registering it: return a
+provisional `Resource` from the lookup, and add it to `st.resources` only when
+a write to it is accepted and journalled. A `DELETE` on a lane that does not
+exist answers 404 without registering anything. **Gate:** each refused row
+above leaves search, its ETag and `GET` exactly as they were, and an accepted
+first write still registers the lane, in memory and after a restart.
