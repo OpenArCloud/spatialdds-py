@@ -149,6 +149,12 @@ as ordinary samples:
 
 The writers' liveliness is the gateway's, which is the honest liveliness for
 samples the gateway owns; an HTTP client's own freshness is the refresh rule.
+Autodispose is off on these writers, as on every SDK writer, so a crashed
+gateway reaches readers as liveliness lost, never as a dispose
+(`gates/entity_publishing.py` SIGKILLs one, with a control arm at the DDS
+default). **A clean stop is the writer leaving, not a removal: readers see its
+instances lose their writer at once, and the gateway re-publishes them from
+its journal when it restarts.**
 The record lanes (`announce`, `content_announce`, `geo_anchor`) are not
 written to the bus.
 

@@ -24,13 +24,25 @@ about one. The ruled policy (docs/PUBLISH.md, "World lanes"), held here:
   token's principal.
 * **Basis is enforced.** An observed PUT with no interval is refused, and the
   refusal names the rule.
+* **A crash is never a dispose.** The gateway's writer has autodispose off.
+  `python -m spatialdds.serve --dds-domain N` in a process of its own,
+  SIGKILLed with a reader on its entity: the reader sees liveliness lost and
+  never a dispose. The control arm restores the DDS default in the child and
+  requires the dispose, so the check can fail. A clean stop (SIGTERM) is the
+  writer leaving, at once and not a dispose, and the gateway restarted on its
+  journal puts the entity back on the bus.
 
 Usage:  gates/entity_publishing.py
 """
 from __future__ import annotations
 
 import asyncio
+import os
+import signal
+import socket
+import subprocess
 import sys
+import threading
 import tempfile
 import time
 from pathlib import Path
@@ -351,10 +363,203 @@ async def main_async(checks: list) -> None:
             f"withdrawn at {when}; observed {planted['observed_after']}"))
 
 
+CHILD = ROOT / "gates" / "_gateway_child.py"
+OPERATOR = "tok-operator-entity-publishing"
+#: Cyclone's default participant lease is 10 s; a reader learns of a SIGKILL
+#: when it runs out.
+LEASE_WAIT = 20.0
+
+
+def free_port() -> int:
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
+class Watch:
+    """One entity reader on the gateway's domain, drained on its own thread."""
+
+    def __init__(self, domain: int, profile) -> None:
+        self.p = sd.participant("gate-watch", domain=domain)
+        self.events: list = []
+        self._stop = threading.Event()
+        rd = self.p.reader("model_entity", qos_profile=profile,
+                           topic=f"spatialdds{ENT}")
+        self._t = threading.Thread(target=self._drain, args=(rd,), daemon=True)
+        self._t.start()
+
+    def _drain(self, rd) -> None:
+        for ev in rd.events(timeout=None, stop=self._stop):
+            if getattr(ev, "key", None) == "ent:held":
+                alive = getattr(ev, "alive", None)
+                self.events.append((time.monotonic(), type(ev).__name__
+                                    + ("" if alive is None else f"({alive})")))
+
+    def mark(self) -> int:
+        return len(self.events)
+
+    def wait(self, since: int, names: tuple, timeout: float) -> bool:
+        end = time.monotonic() + timeout
+        while time.monotonic() < end:
+            if any(n in names for _t, n in self.events[since:]):
+                return True
+            time.sleep(0.05)
+        return False
+
+    def since(self, i: int) -> list:
+        return [n for _t, n in self.events[i:]]
+
+    def close(self) -> None:
+        self._stop.set()
+        self._t.join(timeout=10)
+        self.p.close()
+
+
+def gateway_child(mode: str, domain: int, journal: Path) -> tuple:
+    port = free_port()
+    c = subprocess.Popen(
+        [sys.executable, str(CHILD), mode, "--", "--publish",
+         "--journal", str(journal), "--token", OPERATOR,
+         "--dds-domain", str(domain), "--port", str(port)],
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    out: list = []
+    threading.Thread(target=lambda: out.extend(c.stdout), daemon=True).start()
+    import urllib.error
+    import urllib.request
+    end = time.monotonic() + 60
+    while time.monotonic() < end and c.poll() is None:
+        try:
+            urllib.request.urlopen(f"http://127.0.0.1:{port}/", timeout=1)
+            return c, f"http://127.0.0.1:{port}", out
+        except urllib.error.HTTPError:      # it answered: it is serving
+            return c, f"http://127.0.0.1:{port}", out
+        except OSError:
+            time.sleep(0.2)
+    c.kill()
+    c.wait()
+    raise RuntimeError(f"{mode}: the gateway never served: {out[-5:]}")
+
+
+def put_held(base: str) -> int:
+    import json
+    import urllib.request
+    body = json.dumps(entity("ent:held", "DECLARED")).encode()
+    req = urllib.request.Request(
+        f"{base}{ENT}/ent:held", data=body, method="PUT",
+        headers={"Authorization": f"Bearer {OPERATOR}",
+                 "Content-Type": "application/json"})
+    with urllib.request.urlopen(req, timeout=10) as r:
+        return r.status
+
+
+def reap_child(c: subprocess.Popen) -> None:
+    if c.poll() is None:
+        c.kill()
+    c.wait(timeout=20)
+
+
+def crash_case(mode: str, profile) -> tuple:
+    """PUT a declared entity through a gateway on a bus, SIGKILL it."""
+    domain = bus_.free_domain()
+    w = Watch(domain, profile)
+    with tempfile.TemporaryDirectory() as tmp:
+        c, base, out = gateway_child(mode, domain, Path(tmp) / "j.mcap")
+        try:
+            status = put_held(base)
+            seen = w.wait(0, ("Sample",), 10)
+            i = w.mark()
+            os.kill(c.pid, signal.SIGKILL)
+            t0 = time.monotonic()
+            w.wait(i, ("Liveliness(False)", "Dispose"), LEASE_WAIT)
+            took = time.monotonic() - t0
+            time.sleep(2.0)
+            after = w.since(i)
+        finally:
+            reap_child(c)
+            w.close()
+    planted = any(l.startswith("PLANT") for l in out)
+    return status, seen, after, took, planted, c.returncode
+
+
+def stop_case(profile) -> tuple:
+    """SIGTERM: the writer leaves. Restarted on the journal: it is back."""
+    domain = bus_.free_domain()
+    w = Watch(domain, profile)
+    with tempfile.TemporaryDirectory() as tmp:
+        journal = Path(tmp) / "j.mcap"
+        c, base, _out = gateway_child("serve", domain, journal)
+        try:
+            put_held(base)
+            w.wait(0, ("Sample",), 10)
+            i = w.mark()
+            os.kill(c.pid, signal.SIGTERM)
+            t0 = time.monotonic()
+            w.wait(i, ("Liveliness(False)", "Dispose"), LEASE_WAIT)
+            took = time.monotonic() - t0
+            c.wait(timeout=20)
+            time.sleep(1.0)
+            stopped = w.since(i)
+        finally:
+            reap_child(c)
+        j = w.mark()
+        c2, _base, out2 = gateway_child("serve", domain, journal)
+        try:
+            w.wait(j, ("Sample",), 15)
+            back = w.since(j)
+            primed = [l.strip() for l in out2 if "republished" in l]
+        finally:
+            os.kill(c2.pid, signal.SIGTERM)
+            reap_child(c2)
+            w.close()
+    return stopped, took, back, primed
+
+
+def crash_checks(checks: list) -> None:
+    # The policy as the live DataWriter holds it, not as a helper returns it.
+    b = bus_.Bus(bus_.free_domain())
+    try:
+        profile = b.profile
+        dw_qos = b.writer(f"spatialdds{ENT}", "spatial.owm.Entity")._dw.get_qos()
+        pol = [p for p in dw_qos if type(p).__name__ == "WriterDataLifecycle"]
+    finally:
+        b.close()
+    print(f"  quote  the gateway's DataWriter: {pol}")
+    checks.append(("the gateway's writer, as the live DataWriter reports its "
+                   "QoS: autodispose off",
+                   len(pol) == 1 and pol[0].autodispose is False, f"{pol}"))
+    status, seen, after, took, _p, _rc = crash_case("serve", profile)
+    print(f"  quote  SIGKILL, reader on the entity: {after} after {took:.1f} s")
+    checks.append((
+        "SIGKILL the gateway with a reader on its entity: liveliness lost, "
+        "never a dispose",
+        status in (200, 201) and seen and "Liveliness(False)" in after
+        and "Dispose" not in after,
+        f"PUT {status}, sample seen {seen}; then {after} after {took:.1f} s"))
+    status, seen, after, took, planted, _rc = crash_case("autodispose", profile)
+    print(f"  quote  control, autodispose at the DDS default: {after} after "
+          f"{took:.1f} s")
+    checks.append((
+        "control: the same kill with autodispose at the DDS default is a "
+        "dispose, so the check above can fail",
+        planted and seen and "Dispose" in after,
+        f"plant {'present' if planted else 'MISSING'}; then {after} after "
+        f"{took:.1f} s"))
+    stopped, took, back, primed = stop_case(profile)
+    print(f"  quote  SIGTERM: {stopped} after {took:.1f} s; restarted: "
+          f"{back}, {primed}")
+    checks.append((
+        "a clean stop is the writer leaving, promptly and not a dispose; "
+        "restarted on its journal the gateway puts the entity back on the bus",
+        "Liveliness(False)" in stopped and "Dispose" not in stopped
+        and took < 5.0 and "Sample" in back,
+        f"stop {stopped} after {took:.1f} s; restart {back}; {primed}"))
+
+
 def run() -> int:
     checks: list = []
     try:
         asyncio.run(main_async(checks))
+        crash_checks(checks)
     except Exception as e:                                # noqa: BLE001
         checks.append(("the gate ran to its end", False,
                        f"{type(e).__name__}: {e}"))
