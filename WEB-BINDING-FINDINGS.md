@@ -2575,3 +2575,52 @@ a write to it is accepted and journalled. A `DELETE` on a lane that does not
 exist answers 404 without registering anything. **Gate:** each refused row
 above leaves search, its ETag and `GET` exactly as they were, and an accepted
 first write still registers the lane, in memory and after a restart.
+
+## A writer on its own clock: the crossing scene on 0.7.4, 2026-10-31
+
+SpatialDDS-demo's crossing scene (`scenarios/crossing`) runs a simulator and
+stamps every record on the simulation's clock: the session's epoch plus
+simulation time. Its first sessions on the demo's pin, `spatialdds==0.7.4`,
+lost three of five participants at their first withdrawal. Filed as a
+candidate: the behaviour is deliberate and documented, and the contract is
+what is in question.
+
+### 74. `withdraw()` stamps the terminal sample with the wall clock, and refuses a stamp
+
+**Measured.** `Writer.withdraw(key, reason=..., stamp=...)` on 0.7.4 raises
+
+    ValueError: withdraw() sets stamp itself; pass reason=, and the other members to change
+
+and the code at `77aec42` (0.8.1) is the same: `stamp` is in the fixed set
+(`lib/spatialdds/spatialdds/dds/_participant.py:343`), and `_terminal()`
+sets it to `_now_time()` (`:320-321`), as `_exit()` does for every instance
+an `on_exit="withdraw"` writer holds (`:388-390`). `write()` takes the
+caller's `stamp` on every other sample, so one instance's history is on the
+caller's clock until its last sample, which is on the host's.
+
+**Why it matters.**
+- An asserter whose clock is not the host's (a simulator, a replay, a
+  device with its own time base) cannot say when it withdrew something. The
+  demo records at rate 1, where the clocks agree, and reads every terminal
+  sample on the wall clock; at any other rate its withdrawals land at the
+  wrong time, on every reader and in every recording.
+- The refusal arrives as a `ValueError` from deep inside a caller's loop.
+  The demo's participants did not catch it and exited 1; nothing in the error
+  says which clock the terminal stamp will carry, or that one cannot be
+  supplied.
+
+**Smallest change, one of:**
+1. accept `stamp=` in `withdraw()` (and a `stamp=` or clock on the close
+   path that drives `on_exit="withdraw"`), defaulting to now as today; or
+2. keep the refusal, and state the contract where a caller meets it: the
+   docstring and the error say the terminal sample is stamped with the host's
+   wall clock at withdrawal, and that a writer on another clock cannot change
+   that.
+
+**Gate:** a withdrawal with a caller's stamp either carries it on the
+terminal sample, or is refused with the contract in the message; and a
+writer's `on_exit` withdrawals follow the same rule.
+
+*Origin:* SpatialDDS-demo `docs/crossing-census.md` §8 finding 1, and its
+`scenarios/crossing/tests/test_crossing_session.py`, which fails on the
+replanted call.
