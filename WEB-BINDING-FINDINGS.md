@@ -2624,3 +2624,60 @@ writer's `on_exit` withdrawals follow the same rule.
 *Origin:* SpatialDDS-demo `docs/crossing-census.md` §8 finding 1, and its
 `scenarios/crossing/tests/test_crossing_session.py`, which fails on the
 replanted call.
+
+### 75. A validated `write()` reads every vendored schema from disk, per sample
+
+**Measured.** On 0.7.4 (macOS arm64), a `model_pose` writer's `write()` takes
+7.04 ms per sample when validating (the default) and 0.01 ms with
+`validate=False`, over 500 writes; an `Entity` write, 10 ms. `write()` calls
+`codec.validate(sample)` (`lib/spatialdds/spatialdds/dds/_participant.py:295`
+at `77aec42`, 0.8.1, unchanged from 0.7.4), which calls
+`webjson.schemas()` (`dds/codec.py:374`). `schemas()` is not cached
+(`server/webjson.py:76`; `tables()` above it is, `:63`): every call opens and
+parses all 112 vendored schema files, 3.74 ms a call measured alone. The rest
+is `jsonschema.validate(doc, schema)` (`codec.py:380`), which builds a
+validator and its reference resolver afresh per sample. Under a profiler the
+two are about half each.
+
+**Why it matters.** A publisher at 10 Hz with a few dozen instances spends
+most of its budget validating. In the demo's crossing scene, each fleet
+operator publishes its cars and what they see (about 40 samples a 100 ms
+step): measured, they ran a median 35-62 ms a step and up to 600 ms, fell
+1.4 s behind the simulation, and published records stamped on time but 1.4 s
+stale. A controller placing its car from them stopped 1.5 s too late and
+put the car inside a closed level crossing; the train braked for it. The
+default is the safe one, so every caller that has not measured it pays it.
+
+**Smallest change:** cache `schemas()` as `tables()` is, and cache one
+compiled validator per type (`jsonschema.validators.validator_for(schema)(schema)`,
+built once), so a validated write costs the validation alone.
+
+**Gate:** a validated `write()` of a `ModelPose`, timed over a few hundred
+samples, stays within a small multiple of an unvalidated one; and
+`schemas()` reads the vendored files once per process.
+
+*Origin:* SpatialDDS-demo `docs/crossing-claims.md`, finding 75: the
+scene's pose lane is written with `validate=False` for this, and its
+recordings are validated end to end at the gateway instead.
+
+### 76. `take()` says it returns every event that has arrived, and takes at most 256 samples
+
+**Read, not hit.** `Reader.take()`'s docstring opens "Every event that has
+arrived, now, without blocking" (`lib/spatialdds/spatialdds/dds/_participant.py:537`
+at `77aec42`), and its drain reads `self._dr.take(N=256)` once
+(`:517`). A reader whose lane has more than 256 samples waiting gets 256,
+and the rest on its next call, with nothing to say more are waiting; a
+program that calls `take()` once a tick, as the docstring invites, falls
+behind for as long as the lane runs faster than 256 a tick. The demo's
+crossing scene does not reach it (its busiest take, over a whole session and
+both controllers, was 43 events in a 100 ms
+tick), and a lag it first suspected here turned out to be finding 75's.
+
+**Smallest change, one of:** drain until the DataReader is empty; or state
+the bound in the docstring and say how to tell that more remain.
+
+**Gate:** a reader with more than 256 samples waiting returns all of them
+from one `take()`, or the documented bound and a way to see that more
+remain.
+
+*Origin:* SpatialDDS-demo `docs/crossing-claims.md`, finding 76.
