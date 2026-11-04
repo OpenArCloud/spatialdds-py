@@ -45,7 +45,14 @@ gate does not run is reported, because it is one a reader runs untested.
 
 **The error table.** Each row's status, type and title are compared with the
 problem document a request built for that row draws from the registry. A row
-with no reproduction fails, and so does a reproduction with no row.
+with no reproduction fails, and so does a reproduction with no row. The disk
+row is drawn from a second registry whose journal is on a 4 MiB volume of its
+own, filled before it starts (a disk image on macOS, a tmpfs in a user
+namespace on Linux); where neither can be had, that row fails and says so.
+
+Every registry started here must be the process answering on its port, by
+its pid on the answering connection (harness.own_server, finding 77), before
+anything it says is compared.
 
 **The known issue.** The guide says a refused write to a lane that does not
 exist yet still opens it (finding 73). That is checked as a claim like any
@@ -67,6 +74,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import contextlib
 import json
 import os
 import re
@@ -88,7 +96,7 @@ GUIDE = ROOT / "docs" / "integrator-guide.md"
 sys.path.insert(0, str(ROOT / "gates"))
 sys.path.insert(0, str(LIB))
 
-from harness import report                                   # noqa: E402
+from harness import own_server, report                       # noqa: E402
 
 LIVE = "https://demo.spatialdds.org"
 SCENE, PRINCIPAL = "my-world", "my-group"
@@ -192,10 +200,18 @@ def issue(table: Path, name: str, provider: str, scene: str,
 
 
 class Registry:
-    """`python -m spatialdds.serve` with the sandbox's flags, on a free port."""
+    """`python -m spatialdds.serve` with the sandbox's flags, on a free port.
 
-    def __init__(self, tmp: Path) -> None:
+    `journal_dir` puts the journal somewhere else (a full volume, for the
+    503 row), and `prefix` is argv run in front of the server, which execs
+    it, so the started pid is still the server's.
+    """
+
+    def __init__(self, tmp: Path, journal_dir: Path | None = None,
+                 prefix: tuple[str, ...] = ()) -> None:
         self.tmp = tmp
+        #: The 503 row's side claims, once reproduce() has drawn it.
+        self.full: tuple[bool, str] = (False, "not drawn")
         self.port = free_port()
         self.base = f"http://127.0.0.1:{self.port}"
         table = tmp / "tokens.json"
@@ -205,25 +221,23 @@ class Registry:
         self.token = issue(table, PRINCIPAL, "example.org", SCENE, 500)
         self.other = issue(table, "other", "other.example", "other-world", 2)
         self.log = open(tmp / "serve.log", "w")
+        journal = (journal_dir or tmp) / "registry.mcap"
         self.proc = subprocess.Popen(
-            [sys.executable, "-m", "spatialdds.serve", "--demo", "--publish",
-             "--authority", "demo.spatialdds.org", "--host", "127.0.0.1",
-             "--port", str(self.port), "--journal", str(tmp / "registry.mcap"),
+            [*prefix, sys.executable, "-m", "spatialdds.serve", "--demo",
+             "--publish", "--authority", "demo.spatialdds.org", "--host",
+             "127.0.0.1", "--port", str(self.port), "--journal", str(journal),
              "--tokens", str(table), "--extension", "sandbox_owm02"],
             cwd=tmp, stdout=self.log, stderr=subprocess.STDOUT,
             env=dict(os.environ,
                      PYTHONPATH=os.pathsep.join([str(LIB), str(EXT)])))
-        for _ in range(120):
-            if self.proc.poll() is not None:
-                break
-            try:
-                urllib.request.urlopen(
-                    self.base + "/.well-known/spatialdds/search", timeout=2)
-                return
-            except (urllib.error.URLError, OSError):
-                time.sleep(0.5)
-        raise RuntimeError("the registry did not start:\n"
-                           + (tmp / "serve.log").read_text()[-2000:])
+        # The started process must be the one answering (finding 77): a free
+        # port can be taken between the probe and the bind.
+        ours, who = own_server(self.proc, self.port, timeout=60)
+        if not ours:
+            self.stop()
+            raise RuntimeError(f"the registry is not the one answering "
+                               f"({who}):\n"
+                               + (tmp / "serve.log").read_text()[-2000:])
 
     def banner(self) -> str:
         return (self.tmp / "serve.log").read_text()
@@ -394,6 +408,80 @@ async def subscriptions_full(reg: Registry) -> tuple[int, dict, dict]:
             await c.close()
 
 
+#: Run in front of the server: fill the directory named as $0, then exec the
+#: rest, so the volume is full before the server starts and the started pid
+#: is the server's. Bounded (8 MiB, then 1024 small files) so that a volume
+#: that is not the small one is never filled.
+FILL = ('head -c 8388608 /dev/zero > "$0/fill" 2>/dev/null; i=0; '
+        'while [ $i -lt 1024 ] && head -c 4096 /dev/zero > "$0/f$i" '
+        '2>/dev/null; do i=$((i+1)); done; exec "$@"')
+
+
+@contextlib.contextmanager
+def full_volume(tmp: Path):
+    """A 4 MiB filesystem of its own, for a journal: yields (dir, prefix).
+
+    Unprivileged on both platforms the gate runs on: a disk image on macOS,
+    a tmpfs in a user and mount namespace on Linux (the server runs inside
+    it, so it is filled there too, by FILL).
+    """
+    vol = tmp / "vol"
+    vol.mkdir()
+    if sys.platform == "darwin":
+        img = tmp / "vol.dmg"
+        subprocess.run(["hdiutil", "create", "-size", "4m", "-fs", "HFS+",
+                        "-volname", "sdd-full", "-layout", "NONE", str(img)],
+                       check=True, capture_output=True)
+        subprocess.run(["hdiutil", "attach", "-nobrowse", "-noautoopen",
+                        "-mountpoint", str(vol), str(img)],
+                       check=True, capture_output=True)
+        try:
+            yield vol, ("sh", "-c", FILL, str(vol))
+        finally:
+            subprocess.run(["hdiutil", "detach", "-force", str(vol)],
+                           capture_output=True)
+    elif sys.platform.startswith("linux"):
+        yield vol, ("unshare", "--user", "--map-root-user", "--mount",
+                    "sh", "-c",
+                    'mount -t tmpfs -o size=4m tmpfs "$0" && ' + FILL,
+                    str(vol))
+    else:
+        raise RuntimeError(f"no unprivileged small volume on {sys.platform}")
+
+
+def journal_unwritable(tmp: Path) -> tuple[list[tuple[int, dict, dict]],
+                                           tuple[bool, str]]:
+    """A write to a registry whose journal's disk is full.
+
+    A registry of its own, with the sandbox's flags and its journal on a
+    full volume. Returns the refusal, and whether what the row says beside
+    it holds: the disk was the cause, nothing was stored, reads still work.
+    """
+    (tmp / "full").mkdir()
+    try:
+        with full_volume(tmp / "full") as (vol, prefix):
+            reg = Registry(tmp / "full", journal_dir=vol, prefix=prefix)
+            try:
+                url = f"{reg.base}/{SCENE}/world/entity/v1/ent:full"
+                got = http("PUT", url, reg.token, enc(entity("ent:full")))
+                stored = http("GET", url, reg.token)[0]
+                reads = http("GET",
+                             reg.base + "/.well-known/spatialdds/search")[0]
+            finally:
+                reg.stop()
+    except (RuntimeError, subprocess.CalledProcessError) as e:
+        # No small volume here (Linux with unprivileged user namespaces
+        # refused, say): the row has no reproduction, and says why.
+        return [], (False, f"no full volume to draw it from: "
+                           f"{str(e).strip()[-300:]}")
+    detail = str(got[2].get("detail", ""))
+    ok = ("No space left" in detail and got[1].get("Retry-After") == "60"
+          and stored == 404 and reads == 200)
+    return [got], (ok, f"detail {detail[:120]!r}, Retry-After "
+                       f"{got[1].get('Retry-After')}, stored {stored}, "
+                       f"reads {reads}")
+
+
 def reproduce(reg: Registry) -> dict[str, list[tuple[int, dict, dict]]]:
     """slug -> every response drawn for that row (each must match it)."""
     b, t, o = reg.base, reg.token, reg.other
@@ -443,6 +531,7 @@ def reproduce(reg: Registry) -> dict[str, list[tuple[int, dict, dict]]]:
         "rate-limited": rate_limited(reg),
         "too-many-subscriptions": [asyncio.run(subscriptions_full(reg))],
     }
+    rows["journal-unwritable"], reg.full = journal_unwritable(reg.tmp)
     return rows
 
 
@@ -586,6 +675,9 @@ def main() -> int:
                 ok = ok and all("Retry-After" in h for _s, h, _d in got)
             checks.append((f"{status} {slug}: {title}", ok,
                            f"drew {seen or 'nothing'}"))
+        checks.append(("…and the full disk was the cause of the 503, with "
+                       "Retry-After, nothing stored, and reads unaffected, "
+                       "as its row says", *reg.full))
 
         # The known issue, held as a claim: a refused PUT opens a lane.
         path = f"/{SCENE}/frames/geo_anchor/v1"

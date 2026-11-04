@@ -46,7 +46,6 @@ import re
 import subprocess
 import sys
 import tempfile
-import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -55,7 +54,7 @@ if str(ROOT) not in sys.path:
 sys.path.insert(0, str(ROOT / "gates"))
 
 import examples as ex                                         # noqa: E402
-from harness import report                                   # noqa: E402
+from harness import own_server, report                       # noqa: E402
 
 README = ROOT / "README.md"
 #: The recording packaged inside the distribution, which `--demo` serves.
@@ -410,14 +409,9 @@ def await_phase(name: str, serve: str, cmd_blocks: list,
                              stdout=subprocess.PIPE,
                              stderr=subprocess.STDOUT, text=True)
     try:
-        owner = ""
-        for _ in range(300):
-            if child.poll() is not None:
-                break
-            owner = listening(port)
-            if owner and f" {child.pid} " in f" {owner.split()[1]} ":
-                break
-            time.sleep(0.1)
+        # The listening table is not who answers (finding 77): the pid on an
+        # answering connection is.
+        ours, who = own_server(child, port)
         if child.poll() is not None:
             out = (child.stdout.read() if child.stdout else "")[-300:]
             checks.append((f"{name}: the serve line starts an endpoint",
@@ -425,10 +419,11 @@ def await_phase(name: str, serve: str, cmd_blocks: list,
                            f"exited {child.returncode}: {out.strip()}"))
             return report("quickstart", checks,
                           f"{name}'s serve line did not serve")
-        checks.append((f"{name}: the serve line's own process is listening on "
-                       f"{port}",
-                       bool(owner) and owner.split()[1] == str(child.pid),
-                       f"{owner[:80]!r} vs started pid {child.pid}"))
+        checks.append((f"{name}: the serve line's own process is the one "
+                       f"answering on {port}", ours, who))
+        if not ours:
+            return report("quickstart", checks,
+                          f"another process answers on {name}'s port")
 
         for line, _tag, body, marker, want, span in cmd_blocks:
             # A fence marked `sh-ok` documents no output: `gates/examples.py`

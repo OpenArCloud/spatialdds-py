@@ -55,7 +55,7 @@ sys.path.insert(0, str(ROOT / "lib" / "spatialdds"))
 
 import aiohttp                                                 # noqa: E402
 
-from harness import Gateway, blank, report                     # noqa: E402
+from harness import Gateway, blank, own_server, report         # noqa: E402
 import spatialdds as sd                                        # noqa: E402
 from spatialdds.dds import codec                               # noqa: E402
 from spatialdds.server import bus as bus_, gateway, tenancy    # noqa: E402
@@ -424,20 +424,15 @@ def gateway_child(mode: str, domain: int, journal: Path) -> tuple:
         stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     out: list = []
     threading.Thread(target=lambda: out.extend(c.stdout), daemon=True).start()
-    import urllib.error
-    import urllib.request
-    end = time.monotonic() + 60
-    while time.monotonic() < end and c.poll() is None:
-        try:
-            urllib.request.urlopen(f"http://127.0.0.1:{port}/", timeout=1)
-            return c, f"http://127.0.0.1:{port}", out
-        except urllib.error.HTTPError:      # it answered: it is serving
-            return c, f"http://127.0.0.1:{port}", out
-        except OSError:
-            time.sleep(0.2)
+    # Serving is not enough: the child must be the process answering on the
+    # port (finding 77).
+    ours, who = own_server(c, port, timeout=60)
+    if ours:
+        return c, f"http://127.0.0.1:{port}", out
     c.kill()
     c.wait()
-    raise RuntimeError(f"{mode}: the gateway never served: {out[-5:]}")
+    raise RuntimeError(f"{mode}: the gateway is not the one answering "
+                       f"({who}): {out[-5:]}")
 
 
 def put_held(base: str) -> int:

@@ -2681,3 +2681,51 @@ from one `take()`, or the documented bound and a way to see that more
 remain.
 
 *Origin:* SpatialDDS-demo `docs/crossing-claims.md`, finding 76.
+
+## The integrator guide's batch, 2026-11-04
+
+Found while gating `docs/integrator-guide.md`; it is in the gates, not the
+package, and it is fixed in this batch.
+
+### 77. A gate's "the process answering is the one it started" passed while another process answered
+
+**Measured.** With another gateway bound to `127.0.0.1:8799`,
+`gates/deploy_image.py` at `8f824cf` printed
+
+    ok   the CMD serves from the replicated tree, and the listening process is the one it started
+
+and then read that other gateway's answers. The first time (the batch's own
+probe gateway) its schema index check failed on 113 types; planted again
+with a `--demo --no-publish --extension sandbox_owm02` gateway, the index
+check passed and two checks further down failed, neither saying whose
+endpoint it had read. Two causes, both
+in the reader rather than the subject:
+
+* the check's condition was `bool(owner)`, any row of `lsof`'s listening
+  table, so it held for any process on the port (the loop before it waited
+  for the started pid, gave up after 30 s, and the check did not look at
+  why);
+* the listening table cannot answer the question even when read correctly.
+  The image's CMD binds `0.0.0.0`; on macOS, with SO_REUSEADDR, that
+  coexists with a `127.0.0.1` socket on the same port, both are listed, and
+  a loopback request reaches the more specific one. `gates/serve_demo.py`
+  and `gates/quickstart.py` compared the first row's pid with the started
+  pid, which is right only while one process listens.
+  `gates/entity_publishing.py` and `gates/integrator_guide.py` took any HTTP
+  answer as their own server's.
+
+**Change (this batch):** one check, `harness.own_server(proc, port)`, used by
+all five gates that start a server as a subprocess. It sends a request on a
+connection it holds open and asks `lsof` for the process at that
+connection's far end; the started process, or a descendant, must be the one
+that answered. The pid is the instance's identity, read off the connection
+that carried the request rather than off the listening table. A gate whose
+check fails reads nothing further from the port. `deploy_image`, on a fixed
+port, checks again after its last read. Port choice is unchanged.
+
+**Gate:** with the squatter above on 8799, `deploy_image` fails at the
+identity check and names it (`port 8799 answered 200 from pid …, not the
+started pid …`); with the port clear, every gate that uses the check passes.
+
+*Origin:* a probe gateway left on 8799 by the batch's own exploration, which
+broke the baseline `run_all` before the guide gate existed.

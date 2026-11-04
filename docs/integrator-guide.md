@@ -737,6 +737,7 @@ title compared with what is printed here.
 | 415 | `unsupported-media-type` | Body is not JSON by its content type | A write body not sent as `application/json` | Add `-H "Content-Type: application/json"` |
 | 429 | `rate-limited` | Too many requests | More than 20 requests a second from one address (bursts up to 60) | Wait for the `Retry-After` header, then retry |
 | 503 | `too-many-subscriptions` | Too many subscriptions | 256 WebSocket streams are already open | Retry later; plain `GET`s are unaffected |
+| 503 | `journal-unwritable` | The registry cannot record writes | The registry's disk is full or cannot be written. The write was not accepted, and reads are unaffected | Wait for the `Retry-After` header, then send the same write again |
 
 Two behaviours worth knowing:
 

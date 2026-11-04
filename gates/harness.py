@@ -4,7 +4,9 @@ In-process rather than a subprocess: a gate that spawns a server has to poll
 for readiness, and a readiness probe that fetches a URL until it answers cannot
 tell the server it started from one already listening on that port. `aiohttp`
 hands back a bound port only once the socket is listening, so there is nothing
-to poll and nothing to confuse.
+to poll and nothing to confuse. A gate that must start one as a subprocess
+(the image's CMD, a documented serve line) asks `own_server()` instead, which
+names the process that answered rather than one that is listening.
 """
 from __future__ import annotations
 
@@ -149,6 +151,86 @@ class Gateway:
 
     async def __aexit__(self, *exc) -> None:
         await self.stop()
+
+
+def _descends(pid: int, root: int) -> bool:
+    """`pid` is `root` or one of its descendants."""
+    import subprocess
+    for _ in range(16):
+        if pid == root:
+            return True
+        r = subprocess.run(["ps", "-o", "ppid=", "-p", str(pid)],
+                           capture_output=True, text=True)
+        if not r.stdout.strip():
+            return False
+        pid = int(r.stdout.strip())
+        if pid <= 1:
+            return False
+    return False
+
+
+def answerer(port: int, host: str = "127.0.0.1",
+             path: str = "/.well-known/spatialdds/search"
+             ) -> tuple[int | None, int | None, str]:
+    """(pid, status, row) of the process that answered one request on `port`.
+
+    A request is sent on a connection held open while `lsof` names the
+    process at its far end, so the pid is the one that answered *this*
+    request. The listening table cannot say that: with SO_REUSEADDR a
+    0.0.0.0 socket and a 127.0.0.1 one share a port, both are listed, and a
+    loopback request reaches the more specific one (finding 77).
+    """
+    import socket
+    import subprocess
+    try:
+        s = socket.create_connection((host, port), timeout=5)
+    except OSError as e:
+        return None, None, f"{type(e).__name__}: {e}"
+    try:
+        s.sendall(f"GET {path} HTTP/1.1\r\nHost: {host}:{port}\r\n\r\n"
+                  .encode())
+        head = s.recv(64).decode("latin-1", "replace")
+        status = int(head.split()[1]) if head.startswith("HTTP/") else None
+        mine = f"{host}:{s.getsockname()[1]}"
+        r = subprocess.run(["lsof", "-nP", f"-iTCP@{mine}"],
+                           capture_output=True, text=True)
+        for row in r.stdout.splitlines()[1:]:
+            f = row.split()
+            if len(f) > 2 and f"->{mine}" in row:
+                return int(f[1]), status, row
+        return None, status, f"lsof names no process at the far end of {mine}"
+    except (OSError, ValueError, IndexError) as e:
+        return None, None, f"{type(e).__name__}: {e}"
+    finally:
+        s.close()
+
+
+def own_server(proc, port: int, host: str = "127.0.0.1",
+               timeout: float = 30.0) -> tuple[bool, str]:
+    """Wait until `proc` (a Popen) is the process answering on `port`.
+
+    The one check every gate that starts a server makes before trusting what
+    the port says. A URL that answers proves only that something serves
+    there; the started process's pid on the answering connection proves it
+    is the one under test. Returns (ok, detail); the detail names the
+    answerer either way.
+    """
+    import time
+    end = time.monotonic() + timeout
+    last = "nothing answered"
+    while time.monotonic() < end:
+        if proc.poll() is not None:
+            return False, f"the started process exited ({proc.returncode})"
+        pid, status, row = answerer(port, host)
+        if pid is not None and _descends(pid, proc.pid):
+            return True, f"pid {pid} answered {status}"
+        if pid is not None:
+            last = (f"port {port} answered {status} from pid {pid}, not the "
+                    f"started pid {proc.pid}: {row.strip()[:90]}")
+        else:
+            last = row
+        time.sleep(0.2)
+    return False, last
 
 
 def report(title: str, checks: list[tuple[str, bool, str]], verdict: str) -> int:

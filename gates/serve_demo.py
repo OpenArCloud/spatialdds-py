@@ -32,7 +32,6 @@ import os
 import subprocess
 import sys
 import tempfile
-import time
 import urllib.parse
 import urllib.request
 from pathlib import Path
@@ -44,10 +43,9 @@ sys.path.insert(0, str(ROOT / "gates"))
 LIB = ROOT / "lib" / "spatialdds"
 sys.path.insert(0, str(LIB))
 
-from harness import report                                    # noqa: E402
+from harness import own_server, report                        # noqa: E402
 
 import examples as ex                                          # noqa: E402
-from quickstart import listening                               # noqa: E402
 
 PACK = ROOT / "tools" / "pack_demo.py"
 DEMO_DIR = LIB / "spatialdds" / "demo"
@@ -67,7 +65,7 @@ class Served:
     def __init__(self, *args: str) -> None:
         self.args = args
         self.port = int(args[args.index("--port") + 1])
-        self.owner = ""
+        self.ours, self.who = False, ""
         self.proc: subprocess.Popen | None = None
         self.tmp: tempfile.TemporaryDirectory | None = None
         self.banner = ""
@@ -88,10 +86,9 @@ class Served:
         # Two steps, because the banner is not a readiness signal: every
         # line of it is printed before the socket is bound. So read the
         # banner to its last line -- which is the `publish` line, always --
-        # and then wait for the port to be owned by *this* child, using the
-        # same lsof check `gates/quickstart.py` uses and importing it rather
-        # than writing a second one. A URL that answers only tells you
-        # something is listening there.
+        # and then wait until *this* child is the process answering on the
+        # port (harness.own_server, finding 77). A URL that answers only tells
+        # you something is serving there.
         lines = []
         while True:
             line = self.proc.stdout.readline()
@@ -101,14 +98,7 @@ class Served:
             if line.startswith("  publish "):
                 break
         self.banner = "".join(lines)
-        for _ in range(300):
-            if self.proc.poll() is not None:
-                break
-            owner = listening(self.port)
-            if owner and owner.split()[1] == str(self.proc.pid):
-                self.owner = owner
-                break
-            time.sleep(0.1)
+        self.ours, self.who = own_server(self.proc, self.port)
         for ln in lines:
             if ln.startswith("bearer token"):
                 self.token = ln.split()[-1]
@@ -146,11 +136,9 @@ def main() -> int:
     with Served("--demo", "--port", str(port)) as s:
         checks.append((f"`python -m spatialdds.serve --demo` serves from an "
                        f"empty directory with only the package on the path, "
-                       f"and the listening process is the one started",
-                       bool(s.owner)
-                       and s.owner.split()[1] == str(s.proc.pid)
-                       and "publish     ON" in s.banner,
-                       f"owner {s.owner[:60]!r}, pid {s.proc.pid}"))
+                       f"and the process answering on its port is the one "
+                       f"started",
+                       s.ours and "publish     ON" in s.banner, s.who))
         checks.append(("its banner names the type source and the spec commit "
                        "it was pinned at",
                        "types         the recording's own embedded IDL"
@@ -220,6 +208,9 @@ def main() -> int:
     with Served("--demo", "--authority", "demo.spatialdds.org",
                 "--port", str(port + 1)) as s:
         base = f"http://127.0.0.1:{port + 1}"
+        checks.append(("`--demo --authority` serves, and the process "
+                       "answering on its port is the one started",
+                       s.ours, s.who))
         uri = "spatialdds://demo.spatialdds.org/ut-austin-south-mall/content/fountain-label"
         st, body = get(f"{base}/spatialdds/resolve?uri="
                        + urllib.parse.quote(uri, safe=""))

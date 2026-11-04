@@ -38,7 +38,6 @@ import shutil
 import subprocess
 import sys
 import tempfile
-import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -51,9 +50,8 @@ sys.path.insert(0, str(ROOT / "gates"))
 LIB = ROOT / "lib" / "spatialdds"
 sys.path.insert(0, str(LIB))
 
-from harness import report                                    # noqa: E402
+from harness import own_server, report                        # noqa: E402
 from spatialdds.server import webjson                         # noqa: E402
-from quickstart import listening                              # noqa: E402
 
 DOCKERFILE = ROOT / "deploy" / "Dockerfile"
 RUNBOOK = ROOT / "deploy" / "RUNBOOK.md"
@@ -219,23 +217,24 @@ def main() -> int:
             cwd=str(tree), env=env, stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT, text=True)
         try:
-            owner = ""
-            for _ in range(300):
-                if child.poll() is not None:
-                    break
-                owner = listening(PORT)
-                if owner and owner.split()[1] == str(child.pid):
-                    break
-                time.sleep(0.1)
+            # Whose answers the checks below read. PORT is fixed, so another
+            # server on it is possible; the CMD binds 0.0.0.0, which on macOS
+            # coexists with a 127.0.0.1 listener that then answers every
+            # loopback request (finding 77). Only the started pid on the
+            # answering connection makes those answers the image's.
+            ours, who = own_server(child, PORT)
             if child.poll() is not None:
                 out = (child.stdout.read() if child.stdout else "")[-400:]
                 checks.append(("the CMD serves from the replicated tree",
                                False, f"exited {child.returncode}: {out}"))
                 return report("the deployment, replicated", checks,
                               "the image's CMD did not serve")
-            checks.append((f"the CMD serves from the replicated tree, and the "
-                           "listening process is the one it started",
-                           bool(owner), f"{owner[:70]!r}"))
+            checks.append(("the CMD serves from the replicated tree, and the "
+                           "process answering on its port is the one it "
+                           "started", ours, who))
+            if not ours:
+                return report("the deployment, replicated", checks,
+                              "another process answers on the image's port")
 
             base = f"http://127.0.0.1:{PORT}"
             st, body = get(f"{base}/.well-known/spatialdds/search?geohash=9v6krc")
@@ -306,6 +305,9 @@ def main() -> int:
             checks.append((f"…and it wrote nothing into its working "
                            f"directory ({left or 'empty'})",
                            left == [], f"{left}"))
+            ours, who = own_server(child, PORT, timeout=5)
+            checks.append(("…and after the last read, the answering process "
+                           "is still the one it started", ours, who))
         finally:
             child.terminate()
             try:
