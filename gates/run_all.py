@@ -117,6 +117,18 @@ def gates() -> list[dict]:
         f"projection the frames are held to until the demo adopts them")
     no_lsof = None if shutil.which("lsof") else (
         "needs lsof to confirm which process is listening on the port")
+    # The integrator guide fetches its sample asset from GitHub, as a reader
+    # does. Probed on every run, so the skip ends the moment the network is
+    # back rather than outliving its reason.
+    try:
+        import urllib.request
+        urllib.request.urlopen(urllib.request.Request(
+            "https://raw.githubusercontent.com/OpenArCloud/spatialdds-web/main/"
+            "samples/assets/fountain-marker.gltf", method="HEAD"), timeout=10)
+        no_net = None
+    except OSError:
+        no_net = ("needs the network: the guide fetches its sample asset from "
+                  "raw.githubusercontent.com, as a reader's commands do")
     no_node = None if shutil.which("node") else (
         "needs node to execute the browser console snippets in "
         "examples/browser.md; the gate fails rather than passes on an "
@@ -294,6 +306,9 @@ def gates() -> list[dict]:
         {"name": "entity_publishing", "what": "entities and claims are published, refreshed, lapsed and grounded as ruled, over HTTP and on the bus",
          "cmd": ["gates/entity_publishing.py"],
          "skip": no_dds or no_web},
+        {"name": "integrator_guide", "what": "the integrator guide runs as printed, in order, and every refusal it tabulates is the one served",
+         "cmd": ["gates/integrator_guide.py"],
+         "skip": no_dds or no_web or no_net},
     ]
 
 

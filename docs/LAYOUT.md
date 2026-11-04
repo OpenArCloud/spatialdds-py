@@ -33,8 +33,10 @@ gates/            everything above
 tools/            run_gateway.py (a shim over python -m spatialdds.serve),
                   author_anchors.py, pack_demo.py
 docs/             WIRE, EVIDENCE, LAYOUT, RESOLUTION, PUBLISH,
-                  WALKTHROUGH (by curl), MYTOWN (by library)
-deploy/           Dockerfile and RUNBOOK.md for the hosted endpoint, unbuilt
+                  WALKTHROUGH (by curl), MYTOWN (by library), and
+                  integrator-guide (for integrators, gated as printed)
+deploy/           Dockerfile and RUNBOOK.md for the hosted endpoint, unbuilt;
+                  extensions/, the claim type the sandbox serves
 lib/spatialdds/   the `spatialdds` client package: its own pyproject, its own
                   README, and a vendored copy of the serializer tables
 .github/          one workflow, inert: trusted publishing for that package

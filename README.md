@@ -3,6 +3,13 @@
 A registry for spatial services, content and anchors, over plain HTTPS and
 WebSocket. Run one, publish to it, and read from it in a few lines.
 
+**Integrating with a registry, or with the public sandbox at
+demo.spatialdds.org?** Start with the
+[integrator guide](docs/integrator-guide.md): read, watch, and publish
+content, live entities and claims, and every refusal you can meet. Every
+command in it is run by a gate, in order, against the code in this
+repository.
+
 ## Run a registry
 
 ```sh
@@ -142,6 +149,7 @@ versions of everything above.
 
 | | |
 | --- | --- |
+| [Integrator guide](docs/integrator-guide.md) | reading, watching and publishing on a registry you did not run, the public sandbox's contract included |
 | [Your own registry in eight steps](docs/MYTOWN.md) | from nothing to a registry a stranger can read, persistence included |
 | [Lanes: one registry, several publishers](docs/PUBLISH.md#access) | tokens scoped to scenes, a `403` across lanes, per-lane reset; virtual authorities designed, not built |
 | [Publish and retrieve, step by step](docs/WALKTHROUGH.md) | every record shown in full on the wire |
