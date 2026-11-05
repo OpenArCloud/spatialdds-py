@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.8.2 (in preparation): scope
+
+Not released. What rides with 0.8.2, so none of it is forgotten or lands
+alone:
+
+- **The PyPI page opens with the integrator guide.** This README's first
+  pointer, above installation, is the guide's absolute URL;
+  `gates/library.py` holds it there. Done, held for the release.
+- **Findings 73 and 79 are fixed together.** A refused write no longer
+  opens a lane (73), and the schemas index lists every writable type, not
+  only types with lanes (79). They interact, so they land in one release,
+  and both known-issue checks in `gates/integrator_guide.py` are re-trued
+  together, with the guide's two sentences.
+- **Finding 78 is fixed.** A 503 `journal-unwritable` says what happened in
+  the client's terms, with no server path; the full text goes to the log.
+- **The release window includes the site revert.** spatialdds.org's "Try
+  the web binding" goes back to the PyPI page (SpatialDDS-spec branch
+  `site-revert-at-0.8.2`, held). It lands with the 0.8.2 upload, never
+  before, so the button never reaches a PyPI page without the guide.
+- **A conformance-suite candidate rides with it:** the schema check asserts
+  that every writable type is listed (finding 79).
+
 ## 0.8.1: a missing asserter is a missing member
 
 One fix to 0.8.0's write surface, found by the fuzz gate once it reached the

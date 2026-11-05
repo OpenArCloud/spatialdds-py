@@ -857,6 +857,19 @@ def shipped_page(checks: list) -> None:
                    "hides and PyPI shows",
                    not headerless, f"at line(s) {headerless}"))
 
+    # The integrator guide is the page's first pointer: the first link on it,
+    # above the install fence, so a reader arriving from the index meets it
+    # before anything else.
+    guide = ("https://github.com/OpenArCloud/spatialdds-py/blob/main/docs/"
+             "integrator-guide.md")
+    head = text.split("\n```", 1)[0]
+    first = re.search(r"\[[^\]]+\]\(([^)]+)\)", head)
+    checks.append(("its first link, above the install fence, is the "
+                   "integrator guide's",
+                   first is not None and first.group(1) == guide,
+                   f"first link above the fence: "
+                   f"{first.group(1) if first else None}"))
+
     checks.append((f"it names the repository by URL, since a reader on an "
                    f"index has no sidebar",
                    "github.com/OpenArCloud/spatialdds-py" in text,

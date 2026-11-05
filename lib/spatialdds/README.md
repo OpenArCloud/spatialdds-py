@@ -3,6 +3,13 @@
 SpatialDDS for programs: a client over plain HTTPS and a WebSocket, a native
 DDS participant, and the reference registry behind one command.
 
+**Integrating with a registry, or with the public sandbox at
+demo.spatialdds.org?** Start with the
+[integrator guide](https://github.com/OpenArCloud/spatialdds-py/blob/main/docs/integrator-guide.md):
+read, watch, and publish content, live entities and claims, and every
+refusal you can meet. Every command in it is run by a gate, in order,
+against the code in the repository.
+
 ```sh
 pip install spatialdds                       # the client: two dependencies
 pip install "spatialdds[server]"             # and the registry
