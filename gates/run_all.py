@@ -317,6 +317,7 @@ def main() -> int:
     env = dict(os.environ,
                PYTHONPATH=os.pathsep.join([str(ROOT), LIB]))
     rows = []
+    skipped_checks = 0
     for g in gates():
         if g.get("skip"):
             rows.append((g["name"], "SKIPPED", g["skip"], g["what"]))
@@ -324,7 +325,18 @@ def main() -> int:
         r = subprocess.run([sys.executable] + g["cmd"], cwd=ROOT, env=env,
                            capture_output=True, text=True)
         if r.returncode == 0:
-            rows.append((g["name"], "PASS", "", g["what"]))
+            # A passing gate can still have skipped a check its host could
+            # not run (harness.SKIP); its row says so, with the reason.
+            out = (r.stdout or "").splitlines()
+            skips = [l.strip()[5:] + (f" ({out[i + 1].strip()})"
+                                      if i + 1 < len(out)
+                                      and out[i + 1].startswith("       ")
+                                      else "")
+                     for i, l in enumerate(out) if l.startswith("  skip ")]
+            skipped_checks += len(skips)
+            rows.append((g["name"], "PASS",
+                         ("skipped: " + "; ".join(skips))[:200] if skips
+                         else "", g["what"]))
         else:
             lines = [l.strip() for l in (r.stdout or "").splitlines()
                      if l.strip()]
@@ -347,6 +359,9 @@ def main() -> int:
     nfail = sum(1 for r in rows if r[1] == "FAIL")
     nskip = sum(1 for r in rows if r[1] == "SKIPPED")
     print(f"\n{len(rows)} gates: {npass} passed, {nfail} failed, {nskip} skipped")
+    if skipped_checks:
+        print(f"{skipped_checks} check(s) skipped inside passing gates, "
+              f"named on their rows")
     return 1 if nfail else 0
 
 

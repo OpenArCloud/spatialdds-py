@@ -233,12 +233,26 @@ def own_server(proc, port: int, host: str = "127.0.0.1",
     return False, last
 
 
+class _Skip:
+    def __repr__(self) -> str:
+        return "SKIP"
+
+
+#: A check's `passed` when the host cannot run it: printed as `skip` with its
+#: detail, which names what is missing, and neither a pass nor a failure. A
+#: marker of its own rather than None, which a falsy check can evaluate to.
+SKIP = _Skip()
+
+
 def report(title: str, checks: list[tuple[str, bool, str]], verdict: str) -> int:
     print(title + "\n")
     for label, passed, detail in checks:
-        print(f"  {'ok  ' if passed else 'FAIL'} {label}")
-        if not passed and detail:
+        mark = "skip" if passed is SKIP else "ok  " if passed else "FAIL"
+        print(f"  {mark} {label}")
+        if (passed is SKIP or not passed) and detail:
             print(f"       {detail}")
-    ok = all(c[1] for c in checks)
-    print(f"\n{'PASS' if ok else 'FAIL'}, {verdict}")
+    ok = all(c[1] is SKIP or c[1] for c in checks)
+    skipped = sum(1 for c in checks if c[1] is SKIP)
+    print(f"\n{'PASS' if ok else 'FAIL'}, {verdict}"
+          + (f" ({skipped} check(s) skipped)" if skipped else ""))
     return 0 if ok else 1

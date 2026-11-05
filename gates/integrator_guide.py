@@ -48,7 +48,8 @@ problem document a request built for that row draws from the registry. A row
 with no reproduction fails, and so does a reproduction with no row. The disk
 row is drawn from a second registry whose journal is on a 4 MiB volume of its
 own, filled before it starts (a disk image on macOS, a tmpfs in a user
-namespace on Linux); where neither can be had, that row fails and says so.
+namespace on Linux). Where neither can be had, that row is skipped, naming
+what is missing, and never failed: this gate's red means the guide drifted.
 
 Every registry started here must be the process answering on its port, by
 its pid on the answering connection (harness.own_server, finding 77), before
@@ -96,7 +97,7 @@ GUIDE = ROOT / "docs" / "integrator-guide.md"
 sys.path.insert(0, str(ROOT / "gates"))
 sys.path.insert(0, str(LIB))
 
-from harness import own_server, report                       # noqa: E402
+from harness import SKIP, own_server, report                 # noqa: E402
 
 LIVE = "https://demo.spatialdds.org"
 SCENE, PRINCIPAL = "my-world", "my-group"
@@ -408,13 +409,20 @@ async def subscriptions_full(reg: Registry) -> tuple[int, dict, dict]:
             await c.close()
 
 
-#: Run in front of the server: fill the directory named as $0, then exec the
-#: rest, so the volume is full before the server starts and the started pid
-#: is the server's. Bounded (8 MiB, then 1024 small files) so that a volume
-#: that is not the small one is never filled.
+#: Run in front of the server: fill the directory named as $0, say whether
+#: it is now full (into the server's log, where the gate reads it), then exec
+#: the rest, so the started pid is still the server's. Bounded (8 MiB, then
+#: 1024 small files) so that a volume that is not the small one is never
+#: filled.
 FILL = ('head -c 8388608 /dev/zero > "$0/fill" 2>/dev/null; i=0; '
         'while [ $i -lt 1024 ] && head -c 4096 /dev/zero > "$0/f$i" '
-        '2>/dev/null; do i=$((i+1)); done; exec "$@"')
+        '2>/dev/null; do i=$((i+1)); done; '
+        'if echo x > "$0/probe" 2>/dev/null; then echo "volume: not full"; '
+        'else echo "volume: full"; fi; exec "$@"')
+
+
+class Blocked(Exception):
+    """This host cannot provide a small volume: a skip, never a failure."""
 
 
 @contextlib.contextmanager
@@ -423,44 +431,63 @@ def full_volume(tmp: Path):
 
     Unprivileged on both platforms the gate runs on: a disk image on macOS,
     a tmpfs in a user and mount namespace on Linux (the server runs inside
-    it, so it is filled there too, by FILL).
+    it, so it is filled there too, by FILL). Raises Blocked, naming what is
+    missing, when the host cannot have one; probed every run, so the skip
+    ends when the capability arrives.
     """
     vol = tmp / "vol"
     vol.mkdir()
     if sys.platform == "darwin":
         img = tmp / "vol.dmg"
-        subprocess.run(["hdiutil", "create", "-size", "4m", "-fs", "HFS+",
-                        "-volname", "sdd-full", "-layout", "NONE", str(img)],
-                       check=True, capture_output=True)
-        subprocess.run(["hdiutil", "attach", "-nobrowse", "-noautoopen",
-                        "-mountpoint", str(vol), str(img)],
-                       check=True, capture_output=True)
+        for argv in (["hdiutil", "create", "-size", "4m", "-fs", "HFS+",
+                      "-volname", "sdd-full", "-layout", "NONE", str(img)],
+                     ["hdiutil", "attach", "-nobrowse", "-noautoopen",
+                      "-mountpoint", str(vol), str(img)]):
+            if not shutil.which("hdiutil"):
+                raise Blocked("no hdiutil to make a disk image")
+            r = subprocess.run(argv, capture_output=True, text=True)
+            if r.returncode:
+                raise Blocked(f"hdiutil {argv[1]} refused: "
+                              f"{(r.stderr or r.stdout).strip()[-200:]}")
         try:
             yield vol, ("sh", "-c", FILL, str(vol))
         finally:
             subprocess.run(["hdiutil", "detach", "-force", str(vol)],
                            capture_output=True)
     elif sys.platform.startswith("linux"):
-        yield vol, ("unshare", "--user", "--map-root-user", "--mount",
-                    "sh", "-c",
-                    'mount -t tmpfs -o size=4m tmpfs "$0" && ' + FILL,
-                    str(vol))
+        ns = ("unshare", "--user", "--map-root-user", "--mount")
+        mount = 'mount -t tmpfs -o size=4m tmpfs "$0"'
+        if not shutil.which("unshare"):
+            raise Blocked("no unshare for a tmpfs in a user namespace")
+        r = subprocess.run([*ns, "sh", "-c", mount, str(vol)],
+                           capture_output=True, text=True)
+        if r.returncode:
+            raise Blocked("unprivileged user and mount namespaces are refused "
+                          f"here: {r.stderr.strip()[-200:]}")
+        yield vol, (*ns, "sh", "-c", mount + " && " + FILL, str(vol))
     else:
-        raise RuntimeError(f"no unprivileged small volume on {sys.platform}")
+        raise Blocked(f"no unprivileged small volume on {sys.platform}")
 
 
-def journal_unwritable(tmp: Path) -> tuple[list[tuple[int, dict, dict]],
-                                           tuple[bool, str]]:
+def journal_unwritable(tmp: Path) -> tuple[list[tuple[int, dict, dict]] | None,
+                                           tuple[object, str]]:
     """A write to a registry whose journal's disk is full.
 
     A registry of its own, with the sandbox's flags and its journal on a
     full volume. Returns the refusal, and whether what the row says beside
-    it holds: the disk was the cause, nothing was stored, reads still work.
+    it holds: the volume was full, the refusal says when to retry, nothing
+    was stored, reads still work. The refusal's `detail` is not compared: it
+    names the server's own path today (finding 78), which no reader should
+    be taught to expect. None, and the reason, when the host is Blocked.
     """
     (tmp / "full").mkdir()
     try:
         with full_volume(tmp / "full") as (vol, prefix):
-            reg = Registry(tmp / "full", journal_dir=vol, prefix=prefix)
+            try:
+                reg = Registry(tmp / "full", journal_dir=vol, prefix=prefix)
+            except RuntimeError as e:
+                return [], (False, f"the registry did not serve on a full "
+                                   f"disk: {str(e).strip()[-300:]}")
             try:
                 url = f"{reg.base}/{SCENE}/world/entity/v1/ent:full"
                 got = http("PUT", url, reg.token, enc(entity("ent:full")))
@@ -469,15 +496,12 @@ def journal_unwritable(tmp: Path) -> tuple[list[tuple[int, dict, dict]],
                              reg.base + "/.well-known/spatialdds/search")[0]
             finally:
                 reg.stop()
-    except (RuntimeError, subprocess.CalledProcessError) as e:
-        # No small volume here (Linux with unprivileged user namespaces
-        # refused, say): the row has no reproduction, and says why.
-        return [], (False, f"no full volume to draw it from: "
-                           f"{str(e).strip()[-300:]}")
-    detail = str(got[2].get("detail", ""))
-    ok = ("No space left" in detail and got[1].get("Retry-After") == "60"
+            full = "volume: full" in reg.banner().splitlines()
+    except Blocked as e:
+        return None, (SKIP, f"skipped, not failed: {e}")
+    ok = (full and got[1].get("Retry-After") == "60"
           and stored == 404 and reads == 200)
-    return [got], (ok, f"detail {detail[:120]!r}, Retry-After "
+    return [got], (ok, f"volume full {full}, Retry-After "
                        f"{got[1].get('Retry-After')}, stored {stored}, "
                        f"reads {reads}")
 
@@ -667,6 +691,11 @@ def main() -> int:
                        f"rows only: {sorted(set(slugs) - set(drawn))}; "
                        f"reproductions only: {sorted(set(drawn) - set(slugs))}"))
         for status, slug, title in documented:
+            if drawn.get(slug, []) is None:
+                # This host cannot draw the row (journal_unwritable).
+                checks.append((f"{status} {slug}: {title}", SKIP,
+                               reg.full[1]))
+                continue
             got = drawn.get(slug) or []
             seen = [(s, str(d.get("type", "")).rsplit(":", 1)[-1],
                      d.get("title")) for s, _h, d in got]
@@ -675,9 +704,10 @@ def main() -> int:
                 ok = ok and all("Retry-After" in h for _s, h, _d in got)
             checks.append((f"{status} {slug}: {title}", ok,
                            f"drew {seen or 'nothing'}"))
-        checks.append(("…and the full disk was the cause of the 503, with "
-                       "Retry-After, nothing stored, and reads unaffected, "
-                       "as its row says", *reg.full))
+        if reg.full[0] is not SKIP:
+            checks.append(("…and the full disk was the cause of the 503, "
+                           "with Retry-After, nothing stored, and reads "
+                           "unaffected, as its row says", *reg.full))
 
         # The known issue, held as a claim: a refused PUT opens a lane.
         path = f"/{SCENE}/frames/geo_anchor/v1"

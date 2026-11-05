@@ -2729,3 +2729,39 @@ started pid …`); with the port clear, every gate that uses the check passes.
 
 *Origin:* a probe gateway left on 8799 by the batch's own exploration, which
 broke the baseline `run_all` before the guide gate existed.
+
+### 78. A 503 `journal-unwritable` tells the client where the server keeps its journal
+
+**Measured.** A write to a registry whose journal's disk is full is refused
+with
+
+    503 journal-unwritable, Retry-After: 60
+    detail: This write was not accepted: the journal could not be written
+    (OSError: [Errno 28] No space left on device: '<the journal's directory>/tmpbc9n_t0_.mcap.tmp').
+    Reads are unaffected. Retry later.
+
+with the server's absolute path where the placeholder is (measured on a
+local registry at `48f0369`; on demo.spatialdds.org it would be a path under
+`/var/lib/spatialdds/`). `Journal._flush()` wraps the `OSError` as
+`JournalUnwritable(f"{type(e).__name__}: {e}")`
+(`lib/spatialdds/spatialdds/server/publish.py:567-570`), the temporary file
+`write_entries()` makes sits beside the journal (`:637-638`), and
+`_unwritable()` puts the exception's text into `detail`
+(`lib/spatialdds/spatialdds/server/gw_http.py:266-269`). Minor, and real:
+the layout of the host's filesystem goes to any client that writes while
+the disk is full, and a refusal is otherwise careful to name only what the
+client sent.
+
+**Smallest change:** `detail` says what happened in the client's terms
+("the registry's disk is full", or "the journal cannot be written" for any
+other `OSError`), from the errno and not the exception's text; the full
+text goes to the server's log, where the operator reads it. Rides the next
+0.8.x release, not the integrator guide's batch.
+
+**Gate:** a 503 `journal-unwritable` drawn from a full volume carries no
+path of the server's filesystem in any member. Until then,
+`gates/integrator_guide.py` reproduces the row without reading `detail`, and
+the guide's row quotes no detail, so no reader is taught to expect it and no
+gate holds the leak as a claim.
+
+*Origin:* the reproduction of the guide's disk row, this batch.
