@@ -2850,3 +2850,54 @@ halves in `gates/integrator_guide.py`) are re-trued together, with the
 guide's two sentences.
 
 *Origin:* the final conformance reading after the lane reset, this batch.
+
+## 0.8.2: what the release does with 73 to 79, 2026-11-05
+
+**73 and 79, fixed together.** `publish.resource_for_put()` no longer
+registers a new lane: it returns the `Resource` provisional, and the new
+`publish.register_lane()` registers it when a `PUT` is accepted and
+journalled (`gw_http.put_instance`), and on replay. A `DELETE` on a lane
+that does not exist answers 404 and registers nothing. `_schemas()` adds
+every type in `State.publishable` to the served set, so the index lists a
+writable extension type before any lane of it exists.
+`gates/phantom_lanes.py` holds both: the index lists the deployment's type
+before any write, and each of 73's refused rows, on a registry of its own,
+leaves search (body and ETag), both lanes' `GET` and the index as they were,
+then and after a restart; an accepted first write still registers its lane,
+and a restart serves it. Against 0.8.1's two files it fails six checks of
+eight, the lane reading `404 -> 200 -> 404 (restarted)`, which is 73's
+ghost; with the fix, it passes. Its first version gave every row one
+registry, and three rows passed on 0.8.1 because the first row's refusal had
+already opened their lane; each row now has its own.
+
+The order the interaction note asked for, shown: with both fixes in and
+nothing re-trued, `gates/integrator_guide.py` failed exactly the two
+known-issue checks (79's first half, `listed before any claim lane: True`;
+73's, `listed before False, status 400, listed after False`) and passed the
+other 55. Re-trued in the same change: the guide's known-issue paragraph is
+removed, its schema sentence says the index lists the type before anyone
+has written a claim, and the guide gate holds that (listed, schema 200,
+before any block) and that a `PUT` refused with 400 on a lane that does not
+exist leaves it out of search. It then passes.
+
+**78, fixed.** `JournalUnwritable` carries the errno; a client is told "the
+registry's disk is full" (ENOSPC, EDQUOT) or "the journal cannot be
+written", and the full error, path included, goes to the server's stderr.
+The guide gate's disk row now requires that no member of the refusal names
+the volume's or the registry's directory, and that the log has the full
+error. With the exception's text planted back into `detail`, it fails,
+naming both leaked paths.
+
+**74 and 76, documented, API unchanged.** `Writer.withdraw()`'s docstring
+and its refusal of `stamp=` say the terminal stamp is the host's wall clock
+at withdrawal, as `on_exit="withdraw"` stamps. `Reader.take()`'s docstring
+says it takes at most `TAKE_LIMIT` (256, now a named constant) samples a
+call, that nothing says more remain, and to call again until it returns
+nothing. `gates/native_additions.py` holds both against the code: a sample
+stamped at t=1000 ends in a terminal sample stamped now, and of 300
+samples the first `take()` returns 256 and later calls the other 44. With
+`TAKE_LIMIT` planted at 128 (the calls read 128, 44, 0), the docstring
+check fails.
+
+**75, out.** Schema caching is a 0.8.3 candidate, with a performance gate of
+its own.
