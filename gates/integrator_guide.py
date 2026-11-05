@@ -57,7 +57,12 @@ anything it says is compared.
 
 **The known issue.** The guide says a refused write to a lane that does not
 exist yet still opens it (finding 73). That is checked as a claim like any
-other: when the fix lands, this fails until the paragraph goes.
+other: when the fix lands, this fails until the paragraph goes. So is the
+Claims section's sentence on the schema (finding 79): before any block opens
+a claim lane, the schemas index must not list the claim type, and after,
+it must, with the guide's claim matching the listed schema and a body
+missing a member failing it and refused 400. When 0.8.x lists every writable
+type always, the first half fails until the sentence is re-trued.
 
 Needs the network for the snippets that fetch the sample asset from GitHub,
 as a reader's do; with it unreachable the gate FAILS and says so, and
@@ -101,6 +106,8 @@ from harness import SKIP, own_server, report                 # noqa: E402
 
 LIVE = "https://demo.spatialdds.org"
 SCENE, PRINCIPAL = "my-world", "my-group"
+#: The claim type the sandbox's extension serves.
+RELATIONSHIP = "oarc_owm.Relationship"
 #: The setup block, exactly: the one block the gate reads rather than runs.
 SETUP = ("export BASE=https://demo.spatialdds.org\n"
          "export SCENE='<your scene>'\n"
@@ -567,6 +574,39 @@ def table_rows(lines: list[str]) -> list[tuple[int, str, str]]:
     return rows
 
 
+def schema_listed(reg: Registry) -> tuple[bool, str | None]:
+    """Whether the schemas index lists the claim type, and its URL if so."""
+    _s, _h, doc = http("GET", reg.base + "/.well-known/spatialdds/schemas")
+    url = next((e["url"] for e in doc if e.get("type") == RELATIONSHIP), None)
+    return url is not None, url
+
+
+def held_to_schema(reg: Registry, work: Path) -> tuple[bool, str]:
+    """The guide's claim against the schema the index lists for its type.
+
+    The guide's own `near.json`, left in the reader's directory, must match
+    the listed schema; the same body without `predicate` must fail it, and
+    the registry must refuse that body with the guide's 400 row. Read from
+    the index, as a reader would: the gate never builds the schema itself.
+    """
+    import jsonschema
+    listed, url = schema_listed(reg)
+    if not listed:
+        return False, f"{RELATIONSHIP} is not listed with a claim lane open"
+    s, _h, schema = http("GET", url.replace(LIVE, reg.base, 1))
+    claim = json.loads((work / "near.json").read_text())
+    bad = {k: v for k, v in claim.items() if k != "predicate"}
+    check = jsonschema.validators.validator_for(schema)(schema)
+    good, fails = check.is_valid(claim), not check.is_valid(bad)
+    rs, _h, d = http("PUT", f"{reg.base}/{SCENE}/world/oarc.relationship/v1/"
+                     "near-schema", reg.token, enc(bad))
+    slug = str(d.get("type", "")).rsplit(":", 1)[-1]
+    return (s == 200 and good and fails and rs == 400
+            and slug == "schema-invalid",
+            f"schema {s}; guide's claim matches {good}; body without "
+            f"predicate fails {fails}; registry answered {rs} {slug}")
+
+
 def lane_listed(reg: Registry, path: str) -> bool:
     _s, _h, doc = http("GET", reg.base + "/.well-known/spatialdds/search")
     return any(t["url"].endswith(path)
@@ -636,6 +676,14 @@ def main() -> int:
         checks.append(("the registry serves claims, as the sandbox's banner says",
                        "extension     oarc.relationship (oarc_owm.Relationship): "
                        "publishable" in reg.banner(), reg.banner()[-400:]))
+        # Finding 79, held as a claim before any block opens a claim lane.
+        unlisted = not schema_listed(reg)[0]
+        checks.append(("the known issue still holds: with no claim lane yet, "
+                       "the schemas index does not list the claim type "
+                       "(finding 79); when this fails, the fix has landed and "
+                       "the guide's sentence is re-trued", unlisted,
+                       f"{RELATIONSHIP} listed before any claim lane: "
+                       f"{not unlisted}"))
         env = reader_env(reg.base, reg.token)
         watchers: dict[str, Watcher] = {}
         outputs: list[tuple[Block, str]] = []
@@ -680,6 +728,13 @@ def main() -> int:
             print(f"wrote {len(outputs)} output(s) into {GUIDE.name}; review "
                   f"the diff, then run without --write")
             return 0
+
+        # The rest of the sentence: once a claim lane exists the type is
+        # listed, and the schema listed is the one claims are held to.
+        checks.append(("once a claim lane exists, the schemas index lists the "
+                       "claim type, and the guide's claim matches the listed "
+                       "schema while a body missing a member fails it and is "
+                       "refused 400 schema-invalid", *held_to_schema(reg, work)))
 
         # The error table, both directions.
         documented = table_rows(table)

@@ -2765,3 +2765,77 @@ the guide's row quotes no detail, so no reader is taught to expect it and no
 gate holds the leak as a claim.
 
 *Origin:* the reproduction of the guide's disk row, this batch.
+
+### 79. A publishable extension type has no published schema until a lane of it exists
+
+**Measured, live.** On demo.spatialdds.org after the claims flip (spatialdds
+0.8.1, `--extension sandbox_owm02`, banner `oarc.relationship
+(oarc_owm.Relationship): publishable`), `GET
+/.well-known/spatialdds/schemas` listed `oarc_owm.Relationship` while the
+acceptance run's claim lane existed, and conformance v1.8.3 reported
+`1 deployment type(s), each self-described: ['oarc_owm.Relationship']`.
+After `clean-james-lane.sh` reset that scene, the registry, still started
+with the extension and still accepting claims, listed 112 entries and no
+`oarc_owm` type, and the same suite's line read `schemas endpoint is
+self-describing` with no deployment type.
+
+**Reproduced, locally,** at `a7cc80d`, on a registry started with the gate's
+own sandbox flags (`gates/integrator_guide.py`'s `Registry`: `--demo
+--publish --journal --tokens --extension sandbox_owm02`), nothing written:
+
+    before any claim:  index 200, 112 entries, lists oarc_owm.Relationship: False
+    a claim missing a member, before any claim lane: 400 Body does not match its schema
+    after that refusal: index 200, 113 entries, lists oarc_owm.Relationship: True
+    the guide's claim: 201
+    after one claim:   index 200, 113 entries, lists oarc_owm.Relationship: True
+    claim withdrawn (204), lane still open: index 200, 113 entries, lists oarc_owm.Relationship: True
+
+So the registry holds a body to a schema it does not yet publish, and the
+first `PUT` lists it whether accepted or refused: the refusal opens the lane
+(finding 73), and the lane is what the index is built from.
+
+**Mechanism, plant-confirmed.** `_schemas()` asks
+`webjson.served_schemas()` for the types of the resources the state holds
+(`lib/spatialdds/spatialdds/server/gw_http.py:502-509`), and
+`served_schemas()` adds a model-written schema only for those
+(`lib/spatialdds/spatialdds/server/webjson.py:202-216`). The write surface
+validates an extension type against `webjson.schema_from_model()` for any
+type in `State.publishable` (`publish.py:167-170`), the same schema the
+index would list, so the gap is the listing and not the validation. With
+`| set(st.publishable.values())` planted in `_schemas()`'s served set, the
+same run's first line read `113 entries, lists oarc_owm.Relationship: True`
+before any claim; with the plant removed (file sha256 checked), `False`
+again.
+
+So the first integrator to make a claim cannot read the schema their body
+is checked against until a claim lane exists somewhere on the registry.
+
+**Smallest change:** the served set `_schemas()` passes includes every
+publishable extension type as well as the held resources' types, the
+change planted above, so the index lists what the write surface accepts.
+Rides the next 0.8.x release with 78.
+
+**Gate, now:** `gates/integrator_guide.py` holds the guide's sentence as a
+claim, finding-73 style. Before any block opens a claim lane, the index must
+not list the type; after the blocks, it must, with the guide's `near.json`
+matching the listed schema and the same body without `predicate` failing it
+and refused `400 schema-invalid`. Both halves were planted: the fix above
+fails the first ("listed before any claim lane: True") and nothing else; a
+listed schema with its `required` emptied fails the second ("body without
+predicate fails False") and nothing else.
+
+**Gate, with the fix:** a registry started with a publishable extension and
+nothing published lists the extension's schema, and `GET` of its URL answers
+200 before the first write. The guide gate's first half then fails, and the
+guide's sentence is re-trued to say the index lists the type always.
+
+**Suite-version candidate.** The conformance suite's schema check takes its
+subjects from the lanes served, which is exactly the set that lacks the
+type, so v1.8.3 passes either way, as the live readings above show. When the
+fix lands, the check should assert that every writable type is listed: the
+types the endpoint accepts writes of, read from what it advertises as
+publishable (a `405 not-publishable` problem lists their topic type
+segments in its `publishable` member), not only the types that have lanes.
+Recorded here so it rides with the fix.
+
+*Origin:* the final conformance reading after the lane reset, this batch.

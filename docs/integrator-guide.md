@@ -530,9 +530,14 @@ A claim is a relationship between entities: "the bench is near the lamp",
 "the camera sees the cyclist". Claims live in their own world lane,
 `$BASE/$SCENE/world/oarc.relationship/v1`, keyed by the claim's `id`, and are
 read with a token like any world lane. The type is the OWM 0.2 relationship
-prototype (`oarc_owm.Relationship`), a deployment extension the registry
-publishes a schema for at `$BASE/.well-known/spatialdds/schemas`. A claim
-carries the same lifecycle as an entity: a `basis`, a `state`, and a
+prototype (`oarc_owm.Relationship`), a deployment extension. Every claim you
+publish is validated against the schema the registry publishes for the type,
+and a body that does not match it is refused with `400`. In 0.8.1 the index
+at `$BASE/.well-known/spatialdds/schemas` lists that schema whenever any claim
+lane exists on the registry, so on one nobody has written a claim to, it is
+not listed yet; listing every writable type always is filed as
+[finding 79](https://github.com/OpenArCloud/spatialdds-py/blob/main/WEB-BINDING-FINDINGS.md).
+A claim carries the same lifecycle as an entity: a `basis`, a `state`, and a
 `state_reason`.
 
 **1. Something to make a claim about.** A second declared entity, a lamp:
