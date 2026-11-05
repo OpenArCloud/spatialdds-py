@@ -2838,4 +2838,15 @@ publishable (a `405 not-publishable` problem lists their topic type
 segments in its `publishable` member), not only the types that have lanes.
 Recorded here so it rides with the fix.
 
+**Interacts with 73: land both fixes in the same 0.8.x.** Today a refused
+write opens a lane (73), and an open lane lists the schema (79), which is
+why the reproduction's first `PUT` lists the type even though it was
+refused. Fixing 73 alone removes that: a refused first claim would leave
+the type unlisted until an accepted one, a change in 79's observed
+behaviour that no 79 change caused. Fixing 79 alone lists the type always,
+which hides whether a refusal still opens the claim lane. So both fixes
+ride the same release, and both gates (73's known-issue claim and 79's two
+halves in `gates/integrator_guide.py`) are re-trued together, with the
+guide's two sentences.
+
 *Origin:* the final conformance reading after the lane reset, this batch.
