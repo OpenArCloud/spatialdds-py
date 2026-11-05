@@ -1,40 +1,45 @@
 # Changelog
 
-## 0.8.2 (in preparation): scope
+## 0.8.2: no phantom lanes, every writable type listed
 
-Not released. What rides with 0.8.2, so none of it is forgotten or lands
-alone:
+Three fixes to the registry, two contracts written down, and a PyPI page
+that opens with the integrator guide.
 
-- **The PyPI page opens with the integrator guide.** This README's first
-  pointer, above installation, is the guide's absolute URL;
-  `gates/library.py` holds it there. Done, held for the release.
-- **Findings 73 and 79 are fixed together.** A refused write no longer
-  opens a lane (73), and the schemas index lists every writable type, not
-  only types with lanes (79). They interact, so they land in one release,
-  and both known-issue checks in `gates/integrator_guide.py` are re-trued
-  together, with the guide's two sentences.
-- **Finding 78 is fixed.** A 503 `journal-unwritable` says what happened in
-  the client's terms, with no server path; the full text goes to the log.
-- **The release window includes the site revert.** spatialdds.org's "Try
-  the web binding" goes back to the PyPI page (SpatialDDS-spec branch
-  `site-revert-at-0.8.2`, held). It lands with the 0.8.2 upload, never
-  before, so the button never reaches a PyPI page without the guide.
-- **A conformance-suite candidate rides with it:** the schema check asserts
-  that every writable type is listed (finding 79).
+- **A refused write creates no lane (finding 73).** A `PUT` refused with
+  `400`, or a `DELETE` answered `404`, on a lane that does not exist used to
+  register it: search advertised an empty topic until the next restart. A
+  lane is now registered only when a write to it is accepted and
+  journalled, and on replay (`publish.register_lane()`).
+- **The schemas index lists every writable type (finding 79).** A
+  deployment's publishable type (`--extension`) was listed only once a lane
+  of it existed, though every body sent to it was held to that schema. It
+  is now listed from the start. The two fixes interact (a refusal opened the
+  lane, and the open lane listed the schema), so they ship together, and the
+  integrator guide's known-issue paragraph is gone.
+- **A 503 `journal-unwritable` names no server path (finding 78).** Its
+  `detail` is worded from the errno ("the registry's disk is full", or "the
+  journal cannot be written"); the full error goes to the server's log.
+- **`withdraw()`'s clock and `take()`'s bound are documented (findings 74,
+  76).** The terminal sample of a withdrawal is stamped with the host's wall
+  clock, and `stamp=` is refused saying so. `take()` takes at most
+  `TAKE_LIMIT` (256) samples a call; call it again until it returns nothing.
+  The API is unchanged.
+- **The PyPI page opens with the integrator guide**, above installation.
 
-Candidates, undecided. These findings stay open, and whether each rides
-with 0.8.2 is decided at release dispatch:
+New gate: `gates/phantom_lanes.py`. `gates/integrator_guide.py`,
+`gates/native_additions.py` and `gates/library.py` hold the rest.
 
-- **75, a validated `write()` re-reads every vendored schema per sample.**
-  Likely include: a `model_pose` write measured 7.04 ms validated against
-  0.01 ms unvalidated (0.7.4, macOS arm64; unchanged at 0.8.1). The fix is
-  to cache `schemas()` and one compiled validator per type.
-- **74, `withdraw()` stamps the terminal sample with the wall clock and
-  refuses a caller's `stamp=`.** Either accept the stamp or state the
-  contract in the docstring and the error.
-- **76, `take()` says it returns every event that has arrived, but takes at
-  most 256 samples.** Either drain until empty or document the bound and
-  how to tell that more remain.
+Also in this release's window, outside the package: spatialdds.org's "Try
+the web binding" goes back to the PyPI page once 0.8.2 is uploaded
+(SpatialDDS-spec branch `site-revert-at-0.8.2`), and the conformance
+suite's schema check gains "every writable type is listed" as a suite
+version, tagged once demo.spatialdds.org runs 0.8.2.
+
+**0.8.3 candidate: finding 75.** A validated `write()` re-reads every
+vendored schema per sample: a `model_pose` write measured 7.04 ms validated
+against 0.01 ms unvalidated (0.7.4, macOS arm64; unchanged at 0.8.2). The
+fix is to cache `schemas()` and one compiled validator per type, with a
+performance gate of its own.
 
 ## 0.8.1: a missing asserter is a missing member
 
