@@ -261,11 +261,15 @@ def _unwritable(request: web.Request,
 
     Reads keep serving the state as it was. The write may be retried as it
     stands once space returns; no operator action is needed, because the
-    journal on disk is the last one that was completely written.
+    journal on disk is the last one that was completely written. The full
+    error, which names the journal's path, goes to the server's log and not
+    to the client (finding 78).
     """
+    print(f"spatialdds: journal unwritable, write refused: {e}",
+          file=sys.stderr)
     r = _problem(503, "journal-unwritable", "The registry cannot record writes",
-                 f"This write was not accepted: the journal could not be "
-                 f"written ({e}). Reads are unaffected. Retry later.",
+                 f"This write was not accepted: {e.reason}. Reads are "
+                 f"unaffected. Retry later.",
                  instance=str(request.rel_url))
     r.headers["Retry-After"] = "60"
     return r

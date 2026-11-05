@@ -485,9 +485,10 @@ def journal_unwritable(tmp: Path) -> tuple[list[tuple[int, dict, dict]] | None,
     A registry of its own, with the sandbox's flags and its journal on a
     full volume. Returns the refusal, and whether what the row says beside
     it holds: the volume was full, the refusal says when to retry, nothing
-    was stored, reads still work. The refusal's `detail` is not compared: it
-    names the server's own path today (finding 78), which no reader should
-    be taught to expect. None, and the reason, when the host is Blocked.
+    was stored, reads still work; and no member of the refusal names a path
+    of the server's filesystem, while the server's log has the full error
+    (finding 78). The `detail` wording is not compared: the guide quotes
+    none. None, and the reason, when the host is Blocked.
     """
     (tmp / "full").mkdir()
     try:
@@ -505,14 +506,21 @@ def journal_unwritable(tmp: Path) -> tuple[list[tuple[int, dict, dict]] | None,
                              reg.base + "/.well-known/spatialdds/search")[0]
             finally:
                 reg.stop()
-            full = "volume: full" in reg.banner().splitlines()
+            log = reg.banner()
+            full = "volume: full" in log.splitlines()
+            paths = {str(vol), os.path.realpath(vol), str(tmp),
+                     os.path.realpath(tmp)}
     except Blocked as e:
         return None, (SKIP, f"skipped, not failed: {e}")
+    members = [v for v in got[2].values() if isinstance(v, str)]
+    leaked = sorted({p for p in paths for v in members if p in v})
+    logged = "journal unwritable" in log and any(p in log for p in paths)
     ok = (full and got[1].get("Retry-After") == "60"
-          and stored == 404 and reads == 200)
+          and stored == 404 and reads == 200 and not leaked and logged)
     return [got], (ok, f"volume full {full}, Retry-After "
                        f"{got[1].get('Retry-After')}, stored {stored}, "
-                       f"reads {reads}")
+                       f"reads {reads}, server paths in the refusal "
+                       f"{leaked or 'none'}, full error in the log {logged}")
 
 
 def reproduce(reg: Registry) -> dict[str, list[tuple[int, dict, dict]]]:
@@ -763,7 +771,9 @@ def main() -> int:
         if reg.full[0] is not SKIP:
             checks.append(("…and the full disk was the cause of the 503, "
                            "with Retry-After, nothing stored, and reads "
-                           "unaffected, as its row says", *reg.full))
+                           "unaffected, as its row says; the refusal names no "
+                           "server path, and the log has the full error "
+                           "(finding 78)", *reg.full))
 
         # No phantom lane: the guide's removed warning stays unneeded.
         path = f"/{SCENE}/frames/geo_anchor/v1"

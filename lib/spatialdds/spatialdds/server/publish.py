@@ -29,6 +29,7 @@ carries it as a design rule.
 """
 from __future__ import annotations
 
+import errno
 import json
 import os
 import tempfile
@@ -96,7 +97,23 @@ WRITTEN_BY_RECORD = mcapmeta.WRITTEN_BY_RECORD
 
 
 class JournalUnwritable(Exception):
-    """The journal could not be written; nothing was accepted."""
+    """The journal could not be written; nothing was accepted.
+
+    `str()` is the full error, paths included, for the server's log. A client
+    is told `reason`, which is worded from the errno alone: the exception's
+    text names the journal's directory, and a refusal names only what the
+    client sent (finding 78).
+    """
+
+    def __init__(self, full: str, err: int | None = None) -> None:
+        super().__init__(full)
+        self.errno = err
+
+    @property
+    def reason(self) -> str:
+        if self.errno in (errno.ENOSPC, getattr(errno, "EDQUOT", None)):
+            return "the registry's disk is full"
+        return "the journal cannot be written"
 
 
 class Rejected(Exception):
@@ -585,7 +602,7 @@ class Journal:
         except OSError as e:
             self.entries.pop()
             self.seq -= 1
-            raise JournalUnwritable(f"{type(e).__name__}: {e}") from e
+            raise JournalUnwritable(f"{type(e).__name__}: {e}", e.errno) from e
 
 
 def _topic_scene(topic: str) -> str:
