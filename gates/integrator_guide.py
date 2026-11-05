@@ -55,14 +55,16 @@ Every registry started here must be the process answering on its port, by
 its pid on the answering connection (harness.own_server, finding 77), before
 anything it says is compared.
 
-**The known issue.** The guide says a refused write to a lane that does not
-exist yet still opens it (finding 73). That is checked as a claim like any
-other: when the fix lands, this fails until the paragraph goes. So is the
-Claims section's sentence on the schema (finding 79): before any block opens
-a claim lane, the schemas index must not list the claim type, and after,
-it must, with the guide's claim matching the listed schema and a body
-missing a member failing it and refused 400. When 0.8.x lists every writable
-type always, the first half fails until the sentence is re-trued.
+**The schema sentence.** The Claims section says the index lists the claim
+type's schema before anyone has written a claim, and that a claim is held to
+it (finding 79, fixed in 0.8.2). Before any block runs, the index must list
+the type and its schema answer 200; after, the guide's claim must match that
+schema, and a body missing a member must fail it and be refused 400.
+
+**No phantom lane.** The guide no longer warns that a refused write opens a
+lane (finding 73, fixed in 0.8.2). That the warning is unneeded is held
+here: a `PUT` refused with 400 on a lane that does not exist leaves it out
+of search. gates/phantom_lanes.py holds every row of the finding.
 
 Needs the network for the snippets that fetch the sample asset from GitHub,
 as a reader's do; with it unreachable the gate FAILS and says so, and
@@ -592,7 +594,7 @@ def held_to_schema(reg: Registry, work: Path) -> tuple[bool, str]:
     import jsonschema
     listed, url = schema_listed(reg)
     if not listed:
-        return False, f"{RELATIONSHIP} is not listed with a claim lane open"
+        return False, f"{RELATIONSHIP} is not listed"
     s, _h, schema = http("GET", url.replace(LIVE, reg.base, 1))
     claim = json.loads((work / "near.json").read_text())
     bad = {k: v for k, v in claim.items() if k != "predicate"}
@@ -676,14 +678,14 @@ def main() -> int:
         checks.append(("the registry serves claims, as the sandbox's banner says",
                        "extension     oarc.relationship (oarc_owm.Relationship): "
                        "publishable" in reg.banner(), reg.banner()[-400:]))
-        # Finding 79, held as a claim before any block opens a claim lane.
-        unlisted = not schema_listed(reg)[0]
-        checks.append(("the known issue still holds: with no claim lane yet, "
-                       "the schemas index does not list the claim type "
-                       "(finding 79); when this fails, the fix has landed and "
-                       "the guide's sentence is re-trued", unlisted,
-                       f"{RELATIONSHIP} listed before any claim lane: "
-                       f"{not unlisted}"))
+        # The schema sentence, first half: listed before any claim exists.
+        listed, url = schema_listed(reg)
+        st = http("GET", url.replace(LIVE, reg.base, 1))[0] if listed else None
+        checks.append(("before anyone has written a claim, the schemas index "
+                       "lists the claim type and its schema answers 200, as "
+                       "the Claims section says (finding 79)",
+                       listed and st == 200,
+                       f"{RELATIONSHIP} listed {listed}, schema {st}"))
         env = reader_env(reg.base, reg.token)
         watchers: dict[str, Watcher] = {}
         outputs: list[tuple[Block, str]] = []
@@ -729,12 +731,11 @@ def main() -> int:
                   f"the diff, then run without --write")
             return 0
 
-        # The rest of the sentence: once a claim lane exists the type is
-        # listed, and the schema listed is the one claims are held to.
-        checks.append(("once a claim lane exists, the schemas index lists the "
-                       "claim type, and the guide's claim matches the listed "
-                       "schema while a body missing a member fails it and is "
-                       "refused 400 schema-invalid", *held_to_schema(reg, work)))
+        # The schema sentence, second half: the listed schema is the one
+        # claims are held to.
+        checks.append(("the guide's claim matches the listed schema, and a "
+                       "body missing a member fails it and is refused 400 "
+                       "schema-invalid", *held_to_schema(reg, work)))
 
         # The error table, both directions.
         documented = table_rows(table)
@@ -764,16 +765,16 @@ def main() -> int:
                            "with Retry-After, nothing stored, and reads "
                            "unaffected, as its row says", *reg.full))
 
-        # The known issue, held as a claim: a refused PUT opens a lane.
+        # No phantom lane: the guide's removed warning stays unneeded.
         path = f"/{SCENE}/frames/geo_anchor/v1"
         before = lane_listed(reg, path)
         s, _h, _d = http("PUT", f"{reg.base}{path}/nothing", reg.token,
                          enc({"anchor_id": "nothing"}))
         after = lane_listed(reg, path)
-        checks.append(("the known issue still holds: a PUT refused with 400 "
-                       "opens a lane search lists (finding 73); when this "
-                       "fails, the fix has landed and the guide's paragraph "
-                       "goes", not before and s == 400 and after,
+        checks.append(("a PUT refused with 400 on a lane that does not exist "
+                       "leaves it out of search, so the guide needs no "
+                       "warning (finding 73)",
+                       not before and s == 400 and not after,
                        f"listed before {before}, status {s}, listed after {after}"))
     finally:
         reg.stop()

@@ -504,10 +504,14 @@ def _schemas(request: web.Request) -> dict[str, dict]:
 
     N.2: an endpoint MUST publish a schema for every type it serves. A
     deployment's own type is described by the model it is decoded with.
+    Every type the write surface accepts is listed whether or not a lane of
+    it exists yet, since a body is held to this schema before its first lane
+    does (finding 79).
     """
     st: gateway.State = request.app["state"]
     return webjson.served_schemas(st.model,
-                                  {r.fqn for r in st.resources.values()})
+                                  {r.fqn for r in st.resources.values()}
+                                  | set(st.publishable.values()))
 
 
 async def schemas_index(request: web.Request) -> web.Response:
@@ -1221,6 +1225,8 @@ async def put_instance(request: web.Request) -> web.Response:
                              scene=res.scene, refresh=lease)
         except publish.JournalUnwritable as e:
             return _unwritable(request, e)
+    # Accepted and journalled: only now does a new lane exist (finding 73).
+    publish.register_lane(st, res)
     created = publish.apply_sample(st, topic, res, key, data)
     # A re-PUT inside the interval is the refresh: it starts the interval
     # again. A body whose basis became a declaration drops the lease.

@@ -206,7 +206,13 @@ def canonicalize(st: gateway.State, fqn: str,
 
 def resource_for_put(st: gateway.State, scene: str, stream: str,
                      type_seg: str, version: str) -> tuple[str, gateway.Resource]:
-    """The resource a PUT addresses, created if this topic is new."""
+    """The resource a PUT or DELETE addresses, provisional if the topic is new.
+
+    A new topic's `Resource` is built and returned, and not registered:
+    `register_lane()` does that, once a write to it is accepted. Registering
+    it here, as a side effect of the lookup, let a refused `PUT` or a 404'd
+    `DELETE` create a lane that search advertised (finding 73).
+    """
     fqn = PUBLISHABLE.get(type_seg) or st.publishable.get(type_seg)
     every = sorted(set(PUBLISHABLE) | set(st.publishable))
     if fqn is None:
@@ -244,12 +250,23 @@ def resource_for_put(st: gateway.State, scene: str, stream: str,
             access = gateway.PUBLIC
         res = gateway.Resource(scene, stream, type_seg, version, topic, fqn,
                                keys[0] if keys else "", access, latched)
-        st.resources[res.path] = res
-        st.latched.setdefault(topic, {})
-        st.latched_initial.setdefault(topic, {})
-        st.live.setdefault(topic, [])
-        st.scenes = sorted(set(st.scenes) | {scene})
     return topic, res
+
+
+def register_lane(st: gateway.State, res: gateway.Resource) -> None:
+    """Make a lane served: in search, its collection, its streams.
+
+    Called when a write to it is accepted (and journalled, where there is a
+    journal), and on replay; never on a refusal. A no-op for a lane that is
+    already registered.
+    """
+    if res.path in st.resources:
+        return
+    st.resources[res.path] = res
+    st.latched.setdefault(res.topic, {})
+    st.latched_initial.setdefault(res.topic, {})
+    st.live.setdefault(res.topic, [])
+    st.scenes = sorted(set(st.scenes) | {res.scene})
 
 
 def apply_sample(st: gateway.State, topic: str, res: gateway.Resource,
@@ -487,6 +504,7 @@ class Journal:
                 continue
             if e["kind"] == "sample":
                 topic, res = resource_for_put(self.state, *seg)
+                register_lane(self.state, res)
                 data = proj.project(e["fqn"], dec.decode(e["fqn"], e["raw"]))
                 key = str(data.get(res.key, "")) if res.key else ""
                 apply_sample(self.state, topic, res, key, data)

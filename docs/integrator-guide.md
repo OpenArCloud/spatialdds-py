@@ -531,13 +531,11 @@ A claim is a relationship between entities: "the bench is near the lamp",
 `$BASE/$SCENE/world/oarc.relationship/v1`, keyed by the claim's `id`, and are
 read with a token like any world lane. The type is the OWM 0.2 relationship
 prototype (`oarc_owm.Relationship`), a deployment extension. Every claim you
-publish is validated against the schema the registry publishes for the type,
-and a body that does not match it is refused with `400`. In 0.8.1 the index
-at `$BASE/.well-known/spatialdds/schemas` lists that schema whenever any claim
-lane exists on the registry, so on one nobody has written a claim to, it is
-not listed yet; listing every writable type always is filed as
-[finding 79](https://github.com/OpenArCloud/spatialdds-py/blob/main/WEB-BINDING-FINDINGS.md).
-A claim carries the same lifecycle as an entity: a `basis`, a `state`, and a
+publish is validated against the schema the registry publishes for the type
+at `$BASE/.well-known/spatialdds/schemas`, and a body that does not match it
+is refused with `400`. The index lists it before anyone has written a claim,
+so you can check your first one against it before you send it. A claim
+carries the same lifecycle as an entity: a `basis`, a `state`, and a
 `state_reason`.
 
 **1. Something to make a claim about.** A second declared entity, a lamp:
@@ -744,16 +742,9 @@ title compared with what is printed here.
 | 503 | `too-many-subscriptions` | Too many subscriptions | 256 WebSocket streams are already open | Retry later; plain `GET`s are unaffected |
 | 503 | `journal-unwritable` | The registry cannot record writes | The registry's disk is full or cannot be written. The write was not accepted, and reads are unaffected | Wait for the `Retry-After` header, then send the same write again |
 
-Two behaviours worth knowing:
-
-- **Identity comes from your token, not your body.** The registry records
-  which token wrote each entry, and grounds a claim's asserter in it. A
-  record's `provider_id` is your own statement, carried as written.
-- **A known issue in 0.8.1:** a refused write to a lane that does not exist
-  yet still opens it. That covers a `PUT` refused with `400` and a `DELETE`
-  answered with `404`. The lane is left empty and is listed in search until
-  the operator resets it. It is filed for a fix; until then, check a new
-  lane's first body before you send it.
+**Identity comes from your token, not your body.** The registry records
+which token wrote each entry, and grounds a claim's asserter in it. A
+record's `provider_id` is your own statement, carried as written.
 
 ## The demo.spatialdds.org sandbox
 
