@@ -75,6 +75,9 @@ DOMAIN_ENV = "SPATIALDDS_DDS_DOMAIN"
 #: program can make: a robot still exists after its bridge stops; a
 #: withdrawn catalogue item does not.
 ON_EXIT = ("keep", "withdraw")
+#: The most samples one `Reader.take()` takes from its DataReader; the rest
+#: wait for the next call (finding 76).
+TAKE_LIMIT = 256
 #: Message types whose well-known writers the participant owns: it announces
 #: and departs on a program's behalf, so a second writer would be a second
 #: claim about the same presence.
@@ -336,6 +339,12 @@ class Writer:
         its terminal state itself, and this wrote it again (S18). The members
         this method sets (`state`, `state_reason`, `stamp`) and the key are
         not changes a caller can make.
+
+        The terminal sample's `stamp` is this host's wall clock at the moment
+        of withdrawal, whatever clock the instance's other samples carried;
+        `on_exit="withdraw"` stamps the same way. A writer on another clock (a
+        simulator, a replay, a device with its own time base) cannot set it,
+        so its withdrawals read as happening at host time (finding 74).
         """
         if not isinstance(reason, str) or not reason.strip():
             raise ValueError("withdraw() needs a non-empty reason=: a removal "
@@ -343,8 +352,12 @@ class Writer:
         fixed = {"state", "state_reason", "stamp", codec.key_member(self._lane.fqn)}
         refused = sorted(set(changes) & fixed)
         if refused:
-            raise ValueError(f"withdraw() sets {', '.join(refused)} itself; "
-                             f"pass reason=, and the other members to change")
+            clock = (" (the terminal stamp is this host's wall clock at "
+                     "withdrawal, and a caller cannot set it)"
+                     if "stamp" in refused else "")
+            raise ValueError(f"withdraw() sets {', '.join(refused)} itself"
+                             f"{clock}; pass reason=, and the other members "
+                             f"to change")
         with self._lock:
             if key not in self._last:
                 raise KeyError(f"{self.topic} holds no instance keyed {key!r} "
@@ -514,7 +527,7 @@ class Reader:
 
     def _events(self) -> List[Any]:
         out: List[Any] = []
-        for s in self._dr.take(N=256) or []:
+        for s in self._dr.take(N=TAKE_LIMIT) or []:
             info = getattr(s, "sample_info", None)
             if info is None:
                 continue
@@ -534,7 +547,14 @@ class Reader:
         return out
 
     def take(self) -> List[Any]:
-        """Every event that has arrived, now, without blocking.
+        """What has arrived, now, without blocking: up to 256 samples' events.
+
+        A call takes at most `TAKE_LIMIT` samples from the reader, and any
+        beyond that wait for the next call. Nothing in what it returns says
+        more are waiting, so a program whose lanes can deliver more than 256
+        samples between two calls should call `take()` again until it
+        returns no events (finding 76). `events()` keeps calling it and has
+        no such bound.
 
         For a program that already owns its loop: a tick, a framework's
         timer, a request handler. The events are the ones `events()` yields,

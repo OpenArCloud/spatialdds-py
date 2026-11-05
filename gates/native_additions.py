@@ -85,6 +85,11 @@ process.
     member are refused, and the instance stays held.
   - Registrations are looked up from `sd.dds`, and a bare include that
     exists under a subdirectory is refused naming the rooted spelling.
+* **Findings 74 and 76, documented in 0.8.2.** `withdraw(stamp=)` is
+  refused, and the refusal and the docstring say the terminal stamp is the
+  host's wall clock, which a sample stamped at t=1000 shows it is. `take()`
+  takes at most `TAKE_LIMIT` samples a call, its docstring states that
+  number, and calls until one returns nothing yield the rest.
 
 `gates/extension_served.py` holds S19 and S20, which need the gateway.
 
@@ -927,6 +932,76 @@ def s18(checks: list, domain: int) -> None:
                    f"{len(samples)} samples, last={last}"))
 
 
+def contracts(checks: list, domain: int) -> None:
+    """Findings 74 and 76, as documented in 0.8.2: what the code does, said."""
+    from spatialdds.dds import _participant as part
+    with tempfile.TemporaryDirectory() as tmp:
+        rec = Path(tmp) / "contracts.mcap"
+        with sd.participant(SCENE, domain=domain, service_id=SVC) as p:
+            p.record(rec)
+            w = p.writer("model_entity", qos_profile="MAP_META",
+                         on_exit="keep")
+            w.write(sd.records.entity("ent:gate:clock", frame_ref=FRAME,
+                                      source_id=SVC, position=(0, 0, 0),
+                                      when=1000.0))
+            try:
+                w.withdraw("ent:gate:clock", reason="gate",
+                           stamp=sd.stamp(1001.0))
+                why = ""
+            except ValueError as e:
+                why = str(e)
+            before = time.time()
+            w.withdraw("ent:gate:clock", reason="the gate is done with it")
+            after = time.time()
+        from mcap.reader import make_reader
+        E = sd.dds.class_for("spatial.owm.Entity")
+        with open(rec, "rb") as f:
+            stamps = [E.deserialize(m.data).stamp for _s, ch, m
+                      in make_reader(f).iter_messages()
+                      if ch.topic.endswith("/world/entity/v1")]
+    secs = [s.sec + s.nanosec / 1e9 for s in stamps]
+    doc = part.Writer.withdraw.__doc__ or ""
+    checks.append(("finding 74: withdraw(stamp=) is refused, and the refusal "
+                   "and the docstring both say the terminal stamp is the "
+                   "host's wall clock",
+                   "wall clock" in why and "wall clock" in doc,
+                   f"refusal: {why!r}"))
+    checks.append(("finding 74: …and it is: a sample stamped at t=1000 ends "
+                   "in a terminal sample stamped now",
+                   len(secs) == 2 and secs[0] == 1000.0
+                   and before - 1 <= secs[1] <= after + 1,
+                   f"stamps {secs}, withdrawn between {before:.1f} and "
+                   f"{after:.1f}"))
+
+    n = part.TAKE_LIMIT + 44
+    # Depth 1 per key, as model_pose is spelled; one sample on each of n keys.
+    bulk = sd.dds.Profile("GATE_BULK", reliability="RELIABLE",
+                          durability="VOLATILE", history="KEEP_LAST", depth=1)
+    with sd.participant(SCENE, domain=domain, service_id=SVC) as pw, \
+            sd.participant(SCENE, domain=domain) as pr:
+        w = pw.writer("model_pose", qos_profile=bulk)
+        r = pr.reader("model_pose", qos_profile=bulk, topic=w.topic)
+        matched = w.wait_matched(timeout=10) and r.wait_matched(timeout=10)
+        for i in range(n):
+            w.write(sd.records.model_pose(f"ent:gate:{i}", position=(i, 0, 0),
+                                          source_id=SVC))
+        time.sleep(2.0)
+        calls = []
+        for _ in range(5):
+            calls.append(sum(isinstance(e, sd.Sample) for e in r.take()))
+    doc = part.Reader.take.__doc__ or ""
+    checks.append((f"finding 76: take() takes at most TAKE_LIMIT "
+                   f"({part.TAKE_LIMIT}) samples a call, its docstring states "
+                   f"that number, and calling again until it returns nothing "
+                   f"yields the rest",
+                   matched and calls[0] == part.TAKE_LIMIT
+                   and sum(calls) == n and calls[-1] == 0
+                   and str(part.TAKE_LIMIT) in doc,
+                   f"matched {matched}; samples per call {calls} of {n}; "
+                   f"docstring names {part.TAKE_LIMIT}: "
+                   f"{str(part.TAKE_LIMIT) in doc}"))
+
+
 def observations(checks: list, domain: int) -> None:
     from _ext_type import EXT_IDL, Reading
     ext = sd.dds.extend("gate.reading", Reading, EXT_IDL)
@@ -980,6 +1055,7 @@ def run() -> int:
     arm(checks, "S17", s17)
     arm(checks, "S18", s18)
     arm(checks, "finding 72's observations", observations)
+    arm(checks, "findings 74 and 76's contracts", contracts)
     return report("native additions", checks,
                   "0.7.x's additions do what findings 67, 69, 70, 71 and 72 "
                   "asked")
