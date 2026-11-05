@@ -22,6 +22,20 @@ alone:
 - **A conformance-suite candidate rides with it:** the schema check asserts
   that every writable type is listed (finding 79).
 
+Candidates, undecided. These findings stay open, and whether each rides
+with 0.8.2 is decided at release dispatch:
+
+- **75, a validated `write()` re-reads every vendored schema per sample.**
+  Likely include: a `model_pose` write measured 7.04 ms validated against
+  0.01 ms unvalidated (0.7.4, macOS arm64; unchanged at 0.8.1). The fix is
+  to cache `schemas()` and one compiled validator per type.
+- **74, `withdraw()` stamps the terminal sample with the wall clock and
+  refuses a caller's `stamp=`.** Either accept the stamp or state the
+  contract in the docstring and the error.
+- **76, `take()` says it returns every event that has arrived, but takes at
+  most 256 samples.** Either drain until empty or document the bound and
+  how to tell that more remain.
+
 ## 0.8.1: a missing asserter is a missing member
 
 One fix to 0.8.0's write surface, found by the fuzz gate once it reached the
