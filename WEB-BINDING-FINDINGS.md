@@ -2838,6 +2838,25 @@ publishable (a `405 not-publishable` problem lists their topic type
 segments in its `publishable` member), not only the types that have lanes.
 Recorded here so it rides with the fix.
 
+**Withdrawn, 2026-11-05; v1.8.3 remains the suite version of record.** Read
+against Appendix N before it was written, the candidate has no contract to
+check. N.2's rule is that an endpoint "MUST publish a schema for every type
+it serves", and a type this endpoint only accepts writes of, with no lane
+yet, is not served in that sense: under v1.8, 0.8.1 was conformant, and 79
+was a defect in this gateway's usability, not a conformance failure. The
+write surface is not in Appendix N at all. 1.8 defines no `PUT`, no
+`405 not-publishable` and no `publishable` member; the only `405` it names is
+N.6's refusal of a command where there is no command lane. A suite check
+built on that `405` would have failed any endpoint that implements the
+contract without implementing this gateway's write surface, enforcing our
+implementation rather than the contract. The rule belongs in the
+specification first: it is folded into the 1.9 register's existing entry for
+the normative write surface (entry 4, *A web-binding write path*), with this
+finding and this withdrawn candidate as its evidence. The suite check
+follows ratification, not before. The sandbox's 0.8.2 acceptance run, read
+against v1.8.3 on 2026-11-05, is `15 checks: 15 passed, 0 failed, 0
+skipped`.
+
 **Interacts with 73: land both fixes in the same 0.8.x.** Today a refused
 write opens a lane (73), and an open lane lists the schema (79), which is
 why the reproduction's first `PUT` lists the type even though it was

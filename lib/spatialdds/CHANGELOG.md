@@ -31,9 +31,12 @@ New gate: `gates/phantom_lanes.py`. `gates/integrator_guide.py`,
 
 Also in this release's window, outside the package: spatialdds.org's "Try
 the web binding" goes back to the PyPI page once 0.8.2 is uploaded
-(SpatialDDS-spec branch `site-revert-at-0.8.2`), and the conformance
-suite's schema check gains "every writable type is listed" as a suite
-version, tagged once demo.spatialdds.org runs 0.8.2.
+(SpatialDDS-spec branch `site-revert-at-0.8.2`). A conformance-suite
+check that every writable type is listed was proposed for this window and
+withdrawn: Appendix N defines no write surface, so the check would have
+enforced this implementation rather than the contract. v1.8.3 remains the
+suite version of record; the rule waits for the write surface to be
+specified (finding 79).
 
 **0.8.3 candidate: finding 75.** A validated `write()` re-reads every
 vendored schema per sample: a `model_pose` write measured 7.04 ms validated

@@ -401,6 +401,35 @@ conformance suite against `serve --demo`, 15 checks: 14 passed, 0 failed, 1
 skipped (§8.2, unexercised: the demo endpoint is not an authority), the same
 as 0.7.4.
 
+**Updated 2026-11-05, package 0.8.2: the writable types are part of the
+surface.** When this entry becomes normative text, it carries three things
+the 0.8.x batches measured and 1.8 cannot say, because 1.8 has no write
+surface to say them about:
+
+* **The publishable-types list.** An endpoint that offers writes declares
+  which types it accepts writes of. The implementation names them by topic
+  type segment in a `publishable` member.
+* **The `405` that names them.** The `405` in the verbs above, for a topic the
+  endpoint does not accept writes on, carries that list, so a refused
+  writer learns what it may write instead of guessing.
+* **Writable types appear in the schema index.** Every type the write surface
+  accepts MUST be listed in N.2's index, with its schema fetchable, before
+  the first write to it. N.2's "every type it serves" does not reach a type
+  that is only writable, which is why this needs its own sentence.
+
+Evidence for the third: spatialdds-py finding 79. A registry serving
+`--extension sandbox_owm02` validated claims against
+`oarc_owm.Relationship` while its index omitted that schema until a claim
+lane existed, so a first writer could not check a claim before sending it.
+Fixed in 0.8.2 (`gw_http._schemas` lists every publishable type), and read
+live on demo.spatialdds.org on 2026-11-05: listed with no claim written, the
+schema fetching `200`. Finding 79 also records the conformance-suite check
+proposed for this and withdrawn the same day. The check could only have
+read writable types from this implementation's `405`, so it would have
+enforced the implementation rather than the contract. **The suite check
+follows ratification of this text, not before**; v1.8.3 remains the suite
+version of record until then.
+
 ## 5. The GeoPose Protocol successor, as a service profile
 
 **Status:** scoped, not drafted. A prerequisite census comes first, recorded
