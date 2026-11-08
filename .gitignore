@@ -13,6 +13,11 @@ directions/*
 # deferred lists, design rules, open questions -- record nothing if they are
 # not committed. Everything else under directions/ stays ignored.
 !directions/spatialdds-1.9-candidates.md
+# And the write-surface design note, landed by the register-consolidation
+# brief (2026-11-07) beside the register it feeds: entry 4 names it as the
+# drafting source for its normative text, and a pointer to an uncommitted
+# file points at nothing.
+!directions/web-binding-design-note.md
 
 # Build artifacts of the client package in lib/spatialdds. The wheel is built
 # in CI from the tag and on a laptop to check it; neither belongs in history.
