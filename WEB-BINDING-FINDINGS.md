@@ -2920,3 +2920,47 @@ check fails.
 
 **75, out.** Schema caching is a 0.8.3 candidate, with a performance gate of
 its own.
+
+## The robot reads the claims lane: spatialdds-ros 0.5.0, 2026-11-08
+
+SpatialDDS-demo's claims batch added a consuming half to spatialdds-ros: the
+robot draws trusted claims from the relationship lane into an advisory nav2
+costmap (demo `docs/ros-claims.md`, library `docs/claims-census.md`). One
+thing it met is the SDK's to own.
+
+### 80. Three readers of the relationship lane, three meanings of a killed asserter
+
+The SDK delivers what the middleware says about a claim's writer:
+`Liveliness(alive=False)` when its lease expires, never `Dispose`, which is
+right (crash is never a dispose). It says nothing about what a consumer should
+then believe about the claim, and each consumer of the lane in this programme
+has decided for itself, three ways:
+
+- **The demo's live view keeps it and marks it.** `web/src/claims.ts`,
+  `ClaimStore.writerGone`: the edge stays in force and is drawn dashed,
+  "nobody asserts it now".
+- **spatialdds-ros 0.5.0 stops planning by it, if it is an observation.**
+  `ClaimsLayer`: an OBSERVED claim whose asserter's liveliness ends leaves the
+  costmap and is kept, not retired; a DECLARED one stands. Measured on the
+  demo's nav2 tier: a hazard camera SIGKILLed, `NOT_ALIVE_NO_WRITERS` 10.0 s
+  later, no dispose and no RETIRED sample, the mask drawn clear and the route
+  back to the original.
+- **The crossing scene's controllers never notice.** `scenarios/crossing/
+  controller.py:143-154`, `on_relationship`, handles `Sample` and `Dispose`
+  only, so a trusted claim whose asserter is killed is held until a dispose
+  that a crash never sends. Read, not hit: the crossing's silenced-unit tooth
+  kills the unit while it holds C2, which no controller trusts.
+
+Each is defensible for its consumer, and none is wrong by any text that
+exists. That is the finding: the rule lives in three hand-written places, the
+one that ignores liveliness is the one nothing would catch, and a fourth
+consumer will pick a fourth answer.
+
+**What would close it, SDK-side:** one place that turns a relationship
+reader's events into a claim's assertion state (held and asserted, held and
+unasserted, retired with its reason, withdrawn without one), so that a
+consumer chooses a policy per basis rather than re-deriving the states from
+`Sample`, `Liveliness` and `Dispose`. What a consumer should do with an
+unasserted claim is not the SDK's to say; it is filed as evidence for the OWM
+0.2 register's E11 (demo `docs/ros-claims.md` §6). The SDK's part is that the
+states are computed once.
