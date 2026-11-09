@@ -129,6 +129,15 @@ def gates() -> list[dict]:
     except OSError:
         no_net = ("needs the network: the guide fetches its sample asset from "
                   "raw.githubusercontent.com, as a reader's commands do")
+    # The MCP server is an extra. Its gate's packaging half runs without it
+    # (that is half of what it checks); the server's behaviour and the
+    # guide need the SDK, and Python 3.10 or newer, which the SDK needs.
+    try:
+        import mcp            # noqa: F401
+        no_mcp = None
+    except ImportError:
+        no_mcp = ('needs the [mcp] extra (Python 3.10+): '
+                  'pip install "spatialdds[mcp]"')
     no_node = None if shutil.which("node") else (
         "needs node to execute the browser console snippets in "
         "examples/browser.md; the gate fails rather than passes on an "
@@ -312,6 +321,16 @@ def gates() -> list[dict]:
         {"name": "integrator_guide", "what": "the integrator guide runs as printed, in order, and every refusal it tabulates is the one served",
          "cmd": ["gates/integrator_guide.py"],
          "skip": no_dds or no_web or no_net},
+        # The MCP server: a client of the binding and nothing else. The
+        # venue it reads is the demo's, copied, served the way its bridge
+        # serves the live one, which needs the relationship extension's
+        # cyclonedds and lsof to own the --http process.
+        {"name": "mcp_server", "what": "[mcp] changes nothing else; the server reads as a stranger and says who said so, how fresh, and when nobody asserts it now",
+         "cmd": ["gates/mcp_server.py"],
+         "skip": no_dds or no_web or no_lsof},
+        {"name": "mcp_guide", "what": "the MCP server guide runs as printed, through the MCP SDK's own client",
+         "cmd": ["gates/mcp_guide.py"],
+         "skip": no_mcp or no_dds or no_web or no_lsof},
     ]
 
 

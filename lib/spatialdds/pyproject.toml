@@ -40,9 +40,17 @@ server = ["aiohttp>=3.8", "mcap>=1.1", "jsonschema>=4.0"]
 # Without this extra `import spatialdds` is unchanged, and `sd.participant`
 # raises `sd.MissingExtra` naming it.
 dds = ["cyclonedds>=11.0.1,<12", "mcap>=1.1", "jsonschema>=4.0"]
+# Being an MCP server over the web binding: `spatialdds-mcp`. The official
+# SDK, and nothing else: the server reads with this package's own client,
+# so it needs no aiohttp, no mcap and no cyclonedds. 2.x because its API is
+# the one written against (1.x's FastMCP is 2.x's MCPServer), which needs
+# Python 3.10 or newer; without this extra the base install is unchanged and
+# `spatialdds-mcp` exits saying which line to run.
+mcp = ["mcp>=2.3,<3"]
 
 [project.scripts]
 spatialdds-serve = "spatialdds.serve:main"
+spatialdds-mcp = "spatialdds.mcp_server:main"
 
 [project.urls]
 Homepage = "https://github.com/OpenArCloud/spatialdds-py"

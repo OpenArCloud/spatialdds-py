@@ -1,0 +1,1011 @@
+{
+ "captured_at": "2026-11-09T04:45:57Z",
+ "captured_from": "http://127.0.0.1:8089",
+ "lanes": [
+  {
+   "fqn": "spatial.core.FrameTransform",
+   "path": "/ut-austin-littlefield/frames/frame_transform/v1",
+   "records": [
+    {
+     "T_parent_child": {
+      "q": [
+       0.49671722355450676,
+       -0.033600407060018246,
+       -0.058532108356669665,
+       0.8652843490789754
+      ],
+      "t": [
+       -742398.4920798013,
+       -5462355.283318999,
+       3197669.647851296
+      ]
+     },
+     "child_ref": {
+      "coord_convention": "ENU",
+      "display_unit": "m",
+      "fqn": "map/ut-littlefield-fountain",
+      "has_coord_convention": true,
+      "has_scale": true,
+      "meters_per_unit": 1.0,
+      "scale_status": "SCALE_DECLARED",
+      "uuid": "faab95ac-b317-5b3b-8c72-2a1191a7f7e0"
+     },
+     "cov": {
+      "type": "COV_NONE"
+     },
+     "parent_ref": {
+      "coord_convention": "ENU",
+      "display_unit": "m",
+      "fqn": "earth-fixed",
+      "has_coord_convention": false,
+      "has_scale": false,
+      "meters_per_unit": 1.0,
+      "scale_status": "SCALE_UNKNOWN",
+      "uuid": "00cc62ae-c21e-5d3b-b5f9-2587a084ba31"
+     },
+     "stamp": {
+      "nanosec": 135323047,
+      "sec": "1793490254"
+     },
+     "transform_id": "earth-fixed->map/ut-littlefield-fountain"
+    }
+   ],
+   "topic": {
+    "access": "public-cacheable",
+    "durability": "TRANSIENT_LOCAL",
+    "name": "spatialdds/ut-austin-littlefield/frames/frame_transform/v1",
+    "type": "frame_transform",
+    "url": "http://0.0.0.0:8089/ut-austin-littlefield/frames/frame_transform/v1",
+    "version": "v1"
+   }
+  },
+  {
+   "fqn": "spatial.owm.Entity",
+   "path": "/ut-austin-littlefield/world/entity/v1",
+   "records": [
+    {
+     "basis": "AUTHORED",
+     "content_refs": [],
+     "entity_id": "ent:gnome:visitor",
+     "extent": {
+      "max_xyz": [
+       0.0,
+       0.0,
+       0.0
+      ],
+      "min_xyz": [
+       0.0,
+       0.0,
+       0.0
+      ]
+     },
+     "external_refs": [],
+     "frame_ref": {
+      "coord_convention": "ENU",
+      "display_unit": "m",
+      "fqn": "map/ut-littlefield-fountain",
+      "has_coord_convention": true,
+      "has_scale": true,
+      "meters_per_unit": 1.0,
+      "scale_status": "SCALE_DECLARED",
+      "uuid": "faab95ac-b317-5b3b-8c72-2a1191a7f7e0"
+     },
+     "has_extent": false,
+     "has_pose": true,
+     "layer": "SLOW",
+     "pose": {
+      "q": [
+       0.0,
+       0.0,
+       0.0,
+       1.0
+      ],
+      "t": [
+       20.0,
+       -21.0,
+       -0.98
+      ]
+     },
+     "properties": [],
+     "source_id": "svc:model:visitor/garden-ornaments",
+     "stamp": {
+      "nanosec": 147076845,
+      "sec": "1793490254"
+     },
+     "state": "ACTIVE",
+     "state_reason": "",
+     "type_uris": [
+      "https://example.org/vocab/garden-gnome"
+     ]
+    },
+    {
+     "basis": "OBSERVED",
+     "content_refs": [],
+     "entity_id": "ent:fountain:littlefield",
+     "extent": {
+      "max_xyz": [
+       25.808,
+       11.02,
+       2.58
+      ],
+      "min_xyz": [
+       -2.3919999999999995,
+       -21.48,
+       -2.42
+      ]
+     },
+     "external_refs": [
+      {
+       "key": "wikidata",
+       "value": "Q6652941"
+      },
+      {
+       "key": "osm",
+       "value": "way/201514442"
+      }
+     ],
+     "frame_ref": {
+      "coord_convention": "ENU",
+      "display_unit": "m",
+      "fqn": "map/ut-littlefield-fountain",
+      "has_coord_convention": true,
+      "has_scale": true,
+      "meters_per_unit": 1.0,
+      "scale_status": "SCALE_DECLARED",
+      "uuid": "faab95ac-b317-5b3b-8c72-2a1191a7f7e0"
+     },
+     "has_extent": true,
+     "has_pose": true,
+     "layer": "STATIC",
+     "pose": {
+      "q": [
+       0.0,
+       0.0,
+       0.0,
+       1.0
+      ],
+      "t": [
+       11.708,
+       -5.23,
+       -1.42
+      ]
+     },
+     "properties": [
+      {
+       "key": "demo.label",
+       "value": "Littlefield Fountain"
+      },
+      {
+       "key": "demo.note",
+       "value": "Memorial fountain at the south entrance to the Main Mall. The map this demo localizes into was built from a phone LiDAR capture of it."
+      }
+     ],
+     "source_id": "svc:model:demo/venue",
+     "stamp": {
+      "nanosec": 134172439,
+      "sec": "1793490254"
+     },
+     "state": "ACTIVE",
+     "state_reason": "",
+     "type_uris": [
+      "http://www.wikidata.org/entity/Q483453"
+     ]
+    },
+    {
+     "basis": "DECLARED",
+     "content_refs": [],
+     "entity_id": "ent:pond:littlefield",
+     "extent": {
+      "max_xyz": [
+       25.5,
+       -4.75,
+       -1.0
+      ],
+      "min_xyz": [
+       -1.5,
+       -20.0,
+       -2.0
+      ]
+     },
+     "external_refs": [],
+     "frame_ref": {
+      "coord_convention": "ENU",
+      "display_unit": "m",
+      "fqn": "map/ut-littlefield-fountain",
+      "has_coord_convention": true,
+      "has_scale": true,
+      "meters_per_unit": 1.0,
+      "scale_status": "SCALE_DECLARED",
+      "uuid": "faab95ac-b317-5b3b-8c72-2a1191a7f7e0"
+     },
+     "has_extent": true,
+     "has_pose": true,
+     "layer": "STATIC",
+     "pose": {
+      "q": [
+       0.0,
+       0.0,
+       0.0,
+       1.0
+      ],
+      "t": [
+       12.0,
+       -12.375,
+       -1.5
+      ]
+     },
+     "properties": [
+      {
+       "key": "demo.label",
+       "value": "Pond"
+      },
+      {
+       "key": "demo.note",
+       "value": "The water, as its own entity. The venue declares a rectangle around a pool that is not one, so the box covers dry paving at the northern bays \u2014 over-claiming, which is the safe direction for something a machine is told to stay out of."
+      }
+     ],
+     "source_id": "svc:model:demo/venue",
+     "stamp": {
+      "nanosec": 134172439,
+      "sec": "1793490254"
+     },
+     "state": "ACTIVE",
+     "state_reason": "",
+     "type_uris": [
+      "http://www.wikidata.org/entity/Q810524"
+     ]
+    },
+    {
+     "basis": "DECLARED",
+     "content_refs": [],
+     "entity_id": "ent:shallows:littlefield",
+     "extent": {
+      "max_xyz": [
+       20.0,
+       -10.0,
+       -1.0
+      ],
+      "min_xyz": [
+       9.5,
+       -18.0,
+       -2.0
+      ]
+     },
+     "external_refs": [],
+     "frame_ref": {
+      "coord_convention": "ENU",
+      "display_unit": "m",
+      "fqn": "map/ut-littlefield-fountain",
+      "has_coord_convention": true,
+      "has_scale": true,
+      "meters_per_unit": 1.0,
+      "scale_status": "SCALE_DECLARED",
+      "uuid": "faab95ac-b317-5b3b-8c72-2a1191a7f7e0"
+     },
+     "has_extent": true,
+     "has_pose": true,
+     "layer": "STATIC",
+     "pose": {
+      "q": [
+       0.0,
+       0.0,
+       0.0,
+       1.0
+      ],
+      "t": [
+       14.75,
+       -14.0,
+       -1.5
+      ]
+     },
+     "properties": [
+      {
+       "key": "demo.label",
+       "value": "Shallows"
+      },
+      {
+       "key": "demo.note",
+       "value": "The part of the pond the venue keeps its ducks on. Inside the water on every side, because a duck is clamped into these bounds rather than kept out of them."
+      }
+     ],
+     "source_id": "svc:model:demo/venue",
+     "stamp": {
+      "nanosec": 134172439,
+      "sec": "1793490254"
+     },
+     "state": "ACTIVE",
+     "state_reason": "",
+     "type_uris": [
+      "http://www.wikidata.org/entity/Q810524"
+     ]
+    },
+    {
+     "basis": "AUTHORED",
+     "content_refs": [
+      "catalog:89f2d953-076d-5c7d-9b74-1193f71685a6"
+     ],
+     "entity_id": "ent:duck:catalog-pose",
+     "extent": {
+      "max_xyz": [
+       0.0,
+       0.0,
+       0.0
+      ],
+      "min_xyz": [
+       0.0,
+       0.0,
+       0.0
+      ]
+     },
+     "external_refs": [],
+     "frame_ref": {
+      "coord_convention": "ENU",
+      "display_unit": "m",
+      "fqn": "map/ut-littlefield-fountain",
+      "has_coord_convention": true,
+      "has_scale": true,
+      "meters_per_unit": 1.0,
+      "scale_status": "SCALE_DECLARED",
+      "uuid": "faab95ac-b317-5b3b-8c72-2a1191a7f7e0"
+     },
+     "has_extent": false,
+     "has_pose": true,
+     "layer": "FAST",
+     "pose": {
+      "q": [
+       0.0,
+       0.0,
+       -0.9961287468170499,
+       0.08790631242802549
+      ],
+      "t": [
+       11.531074473214291,
+       -11.849447666150184,
+       -1.423
+      ]
+     },
+     "properties": [
+      {
+       "key": "demo.label",
+       "value": "Waddles"
+      }
+     ],
+     "source_id": "svc:model:demo/venue",
+     "stamp": {
+      "nanosec": 802531957,
+      "sec": "1793957910"
+     },
+     "state": "ACTIVE",
+     "state_reason": "",
+     "type_uris": [
+      "http://www.wikidata.org/entity/Q851478"
+     ]
+    },
+    {
+     "basis": "AUTHORED",
+     "content_refs": [
+      "catalog:89f2d953-076d-5c7d-9b74-1193f71685a6"
+     ],
+     "entity_id": "ent:duck:west",
+     "extent": {
+      "max_xyz": [
+       0.0,
+       0.0,
+       0.0
+      ],
+      "min_xyz": [
+       0.0,
+       0.0,
+       0.0
+      ]
+     },
+     "external_refs": [],
+     "frame_ref": {
+      "coord_convention": "ENU",
+      "display_unit": "m",
+      "fqn": "map/ut-littlefield-fountain",
+      "has_coord_convention": true,
+      "has_scale": true,
+      "meters_per_unit": 1.0,
+      "scale_status": "SCALE_DECLARED",
+      "uuid": "faab95ac-b317-5b3b-8c72-2a1191a7f7e0"
+     },
+     "has_extent": false,
+     "has_pose": true,
+     "layer": "FAST",
+     "pose": {
+      "q": [
+       0.0,
+       0.0,
+       -0.9671782309020631,
+       0.2540989367729734
+      ],
+      "t": [
+       10.588685931520773,
+       -12.404398000892868,
+       -1.423
+      ]
+     },
+     "properties": [
+      {
+       "key": "demo.label",
+       "value": "Bobbin"
+      }
+     ],
+     "source_id": "svc:model:demo/venue",
+     "stamp": {
+      "nanosec": 42748451,
+      "sec": "1793957910"
+     },
+     "state": "ACTIVE",
+     "state_reason": "",
+     "type_uris": [
+      "http://www.wikidata.org/entity/Q851478"
+     ]
+    },
+    {
+     "basis": "AUTHORED",
+     "content_refs": [
+      "catalog:89f2d953-076d-5c7d-9b74-1193f71685a6"
+     ],
+     "entity_id": "ent:duck:east",
+     "extent": {
+      "max_xyz": [
+       0.0,
+       0.0,
+       0.0
+      ],
+      "min_xyz": [
+       0.0,
+       0.0,
+       0.0
+      ]
+     },
+     "external_refs": [],
+     "frame_ref": {
+      "coord_convention": "ENU",
+      "display_unit": "m",
+      "fqn": "map/ut-littlefield-fountain",
+      "has_coord_convention": true,
+      "has_scale": true,
+      "meters_per_unit": 1.0,
+      "scale_status": "SCALE_DECLARED",
+      "uuid": "faab95ac-b317-5b3b-8c72-2a1191a7f7e0"
+     },
+     "has_extent": false,
+     "has_pose": true,
+     "layer": "FAST",
+     "pose": {
+      "q": [
+       0.0,
+       0.0,
+       -0.9026234780311921,
+       0.4304310129473409
+      ],
+      "t": [
+       11.683535332481242,
+       -12.477672617572876,
+       -1.423
+      ]
+     },
+     "properties": [
+      {
+       "key": "demo.label",
+       "value": "Skipper"
+      }
+     ],
+     "source_id": "svc:model:demo/venue",
+     "stamp": {
+      "nanosec": 358021736,
+      "sec": "1793957909"
+     },
+     "state": "ACTIVE",
+     "state_reason": "",
+     "type_uris": [
+      "http://www.wikidata.org/entity/Q851478"
+     ]
+    },
+    {
+     "basis": "DERIVED",
+     "content_refs": [],
+     "entity_id": "ent:pond:observed",
+     "extent": {
+      "max_xyz": [
+       26.175648891003902,
+       -3.661497573897415,
+       -1.0
+      ],
+      "min_xyz": [
+       -2.524018695787082,
+       -20.715976759220077,
+       -2.0
+      ]
+     },
+     "external_refs": [],
+     "frame_ref": {
+      "coord_convention": "ENU",
+      "display_unit": "m",
+      "fqn": "map/ut-littlefield-fountain",
+      "has_coord_convention": true,
+      "has_scale": true,
+      "meters_per_unit": 1.0,
+      "scale_status": "SCALE_DECLARED",
+      "uuid": "faab95ac-b317-5b3b-8c72-2a1191a7f7e0"
+     },
+     "has_extent": true,
+     "has_pose": true,
+     "layer": "SLOW",
+     "pose": {
+      "q": [
+       0.0,
+       0.0,
+       0.0,
+       1.0
+      ],
+      "t": [
+       11.82581509760841,
+       -12.188737166558745,
+       -1.5
+      ]
+     },
+     "properties": [
+      {
+       "key": "demo.label",
+       "value": "Pond"
+      },
+      {
+       "key": "demo.note",
+       "value": "The same water as ent:pond:littlefield, measured rather than declared. Nothing in the model says the two are the same thing, and under spatial.owm/0.1 there is no relationship type to say it with: the module excludes relationships and reserves them as open design. This property is the whole of the claim."
+      }
+     ],
+     "source_id": "svc:fusion:demo/pondwatch",
+     "stamp": {
+      "nanosec": 959719657,
+      "sec": "1794199554"
+     },
+     "state": "ACTIVE",
+     "state_reason": "",
+     "type_uris": [
+      "http://www.wikidata.org/entity/Q810524"
+     ]
+    },
+    {
+     "basis": "OBSERVED",
+     "content_refs": [
+      "catalog:dcef7c31-1d5f-54aa-9344-899912f9d34a"
+     ],
+     "entity_id": "ent:robot:tb3",
+     "extent": {
+      "max_xyz": [
+       0.0,
+       0.0,
+       0.0
+      ],
+      "min_xyz": [
+       0.0,
+       0.0,
+       0.0
+      ]
+     },
+     "external_refs": [
+      {
+       "key": "wikidata",
+       "value": "Q4810574"
+      }
+     ],
+     "frame_ref": {
+      "coord_convention": "ENU",
+      "display_unit": "m",
+      "fqn": "map/ut-littlefield-fountain",
+      "has_coord_convention": true,
+      "has_scale": true,
+      "meters_per_unit": 1.0,
+      "scale_status": "SCALE_DECLARED",
+      "uuid": "faab95ac-b317-5b3b-8c72-2a1191a7f7e0"
+     },
+     "has_extent": false,
+     "has_pose": true,
+     "layer": "FAST",
+     "pose": {
+      "q": [
+       0.0,
+       0.0,
+       1.0,
+       6.123233995736766e-17
+      ],
+      "t": [
+       17.0,
+       -23.0,
+       -0.84
+      ]
+     },
+     "properties": [
+      {
+       "key": "label",
+       "value": "TurtleBot"
+      }
+     ],
+     "source_id": "svc:robot:demo/tb3",
+     "stamp": {
+      "nanosec": 509207725,
+      "sec": "1794199557"
+     },
+     "state": "ACTIVE",
+     "state_reason": "",
+     "type_uris": [
+      "http://www.wikidata.org/entity/Q4810574"
+     ]
+    }
+   ],
+   "topic": {
+    "access": "public-cacheable",
+    "durability": "TRANSIENT_LOCAL",
+    "name": "spatialdds/ut-austin-littlefield/world/entity/v1",
+    "type": "entity",
+    "url": "http://0.0.0.0:8089/ut-austin-littlefield/world/entity/v1",
+    "version": "v1"
+   }
+  },
+  {
+   "path": "/ut-austin-littlefield/world/model_command/v1",
+   "topic": {
+    "accepts_commands": true,
+    "access": "operator-scoped",
+    "durability": "VOLATILE",
+    "name": "spatialdds/ut-austin-littlefield/world/model_command/v1",
+    "type": "model_command",
+    "url": "http://0.0.0.0:8089/ut-austin-littlefield/world/model_command/v1",
+    "version": "v1"
+   }
+  },
+  {
+   "path": "/ut-austin-littlefield/world/model_pose/v1",
+   "topic": {
+    "access": "public-cacheable",
+    "durability": "VOLATILE",
+    "name": "spatialdds/ut-austin-littlefield/world/model_pose/v1",
+    "type": "model_pose",
+    "url": "http://0.0.0.0:8089/ut-austin-littlefield/world/model_pose/v1",
+    "version": "v1"
+   }
+  },
+  {
+   "fqn": "oarc_owm.Relationship",
+   "path": "/ut-austin-littlefield/world/oarc.relationship/v1",
+   "records": [
+    {
+     "asserter": "svc:model:demo/venue",
+     "basis": "DECLARED",
+     "confidence": 0.0,
+     "derived_from": [],
+     "has_confidence": false,
+     "has_valid_from": false,
+     "has_valid_until": false,
+     "id": "rel:svc:model:demo.venue:161b39af985a5167",
+     "meta": [],
+     "object_ref": "ent:fountain:littlefield",
+     "predicate": "http://www.wikidata.org/prop/direct/P361",
+     "stamp": {
+      "nanosec": 295968512,
+      "sec": "1793490254"
+     },
+     "state": "CREATED",
+     "state_reason": "",
+     "subject_ref": "ent:pond:littlefield",
+     "valid_from": {
+      "nanosec": 0,
+      "sec": "0"
+     },
+     "valid_until": {
+      "nanosec": 0,
+      "sec": "0"
+     }
+    },
+    {
+     "asserter": "svc:model:demo/venue",
+     "basis": "DECLARED",
+     "confidence": 0.0,
+     "derived_from": [],
+     "has_confidence": false,
+     "has_valid_from": false,
+     "has_valid_until": false,
+     "id": "rel:svc:model:demo.venue:9f0467191713505d",
+     "meta": [],
+     "object_ref": "ent:pond:littlefield",
+     "predicate": "http://www.wikidata.org/prop/direct/P361",
+     "stamp": {
+      "nanosec": 296215040,
+      "sec": "1793490254"
+     },
+     "state": "CREATED",
+     "state_reason": "",
+     "subject_ref": "ent:shallows:littlefield",
+     "valid_from": {
+      "nanosec": 0,
+      "sec": "0"
+     },
+     "valid_until": {
+      "nanosec": 0,
+      "sec": "0"
+     }
+    },
+    {
+     "asserter": "svc:mover:demo/ducks",
+     "basis": "DECLARED",
+     "confidence": 0.0,
+     "derived_from": [],
+     "has_confidence": false,
+     "has_valid_from": false,
+     "has_valid_until": false,
+     "id": "rel:svc:mover:demo.ducks:619583cb7ec65e09",
+     "meta": [
+      {
+       "key": "oarc.claim.enforced_by",
+       "value": "duck_mover's clamp into ent:shallows:littlefield's extent, inset 1 m"
+      }
+     ],
+     "object_ref": "ent:shallows:littlefield",
+     "predicate": "http://www.opengis.net/ont/geosparql#sfWithin",
+     "stamp": {
+      "nanosec": 415702272,
+      "sec": "1793490254"
+     },
+     "state": "CREATED",
+     "state_reason": "",
+     "subject_ref": "ent:duck:catalog-pose",
+     "valid_from": {
+      "nanosec": 0,
+      "sec": "0"
+     },
+     "valid_until": {
+      "nanosec": 0,
+      "sec": "0"
+     }
+    },
+    {
+     "asserter": "svc:mover:demo/ducks",
+     "basis": "DECLARED",
+     "confidence": 0.0,
+     "derived_from": [],
+     "has_confidence": false,
+     "has_valid_from": false,
+     "has_valid_until": false,
+     "id": "rel:svc:mover:demo.ducks:194dc8bb608f5021",
+     "meta": [
+      {
+       "key": "oarc.claim.enforced_by",
+       "value": "duck_mover's clamp into ent:shallows:littlefield's extent, inset 1 m"
+      }
+     ],
+     "object_ref": "ent:shallows:littlefield",
+     "predicate": "http://www.opengis.net/ont/geosparql#sfWithin",
+     "stamp": {
+      "nanosec": 440050944,
+      "sec": "1793490254"
+     },
+     "state": "CREATED",
+     "state_reason": "",
+     "subject_ref": "ent:duck:east",
+     "valid_from": {
+      "nanosec": 0,
+      "sec": "0"
+     },
+     "valid_until": {
+      "nanosec": 0,
+      "sec": "0"
+     }
+    },
+    {
+     "asserter": "svc:mover:demo/ducks",
+     "basis": "DECLARED",
+     "confidence": 0.0,
+     "derived_from": [],
+     "has_confidence": false,
+     "has_valid_from": false,
+     "has_valid_until": false,
+     "id": "rel:svc:mover:demo.ducks:65456566154558d8",
+     "meta": [
+      {
+       "key": "oarc.claim.enforced_by",
+       "value": "duck_mover's clamp into ent:shallows:littlefield's extent, inset 1 m"
+      }
+     ],
+     "object_ref": "ent:shallows:littlefield",
+     "predicate": "http://www.opengis.net/ont/geosparql#sfWithin",
+     "stamp": {
+      "nanosec": 440248832,
+      "sec": "1793490254"
+     },
+     "state": "CREATED",
+     "state_reason": "",
+     "subject_ref": "ent:duck:west",
+     "valid_from": {
+      "nanosec": 0,
+      "sec": "0"
+     },
+     "valid_until": {
+      "nanosec": 0,
+      "sec": "0"
+     }
+    },
+    {
+     "asserter": "svc:claims:demo/near",
+     "basis": "DERIVED",
+     "confidence": 0.0,
+     "derived_from": [
+      {
+       "key": "ent:robot:tb3",
+       "stamp": {
+        "nanosec": 709151029,
+        "sec": "1794178294"
+       },
+       "topic": "spatialdds/ut-austin-littlefield/world/model_pose/v1"
+      },
+      {
+       "key": "ent:duck:catalog-pose",
+       "stamp": {
+        "nanosec": 802531957,
+        "sec": "1793957910"
+       },
+       "topic": "spatialdds/ut-austin-littlefield/world/model_pose/v1"
+      }
+     ],
+     "has_confidence": false,
+     "has_valid_from": true,
+     "has_valid_until": false,
+     "id": "rel:svc:claims:demo.near:bc26363ca49e5516",
+     "meta": [
+      {
+       "key": "oarc.near.threshold_m",
+       "value": "15"
+      },
+      {
+       "key": "oarc.near.metric",
+       "value": "geof:metricDistance in the venue plane (x, y), as duck_mover measures it"
+      }
+     ],
+     "object_ref": "ent:duck:catalog-pose",
+     "predicate": "https://demo.spatialdds.org/owm/0.2/predicate/near#15m",
+     "stamp": {
+      "nanosec": 741297664,
+      "sec": "1794178294"
+     },
+     "state": "CREATED",
+     "state_reason": "",
+     "subject_ref": "ent:robot:tb3",
+     "valid_from": {
+      "nanosec": 709151029,
+      "sec": "1794178294"
+     },
+     "valid_until": {
+      "nanosec": 0,
+      "sec": "0"
+     }
+    },
+    {
+     "asserter": "svc:claims:demo/near",
+     "basis": "DERIVED",
+     "confidence": 0.0,
+     "derived_from": [
+      {
+       "key": "ent:robot:tb3",
+       "stamp": {
+        "nanosec": 709151029,
+        "sec": "1794178294"
+       },
+       "topic": "spatialdds/ut-austin-littlefield/world/model_pose/v1"
+      },
+      {
+       "key": "ent:duck:east",
+       "stamp": {
+        "nanosec": 358021736,
+        "sec": "1793957909"
+       },
+       "topic": "spatialdds/ut-austin-littlefield/world/model_pose/v1"
+      }
+     ],
+     "has_confidence": false,
+     "has_valid_from": true,
+     "has_valid_until": false,
+     "id": "rel:svc:claims:demo.near:2316487536395375",
+     "meta": [
+      {
+       "key": "oarc.near.threshold_m",
+       "value": "15"
+      },
+      {
+       "key": "oarc.near.metric",
+       "value": "geof:metricDistance in the venue plane (x, y), as duck_mover measures it"
+      }
+     ],
+     "object_ref": "ent:duck:east",
+     "predicate": "https://demo.spatialdds.org/owm/0.2/predicate/near#15m",
+     "stamp": {
+      "nanosec": 742009600,
+      "sec": "1794178294"
+     },
+     "state": "CREATED",
+     "state_reason": "",
+     "subject_ref": "ent:robot:tb3",
+     "valid_from": {
+      "nanosec": 709151029,
+      "sec": "1794178294"
+     },
+     "valid_until": {
+      "nanosec": 0,
+      "sec": "0"
+     }
+    },
+    {
+     "asserter": "svc:claims:demo/near",
+     "basis": "DERIVED",
+     "confidence": 0.0,
+     "derived_from": [
+      {
+       "key": "ent:robot:tb3",
+       "stamp": {
+        "nanosec": 709151029,
+        "sec": "1794178294"
+       },
+       "topic": "spatialdds/ut-austin-littlefield/world/model_pose/v1"
+      },
+      {
+       "key": "ent:duck:west",
+       "stamp": {
+        "nanosec": 42748451,
+        "sec": "1793957910"
+       },
+       "topic": "spatialdds/ut-austin-littlefield/world/model_pose/v1"
+      }
+     ],
+     "has_confidence": false,
+     "has_valid_from": true,
+     "has_valid_until": false,
+     "id": "rel:svc:claims:demo.near:c9ea4755df3c5a91",
+     "meta": [
+      {
+       "key": "oarc.near.threshold_m",
+       "value": "15"
+      },
+      {
+       "key": "oarc.near.metric",
+       "value": "geof:metricDistance in the venue plane (x, y), as duck_mover measures it"
+      }
+     ],
+     "object_ref": "ent:duck:west",
+     "predicate": "https://demo.spatialdds.org/owm/0.2/predicate/near#15m",
+     "stamp": {
+      "nanosec": 742549504,
+      "sec": "1794178294"
+     },
+     "state": "CREATED",
+     "state_reason": "",
+     "subject_ref": "ent:robot:tb3",
+     "valid_from": {
+      "nanosec": 709151029,
+      "sec": "1794178294"
+     },
+     "valid_until": {
+      "nanosec": 0,
+      "sec": "0"
+     }
+    }
+   ],
+   "topic": {
+    "access": "public-cacheable",
+    "durability": "TRANSIENT_LOCAL",
+    "name": "spatialdds/ut-austin-littlefield/world/oarc.relationship/v1",
+    "type": "oarc.relationship",
+    "url": "http://0.0.0.0:8089/ut-austin-littlefield/world/oarc.relationship/v1",
+    "version": "v1"
+   }
+  }
+ ],
+ "service": {
+  "kind": "SEMANTICS",
+  "name": "SpatialDDS web gateway, domain ut-austin-littlefield",
+  "org": "spatialdds-web.local",
+  "service_id": "spatialdds-web-ut-austi",
+  "version": "web-binding/step5"
+ }
+}
