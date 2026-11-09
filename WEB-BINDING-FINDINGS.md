@@ -2964,3 +2964,142 @@ consumer chooses a policy per basis rather than re-deriving the states from
 unasserted claim is not the SDK's to say; it is filed as evidence for the OWM
 0.2 register's E11 (demo `docs/ros-claims.md` §6). The SDK's part is that the
 states are computed once.
+
+## The MCP server: a stranger's reader, 2026-11-08
+
+`spatialdds-mcp` (branch `mcp-server`, `lib/spatialdds/spatialdds/mcp_server.py`)
+is a new consumer class on the read surface: an MCP server that reads the web
+binding exactly as a reader without a token does, and tells a model who
+asserted each record, on what basis, how old its stamp is, and what the
+binding has said about its writer. Building it against the public sandbox and
+SpatialDDS-demo's Littlefield venue surfaced four things, one of them the
+reader's side of finding 80. The server works around the first three, and
+says where; none is fixed here, because the batch changes only the extra.
+
+### 81. A polling reader is told nothing about a writer's liveliness, and a late subscriber neither
+
+The binding carries liveliness only as a live event. When an embedder passes a
+writer's lost liveliness on (`gw_http.notify(app, topic,
+gateway.liveliness(topic, key, False))`, which is what the demo's bridge does
+from its bus, `bridges/web_bridge/binding.py:270-281`), a subscriber already on
+the lane's WebSocket hears `{"event": "liveliness", "alive": false}`. Nothing
+else changes: the latched set is untouched, so a `GET` serves the same bytes,
+and the replay a later subscriber gets is the latched samples and
+`end_of_replay`, with no liveliness in it.
+
+Measured on the gateway as the bridge embeds it (`gates/_mcp.py`, `Venue`,
+serving the venue copy in `samples/mcp/venue.json`), for the duck mover's
+claim `rel:svc:mover:demo.ducks:194dc8bb608f5021`:
+
+| Reader | Before the loss | After |
+| --- | --- | --- |
+| `GET` of the instance | ETag `sha256:6d0d3e05b6fc…` | the same bytes, the same ETag |
+| WebSocket opened before | replay, `end_of_replay` | `liveliness`, `alive: false` |
+| WebSocket opened after | | the sample, `end_of_replay`, nothing else |
+
+So a reader that polls, or that arrives after the writer went, cannot tell a
+claim nobody asserts from one somebody does. The collection is also
+`Cache-Control: public, max-age=300`, so a shared cache serves the same answer
+for five minutes regardless.
+
+**What it cost this consumer.** The server has to hold a subscription to each
+public world lane from the moment it starts, and even then can only say
+`unreported` about a record whose writer was lost before it began watching. On
+the live venue the three `DERIVED` `near#15m` claims from `svc:claims:demo/near`
+were stamped six hours before the server read them
+(`samples/mcp/transcript-stdio-venue-live.jsonl`); whether their writer is alive
+is exactly what the binding does not say. A poller also meets two meanings: on
+the SDK's own registry an `OBSERVED` or `DERIVED` record whose refresh lapses is
+withdrawn (`RETIRED` "refresh lapsed", then 404), while on an embedder-fed lane
+a crashed writer's record is served indefinitely.
+
+**What would close it:** the binding states liveliness as state rather than
+only as an event, so that the replay and the collection carry it: for
+instance, a replay that sends `liveliness: false` for every instance whose
+writer is known gone, and a collection response that says so per instance.
+That is finding 80's "computed once" from the reader's side, and evidence for
+the OWM 0.2 register's E11. `gates/mcp_server.py` holds the measurement: the
+binding's `GET` is unchanged by the loss, and a server started after it
+reports `unreported`.
+
+### 82. `Endpoint.search()` reads the first page only
+
+§3.3.0 pages a search with `next_page_token`. `Endpoint.search()` returns
+`doc.get("results", [])` of the first response and never asks for the next
+(`client.py:257`). Measured against a two-page endpoint (one service a page,
+`next_page_token: "p2"` on the first): `search()` returned `['svc-1']`; the MCP
+server's own loop (`mcp_server.search_all`, following `page_token`, bounded at
+20 pages) returned `['svc-1', 'svc-2']`.
+
+Nothing in this repository meets it, because the reference registry never
+pages (`gateway.search` always answers `next_page_token: ""`,
+`gateway.py:962`). The
+demo's discovery binding does page (`spatialdds_demo/discovery_http.py`,
+`page_token` at line 567, `next_page_token` at 590), so an SDK client of a
+paging endpoint silently sees only the first page. **Smallest change:**
+`search()` follows `next_page_token`, bounded, or returns it so a caller can.
+
+### 83. The SDK follows a manifest's path but not its origin, so a misadvertised endpoint reads fine through it and nowhere else
+
+`Topic.latched()`, `Topic.instance()` and `Topic.subscribe()` take the path of
+the topic URL a service manifest advertises and put it on the base the client
+connected to (`_path_of`, `client.py:527, 534, 548`). The demo's OWM binding is
+started with `--host 0.0.0.0` and no `--public-url`
+(SpatialDDS-demo `run_bridge_server_docker.sh:138`), so its manifest advertises
+every topic at `http://0.0.0.0:8089/...` (`samples/mcp/venue.json`, every
+lane). The SDK, and so this server, read it without noticing. A client that
+follows the advertised URL, which is what N.3's hypermedia is for, reaches its
+own host from any other machine; on the advertising host itself `0.0.0.0`
+happens to answer (200, measured), which is why the demo never saw it.
+
+This is the failure the RUNBOOK warns of for `SPATIALDDS_AUTHORITY`, "healthy
+by every probe, and useless to every client", and the SDK is one of the probes
+that cannot see it. Two parts, routed apart: the demo's launch line should pass
+`--public-url` (SpatialDDS-demo's to fix); whether the SDK should say when an
+advertised origin is not the one it connected to is a policy question for the
+SDK.
+
+### 84. Access is per type across a deployment, so the sandbox cannot serve one public world
+
+The brief for this server assumed public OWM scenes on the sandbox. There are
+none: the sandbox serves world lanes only to token holders (the integrator
+guide's sandbox contract), and today no world lane is open there at all. Its
+operator could open them with `spatialdds-serve --public spatial.owm.Entity
+--public oarc_owm.Relationship`, but the class is per type, for every scene.
+Measured on `spatialdds-serve --publish --tokens` with two principals, each
+with its own scene, and `--public spatial.owm.Entity`: after one `PUT` each,
+both `/open-world/world/entity/v1` and `/private-world/world/entity/v1` answer
+`200` with `X-SpatialDDS-Access: public-cacheable` to a request with no token.
+One integrator's public world is every integrator's.
+
+The demo's venue reaches public world lanes only by embedding the gateway and
+classifying its own lanes in code (`bridges/web_bridge/binding.py`, `ACCESS`),
+which names the same limit: a per-type class cannot say "this instance is
+configuration and that one is an observation". `--public`'s help also
+undersells it ("for a deployment's own type in --mcap"): it applies to a type
+the specification's table has a row for, and to lanes opened by a `PUT`
+(`gateway.py:536`, `publish.py:266`). **For ruling:** per-scene (or
+per-lane) access in the registry, or a sandbox decision to open world lanes
+for all, or a reader token for the MCP server, which the brief rules out for
+public scenes.
+
+### 85. `gates/examples.py` passes its refusal checks only because a warning precedes them
+
+Not binding-shaped, and not this server's: met while running the existing
+suite in a clean environment, as acceptance asked. The examples gate compares
+the tail of a refusing example's stderr after `r.stderr.strip()`
+(`gates/examples.py:286-287`). Two documented refusals are indented two spaces
+(`examples/publish_service.py:30`, `sys.exit(f'  refused: ...')`, and
+`examples/withdraw_duck.py:32`). When the refusal is the whole of stderr,
+`strip()` removes its indent and the comparison fails; when something else
+was printed first, the indent survives and it passes.
+
+On this repository's usual interpreter something always is: requests' urllib3
+version warning. Measured: `python3 gates/examples.py` passes there; the same
+run with `PYTHONWARNINGS=ignore` fails four checks (README lines 301 and 430,
+and both examples run alone), each `want ['  refused: …'], got ['refused: …']`;
+and in a venv with matching urllib3 and requests (no warning at all) it fails
+the same four. So the gate's verdict on two examples depends on an unrelated
+warning in the environment it runs in. **Smallest change:** strip only line
+ends (`r.stderr.rstrip("\n")` before splitting), so a refusal's own indent is
+compared as printed. Not changed here: this batch changes only the extra.
