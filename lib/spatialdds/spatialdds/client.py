@@ -11,6 +11,7 @@ import hashlib
 import json
 import math
 import re
+import warnings
 from dataclasses import dataclass
 from typing import Any, Dict, Iterator, List, Optional
 
@@ -19,7 +20,7 @@ import requests
 from . import canonical, records
 from .errors import (IntegrityError, Problem, SpatialDDSError, Unreachable,
                      UnverifiableIntegrity, problem_for)
-from .errors import SurfaceOff, Unauthorized
+from .errors import AdvertisedOriginWarning, SurfaceOff, Unauthorized
 
 #: What the package's facade resolves through this module. The two exception
 #: subclasses are here because this is the module `spatialdds.Unauthorized`
@@ -29,7 +30,8 @@ __all__ = [
     "connect", "Endpoint", "Hit", "Topic", "Resolved", "Written",
     "Sample", "Dispose", "EndOfReplay", "Liveliness",
     "SpatialDDSError", "Unreachable", "Problem", "Unauthorized", "SurfaceOff",
-    "IntegrityError", "UnverifiableIntegrity", "lift",
+    "IntegrityError", "UnverifiableIntegrity", "AdvertisedOriginWarning",
+    "lift",
 ]
 
 
@@ -115,6 +117,7 @@ class Endpoint:
         self._cache: Dict[str, Any] = {}
         self._authority: Optional[str] = authority
         self._s = requests.Session()
+        self._origin_warned = False
 
     # -- plumbing --
     def _url(self, path_or_url: str) -> str:
@@ -126,6 +129,28 @@ class Endpoint:
         """scheme://host[:port], lowercased: what a credential is scoped to."""
         scheme, _, rest = url.partition("://")
         return f"{scheme.lower()}://{rest.split('/', 1)[0].lower()}"
+
+    def _advertised(self, url: str, where: str) -> None:
+        """Warn, once for this endpoint, if `url` is on another origin.
+
+        The URLs a service manifest or the resolver metadata advertise are
+        this endpoint's own, so their origin should be the one they were
+        read from. The library reads through `base` regardless (`_path_of`),
+        which is why a misadvertised endpoint read fine through it and
+        nowhere else (finding 83); this says so instead of hiding it.
+        """
+        if self._origin_warned or not url.startswith(("http://", "https://")):
+            return
+        here, there = _norm_origin(self.base), _norm_origin(url)
+        if here == there:
+            return
+        self._origin_warned = True
+        warnings.warn(AdvertisedOriginWarning(
+            f"{here} advertises {there} in its {where}, not the origin it "
+            f"was read from. This client reads through {here}; a client "
+            f"that follows the advertised URL reaches {there}. The endpoint "
+            f"is likely missing --public-url (or --authority)."),
+            stacklevel=3)
 
     def _headers(self, extra: Optional[Dict[str, str]] = None,
                  url: Optional[str] = None) -> Dict[str, str]:
@@ -270,7 +295,11 @@ class Endpoint:
             page = dict(params, page_token=token) if token else params
             doc = self.get_json(f"{WELL_KNOWN}/search", params=page or None,
                                 revalidate=False)
-            hits += [Hit(self, m) for m in doc.get("results", [])]
+            for m in doc.get("results", []):
+                for t in (m.get("service") or {}).get("topics") or []:
+                    if isinstance(t, dict) and t.get("url"):
+                        self._advertised(str(t["url"]), "search results")
+                hits.append(Hit(self, m))
             token = doc.get("next_page_token") or ""
             if not token:
                 return hits
@@ -309,6 +338,7 @@ class Endpoint:
             raise SpatialDDSError(
                 f"{self.base} publishes no resolver metadata, so it resolves "
                 f"nothing. It is not an authority for any spatialdds:// URI.")
+        self._advertised(str(hb), "resolver metadata")
         path = hb if hb.startswith(self.base) else self.base + _path_of(hb)
         r = self._request("GET", path, params={"uri": uri}, raw=True)
         return Resolved(self, uri, r.json(), r.headers.get("ETag", ""))
@@ -756,6 +786,16 @@ def _elements(cov: Any) -> List[Dict[str, Any]]:
 
 
 # ---- small helpers --------------------------------------------------------
+
+def _norm_origin(url: str) -> str:
+    """scheme://host[:port], lowercased, with a scheme's default port dropped."""
+    scheme, _, rest = url.partition("://")
+    scheme, host = scheme.lower(), rest.split("/", 1)[0].lower()
+    default = {"http": ":80", "https": ":443"}.get(scheme)
+    if default and host.endswith(default):
+        host = host[:-len(default)]
+    return f"{scheme}://{host}"
+
 
 def _path_of(url: str) -> str:
     if url.startswith(("http://", "https://")):

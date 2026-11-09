@@ -12,16 +12,23 @@ Which release this is is decided when it is tagged.
   each record who asserted it, on what basis, how old its stamp is and what
   the binding has said about its writer. See `docs/mcp-server.md`.
 - **`--public` can open one scene (finding 84).** `serve --public
-  SCENE/FQN` serves that type public in that scene only. A bare `FQN`
-  still opens it in every scene, so on a registry shared by several
-  principals, opening one integrator's world no longer opens everyone's.
+  SCENE/FQN` serves that type public in that scene only, and is the
+  recommended form: on a registry shared by several principals, opening one
+  integrator's world no longer opens everyone's. A bare `FQN` still opens it
+  in every scene, as before, and is **deprecated**; its removal is deferred
+  to a major release.
+- **The SDK says when an endpoint misadvertises its origin (finding 83).**
+  `AdvertisedOriginWarning`, once per endpoint, naming both origins, when
+  search results or resolver metadata advertise URLs on another origin than
+  the one the client connected to. Reading is unchanged.
 - **`Endpoint.search()` reads every page (finding 82).** It follows
   `next_page_token` with `page_token`, keeping the query, and raises after
   `max_pages` (default `SEARCH_PAGES`, 100) rather than answer with part of
   the list. `near()` gets every page with it.
 
 New gates: `gates/mcp_server.py`, `gates/mcp_guide.py`,
-`gates/scene_access.py`, `gates/search_pages.py`. `gates/examples.py`
+`gates/scene_access.py`, `gates/search_pages.py`,
+`gates/advertised_origin.py`. `gates/examples.py`
 compares a refusal with its own indent (finding 85).
 
 ## 0.8.2: no phantom lanes, every writable type listed

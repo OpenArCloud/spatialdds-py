@@ -3165,3 +3165,29 @@ a policy question, not taken here.
 
 **81** waits on the binding; it is cited in the 1.9 register's entry 4 when
 that moves.
+
+### Ruled, 2026-11-09, second: 83's SDK half, and `--public`'s two forms
+
+Accepted: 84, 82 and 85 with their inverse plants, the demo's half of 83, and
+the merges to `main`. Two follow-ups for the next release, both now on
+`next-release`.
+
+**83's SDK half: the SDK warns.** `AdvertisedOriginWarning` (a `UserWarning`,
+exported as `sd.AdvertisedOriginWarning`), once per endpoint, naming both
+origins, when search results' topic URLs or the resolver metadata's
+`https_base` are on another origin than the one the client connected to
+(scheme, host and port, a scheme's default port dropped). Reading is
+unchanged: the library still reads through the origin it connected to.
+`gates/advertised_origin.py` holds it against the fountain registry
+advertising `https://demo.spatialdds.org` and read on loopback: `search()`
+warns, naming both, and returns its services; a second `search()` and a
+`resolve()` on that endpoint warn nothing more; `resolve()` on a fresh
+endpoint warns from the resolver metadata; a second endpoint warns again;
+the registry advertising its own origin warns nothing. With the check planted
+to return at once, three checks fail; with the once-only flag planted never
+to be set, three fail.
+
+**`--public`: `SCENE/FQN` is the recommended form; the bare `FQN` is
+deprecated**, still meaning what it always did, with its removal deferred to
+a major release. Said in `serve --help`, `docs/PUBLISH.md`, the `State.public`
+comment and the changelog. Nothing at run time warns of the bare form.

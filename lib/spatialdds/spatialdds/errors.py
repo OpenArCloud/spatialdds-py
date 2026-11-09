@@ -85,3 +85,13 @@ def problem_for(status: int, doc: Dict[str, Any], url: str,
     if status == 405 and slug == "publish-disabled":
         return SurfaceOff(status, doc, url)
     return Problem(status, doc, url)
+
+
+class AdvertisedOriginWarning(UserWarning):
+    """An endpoint advertises URLs on an origin other than the one it was
+    read from (finding 83).
+
+    The library reads through the origin it connected to, so it works either
+    way; a client that follows the advertised URL, as N.3's hypermedia
+    intends, reaches the other origin. Warned once per endpoint, naming both.
+    """

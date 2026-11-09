@@ -460,6 +460,13 @@ what such a field digests or in what form (spatialdds-py finding 31). Where a
 declared value does not parse as a SHA-256 of the asset's bytes, this library
 raises rather than reporting a check it did not perform.
 
+One warning, not an error: **`AdvertisedOriginWarning`** (a `UserWarning`),
+once per endpoint, when its search results or resolver metadata advertise
+URLs on another origin than the one you connected to. The library reads
+through your origin either way, so it keeps working; a client that follows
+the advertised URLs reaches the other one, which usually means the endpoint
+was started without `--public-url`. The message names both origins.
+
 ## Integrity by default
 
 Latched reads revalidate with the ETag the endpoint gave; `fetch_asset` checks

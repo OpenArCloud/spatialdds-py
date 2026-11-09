@@ -172,8 +172,9 @@ class State:
     #: Filled by `add_extension`; the spec's publishable types are
     #: `publish.PUBLISHABLE` and are not repeated here.
     publishable: dict[str, str] = field(default_factory=dict)
-    #: What `--public` names: `FQN` opens that type's lanes in every scene,
-    #: `SCENE/FQN` in that scene only (finding 84: one integrator's public
+    #: What `--public` names: `SCENE/FQN` opens that type's lanes in that
+    #: scene only (the recommended form), a bare `FQN` in every scene
+    #: (deprecated, removal deferred to a major release) (finding 84: one integrator's public
     #: world must not be every integrator's). Kept, and not only applied at
     #: load, so a lane that first exists because somebody published into it
     #: is public by the same rule as one a recording carried. `is_public`

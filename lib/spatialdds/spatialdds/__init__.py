@@ -26,7 +26,7 @@ __all__ = [
     "connect", "Endpoint", "Hit", "Topic", "Resolved", "Written",
     "Sample", "Dispose", "EndOfReplay", "Liveliness",
     "SpatialDDSError", "Unreachable", "Problem", "Unauthorized", "SurfaceOff",
-    "IntegrityError", "UnverifiableIntegrity",
+    "IntegrityError", "UnverifiableIntegrity", "AdvertisedOriginWarning",
     "lift", "SPEC_TAG", "SPEC_COMMIT", "APPENDIX_N", "__version__",
     # The record builders, re-exported so that `sd.circle(...)` reads the way
     # it does in the documentation. They live in `spatialdds.records`.

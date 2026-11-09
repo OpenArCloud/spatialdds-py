@@ -245,12 +245,16 @@ right to mint scenes. The wildcard grant `*` covers every scene that exists and
 creates none unless `may_create_scenes` is also set. **Reads stay open**: an
 operator-scoped resource still wants a credential, and any principal's will do.
 
-**Opening one scene to readers.** `--public SCENE/FQN` serves that type's lanes
-in that scene to readers with no token, as `public-cacheable`, and leaves the
-same type operator-scoped in every other scene; `--public FQN` opens it in
-every scene, whoever writes there. On a registry shared by several
-principals, name the scene: `--public open-world/spatial.owm.Entity` opens one
-integrator's world without opening anyone else's (finding 84).
+**Opening one scene to readers.** `--public SCENE/FQN` is the recommended
+form: it serves that type's lanes in that scene to readers with no token, as
+`public-cacheable`, and leaves the same type operator-scoped in every other
+scene. `--public open-world/spatial.owm.Entity` opens one integrator's world
+without opening anyone else's (finding 84).
+
+The bare form, `--public FQN`, opens the type in every scene, whoever writes
+there, including scenes that do not exist yet. It is **deprecated**: it still
+works and means what it always did, and its removal is deferred to a major
+release. Name the scenes instead.
 
 The table lives in a file, hashed — SHA-256 of 256-bit random tokens, never the
 token itself — and `python -m spatialdds.tokens` issues (printing the token

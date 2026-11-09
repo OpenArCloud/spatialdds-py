@@ -61,8 +61,10 @@ def build_parser(ap: argparse.ArgumentParser) -> argparse.ArgumentParser:
     ap.add_argument("--public", action="append", default=[],
                     metavar="[SCENE/]FQN",
                     help="serve this type's lanes public to readers with no "
-                         "token (repeatable): SCENE/FQN in that scene only, "
-                         "a bare FQN in every scene, whichever principal "
+                         "token (repeatable). SCENE/FQN, the recommended "
+                         "form, opens it in that scene only. A bare FQN "
+                         "(deprecated, removal deferred to a major release) "
+                         "opens it in every scene, whichever principal "
                          "writes there. It overrides the access class of "
                          "any type, the specification's table included, "
                          "for recorded lanes and lanes opened by a PUT alike")
