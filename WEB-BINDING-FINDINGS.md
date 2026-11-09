@@ -3103,3 +3103,20 @@ the same four. So the gate's verdict on two examples depends on an unrelated
 warning in the environment it runs in. **Smallest change:** strip only line
 ends (`r.stderr.rstrip("\n")` before splitting), so a refusal's own indent is
 compared as printed. Not changed here: this batch changes only the extra.
+
+### Ruled, 2026-11-09
+
+Acceptance of the server stands with the declared deviation: the sandbox
+serves no world lane to a stranger, so the verbatim basis-and-asserter claim
+is the Littlefield venue's (`samples/mcp/transcript-stdio-venue-live.jsonl`).
+Findings 81 to 85 are accepted.
+
+**81** is a measured violation of carrier obligation 2 in the web binding
+design note, and is evidence for the 1.9 register's entry 4, to be cited
+there when the register next moves.
+
+**84: per-scene access in the registry**, for the next release, not this
+branch. No world lane is opened for every principal, and the MCP server gets
+no reader token. Should the server be hosted as a showcase before that ships,
+it reads a dedicated public scene added deliberately, which is a separate
+decision.
