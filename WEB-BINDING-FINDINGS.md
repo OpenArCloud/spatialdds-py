@@ -3120,3 +3120,48 @@ branch. No world lane is opened for every principal, and the MCP server gets
 no reader token. Should the server be hosted as a showcase before that ships,
 it reads a dedicated public scene added deliberately, which is a separate
 decision.
+
+## After the MCP server: 82, 84 and 85 fixed, 2026-11-09
+
+For the next release, as 84's ruling put it; which release that is is decided
+when it is tagged.
+
+**84, fixed: per-scene access.** `--public` takes `SCENE/FQN` as well as
+`FQN`. `State.is_public(scene, fqn)` is the one reading of the rule, and both
+places that classify a new lane call it: `gateway.build_state` for a recorded
+lane, and `publish.resource_for_put` for a lane opened by a `PUT` (and so on
+replay). A bare `FQN` keeps its meaning, every scene. `spatialdds-serve`
+refuses a rule of neither shape before it binds. `gates/scene_access.py`
+repeats 84's measurement with `--public open-world/spatial.owm.Entity`: the
+open world's collection and instance answer a reader with no token, `200
+public-cacheable`, in the header and in search; the private world's answer
+`401`, operator-scoped; a registry restarted on its journal keeps both; a
+bare `FQN` still opens both. With `is_public` planted to ignore the scene,
+and separately with `resource_for_put` planted back to `fqn in st.public`,
+the first two checks fail.
+
+**82, fixed.** `Endpoint.search()` follows `next_page_token` with
+`page_token`, the same geohash and kind on every page, and raises after
+`max_pages` (`SEARCH_PAGES`, 100) rather than answer with part of the list.
+The MCP server's own loop is gone: `mcp_server.search_all` calls `search()`.
+`gates/search_pages.py` holds it against a stub on loopback: three pages,
+three services, in order, each request carrying its token and the same
+query; `near()` sees all three; an endpoint that never stops paging raises
+after five pages with `max_pages=5`. With `search()` planted back to its
+first page, all four checks fail.
+
+**85, fixed.** `gates/examples.py` strips only line ends from a refusal's
+stderr. It passes on the usual interpreter, with `PYTHONWARNINGS=ignore`,
+and in the venv pinned to the box's versions, where it failed four checks
+before; with `strip()` planted back, that venv fails the same four.
+
+**83: the demo's half fixed, the SDK's half open.** SpatialDDS-demo's
+launcher passes `--public-url` (`SPATIALDDS_BINDING_PUBLIC_URL`,
+`http://localhost:8089` by default; demo `c1ca3d7`). Measured on a private
+binding container, all five advertised topic URLs carry the public URL. The
+running stack advertises `0.0.0.0` until it is next started. Whether the SDK
+should say when an advertised origin is not the one it connected to is still
+a policy question, not taken here.
+
+**81** waits on the binding; it is cited in the 1.9 register's entry 4 when
+that moves.

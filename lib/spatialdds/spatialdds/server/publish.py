@@ -263,7 +263,7 @@ def resource_for_put(st: gateway.State, scene: str, stream: str,
         # call, by the same `--public` rule a recorded lane follows.
         latched, access = gateway.DURABILITY.get(
             fqn, (fqn in st.publishable.values(), gateway.OPERATOR))
-        if fqn in st.public:
+        if st.is_public(scene, fqn):
             access = gateway.PUBLIC
         res = gateway.Resource(scene, stream, type_seg, version, topic, fqn,
                                keys[0] if keys else "", access, latched)

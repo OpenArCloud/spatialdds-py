@@ -58,11 +58,14 @@ def build_parser(ap: argparse.ArgumentParser) -> argparse.ArgumentParser:
                     help="a typed SpatialDDS MCAP to seed from. Optional: "
                          "with no recording the registry starts empty and "
                          "takes its types from the IDL pinned in this package.")
-    ap.add_argument("--public", action="append", default=[], metavar="FQN",
-                    help="serve this type's lanes public (repeatable), for a "
-                         "deployment's own type in --mcap, which is "
-                         "operator-scoped otherwise: who may read it is the "
-                         "deployment's call, not the recording's")
+    ap.add_argument("--public", action="append", default=[],
+                    metavar="[SCENE/]FQN",
+                    help="serve this type's lanes public to readers with no "
+                         "token (repeatable): SCENE/FQN in that scene only, "
+                         "a bare FQN in every scene, whichever principal "
+                         "writes there. It overrides the access class of "
+                         "any type, the specification's table included, "
+                         "for recorded lanes and lanes opened by a PUT alike")
     ap.add_argument("--authority", default=None,
                     help="the DNS name this registry answers as, e.g. "
                          "registry.mytown.example. Every URI it accepts and "
@@ -213,6 +216,11 @@ def main(argv: list[str] | None = None) -> int:
     generated = table is None and not a.token
     token = None if table is not None else (a.token
                                             or secrets.token_urlsafe(24))
+    for rule in a.public:
+        scene, _, fqn = rule.rpartition("/")
+        if not fqn or "/" in scene or (rule.count("/") and not scene):
+            raise SystemExit(f"--public {rule!r}: name a type (FQN) or one "
+                             f"type in one scene (SCENE/FQN).")
     try:
         st = gateway.build_state(
             a.mcap, a.manifests if a.manifests and a.manifests.is_dir()

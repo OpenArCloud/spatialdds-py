@@ -27,7 +27,9 @@ nothing about which row came close.
 
 **Reads stay open.** Nothing here gates a public read. An operator-scoped
 resource (N.4) still wants a credential, and any principal's satisfies it --
-access class is about observation versus configuration, not about lanes.
+access class is about observation versus configuration, not about who wrote
+it. Which lanes are public is the operator's `--public` (a type in every
+scene, or `SCENE/FQN` in one), never a principal's.
 
 The table file, JSON so it is diffable and needs nothing to parse:
 

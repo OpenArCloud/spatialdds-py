@@ -208,17 +208,7 @@ def parse_source(url: str, timeout: float = 15.0) -> Source:
 
 def search_all(ep: Endpoint) -> List[Dict[str, Any]]:
     """Every service manifest the endpoint's search lists, page by page."""
-    out: List[Dict[str, Any]] = []
-    token = ""
-    for _ in range(SEARCH_PAGES):
-        doc = ep.get_json(f"{WELL_KNOWN}/search",
-                          params={"page_token": token} if token else None,
-                          revalidate=False)
-        out += doc.get("results", [])
-        token = doc.get("next_page_token") or ""
-        if not token:
-            break
-    return out
+    return [h.manifest for h in ep.search(max_pages=SEARCH_PAGES)]
 
 
 class Catalog:

@@ -34,6 +34,9 @@ __all__ = [
 
 
 WELL_KNOWN = "/.well-known/spatialdds"
+#: How many search pages `Endpoint.search` follows before it gives up
+#: rather than answer with part of the list.
+SEARCH_PAGES = 100
 _SHA256 = re.compile(r"^(?:sha256:)?([0-9a-f]{64})$", re.I)
 lift = canonical.lift
 
@@ -245,16 +248,35 @@ class Endpoint:
 
     # -- discovery --
     def search(self, geohash: Optional[str] = None,
-               kinds: Optional[List[str]] = None) -> List["Hit"]:
-        """§3.3.0 search. One cell in, service manifests out."""
+               kinds: Optional[List[str]] = None,
+               max_pages: int = SEARCH_PAGES) -> List["Hit"]:
+        """§3.3.0 search. One cell in, service manifests out.
+
+        Every page: a response carrying a `next_page_token` is followed with
+        `page_token`, the same query each time, until one carries none. 0.8.2
+        and earlier read only the first page, so a paging endpoint's later
+        services were silently missing (finding 82). An endpoint still paging
+        after `max_pages` pages raises rather than answering with part of
+        the list.
+        """
         params: Dict[str, Any] = {}
         if geohash:
             params["geohash"] = geohash
         if kinds:
             params["kind"] = ",".join(kinds)
-        doc = self.get_json(f"{WELL_KNOWN}/search", params=params or None,
-                            revalidate=False)
-        return [Hit(self, m) for m in doc.get("results", [])]
+        hits: List["Hit"] = []
+        token = ""
+        for _ in range(max_pages):
+            page = dict(params, page_token=token) if token else params
+            doc = self.get_json(f"{WELL_KNOWN}/search", params=page or None,
+                                revalidate=False)
+            hits += [Hit(self, m) for m in doc.get("results", [])]
+            token = doc.get("next_page_token") or ""
+            if not token:
+                return hits
+        raise SpatialDDSError(
+            f"{self.base}: search was still paging after {max_pages} pages "
+            f"({len(hits)} services read); pass max_pages= to read further")
 
     def near(self, lat: float, lon: float, radius_m: float) -> List["Hit"]:
         """Services whose declared coverage reaches a point.

@@ -172,9 +172,12 @@ class State:
     #: Filled by `add_extension`; the spec's publishable types are
     #: `publish.PUBLISHABLE` and are not repeated here.
     publishable: dict[str, str] = field(default_factory=dict)
-    #: The types `--public` names. Kept, and not only applied at load, so a
-    #: lane that first exists because somebody published into it is public
-    #: by the same rule as one a recording carried.
+    #: What `--public` names: `FQN` opens that type's lanes in every scene,
+    #: `SCENE/FQN` in that scene only (finding 84: one integrator's public
+    #: world must not be every integrator's). Kept, and not only applied at
+    #: load, so a lane that first exists because somebody published into it
+    #: is public by the same rule as one a recording carried. `is_public`
+    #: is the one reading of it.
     public: frozenset[str] = frozenset()
     #: Instances whose basis says somebody is watching (OBSERVED, DERIVED),
     #: by (topic, key): the interval their writer declared and the moment it
@@ -183,6 +186,11 @@ class State:
 
     def resource_for(self, path: str) -> Resource | None:
         return self.resources.get(path.rstrip("/"))
+
+    def is_public(self, scene: str, fqn: str) -> bool:
+        """Whether `--public` opens this type's lane in this scene."""
+        return fqn in self.public or (bool(scene)
+                                      and f"{scene}/{fqn}" in self.public)
 
 
 def wire_model(path: Path) -> idlmodel.Model:
@@ -446,8 +454,8 @@ def build_state(path: Path | None, manifests: Path | None = None,
     A type `DURABILITY` has no row for, a deployment's own, is latched if
     the recording says its writer opened the lane TRANSIENT_LOCAL
     (`mcapmeta.CHANNEL_DURABILITY`), and operator-scoped unless named in
-    `public`: who may read a lane is the deployment's call, and the file
-    cannot make it. Until 0.7.4 such a lane was always volatile and
+    `public` (`FQN` for every scene, `SCENE/FQN` for one): who may read a
+    lane is the deployment's call, and the file cannot make it. Until 0.7.4 such a lane was always volatile and
     operator-scoped (S20). A type with a row keeps its row: the table is
     the specification's, and a recording does not override it.
     """
@@ -533,7 +541,7 @@ def build_state(path: Path | None, manifests: Path | None = None,
                     latched = (ch.metadata.get(mcapmeta.CHANNEL_DURABILITY)
                                == "TRANSIENT_LOCAL")
                     access = OPERATOR
-                if fqn in public:
+                if st.is_public(scene, fqn):
                     access = PUBLIC
                 res = Resource(scene, stream, type_seg, version, ch.topic, fqn,
                                keys[0] if keys else "", access, latched)

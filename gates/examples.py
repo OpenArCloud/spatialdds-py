@@ -282,9 +282,12 @@ def run(block: Block, base: str,
             # sees or does not (a urllib3 version notice, say), and pinning
             # those would make the documented message depend on the
             # environment it was captured in. The refusal is the last thing
-            # printed, which is what a reader reads.
+            # printed, which is what a reader reads. Only line ends are
+            # stripped: a refusal's own indent is part of what it prints, and
+            # `strip()` here took it off only when nothing preceded it, so
+            # the verdict hung on whether a warning did (finding 85).
             have = [l.rstrip() for l in
-                    r.stderr.strip().splitlines()][-len(want):]
+                    r.stderr.rstrip("\n").splitlines()][-len(want):]
             return (want == have, "" if want == have else
                     f"want {want!r}, got {have!r}")
         if block.mode == "py":

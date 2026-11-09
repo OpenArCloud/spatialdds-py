@@ -1,5 +1,29 @@
 # Changelog
 
+## Unreleased
+
+Which release this is is decided when it is tagged.
+
+- **`spatialdds-mcp`, an MCP server over the web binding.** `pip install
+  "spatialdds[mcp]"` adds the MCP SDK and nothing else; the base install is
+  unchanged. Five read-only tools (`list_scenes`, `describe_scene`,
+  `get_entities`, `get_claims`, `get_entity`), over stdio or `--http`. It
+  reads as a stranger does, holds no token for a public scene, and says of
+  each record who asserted it, on what basis, how old its stamp is and what
+  the binding has said about its writer. See `docs/mcp-server.md`.
+- **`--public` can open one scene (finding 84).** `serve --public
+  SCENE/FQN` serves that type public in that scene only. A bare `FQN`
+  still opens it in every scene, so on a registry shared by several
+  principals, opening one integrator's world no longer opens everyone's.
+- **`Endpoint.search()` reads every page (finding 82).** It follows
+  `next_page_token` with `page_token`, keeping the query, and raises after
+  `max_pages` (default `SEARCH_PAGES`, 100) rather than answer with part of
+  the list. `near()` gets every page with it.
+
+New gates: `gates/mcp_server.py`, `gates/mcp_guide.py`,
+`gates/scene_access.py`, `gates/search_pages.py`. `gates/examples.py`
+compares a refusal with its own indent (finding 85).
+
 ## 0.8.2: no phantom lanes, every writable type listed
 
 Three fixes to the registry, two contracts written down, and a PyPI page
