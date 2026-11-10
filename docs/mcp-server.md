@@ -24,7 +24,7 @@ needs Python 3.10 or newer, which the MCP SDK requires.
 
 <!-- mcp: install -->
 ```sh
-pip install "spatialdds[mcp]==0.8.2"
+pip install "spatialdds[mcp]==0.8.3"
 ```
 
 This installs `spatialdds-mcp`. Point it at one or more scenes with `--scene`:

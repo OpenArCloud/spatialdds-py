@@ -3237,3 +3237,13 @@ cost. No recorded demo behavior changed.
 bare `FQN` is given, naming the scene-qualified form as recommended, and none
 for `SCENE/FQN`; `gates/scene_access.py` holds both. With the line planted
 silent, its check fails.
+
+## 0.8.3, 2026-11-09
+
+Tagged `spatialdds-v0.8.3` from `next-release`, merged to `main`. It carries
+the MCP server (`spatialdds[mcp]`) and the fixes filed against it and before
+it: 84 (per-scene `--public`; the bare form deprecated and said so at
+startup), 82 (`search()` reads every page), 83's SDK half
+(`AdvertisedOriginWarning`), 85 (the examples gate), and 75 (validation cached,
+`validate=False` removed). 81 waits on the binding. SpatialDDS-demo's pin bump
+and its `validated-pose-lane` land together with it.

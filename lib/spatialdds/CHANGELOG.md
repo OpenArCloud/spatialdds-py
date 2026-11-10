@@ -1,8 +1,6 @@
 # Changelog
 
-## Unreleased
-
-Which release this is is decided when it is tagged.
+## 0.8.3: every write validated, one scene public, and an MCP server
 
 - **`spatialdds-mcp`, an MCP server over the web binding.** `pip install
   "spatialdds[mcp]"` adds the MCP SDK and nothing else; the base install is
