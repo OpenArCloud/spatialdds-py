@@ -181,17 +181,22 @@ def validate_schema(fqn: str, doc: Any, st: "gateway.State | None" = None) -> No
                        f"The publish surface validates every body against the "
                        f"vendored schemas and jsonschema is not installed: "
                        f"{e}") from e
-    schema = webjson.schemas().get(fqn)
-    if schema is None and st is not None and st.model is not None \
+    # Compiled once a type (finding 75): a vendored type's validator is the
+    # process's, a deployment's own type's is the State's, built from its
+    # model the first time a body of it arrives.
+    v = webjson.vendored_validator(fqn)
+    if v is None and st is not None and st.model is not None \
             and fqn in st.publishable.values():
-        schema = webjson.schema_from_model(st.model, fqn)
-    if schema is None:
+        v = st.validators.get(fqn)
+        if v is None:
+            v = st.validators[fqn] = webjson.compile_validator(
+                webjson.schema_from_model(st.model, fqn))
+    if v is None:
         raise Rejected(500, "no-schema", "No schema for that type",
                        f"No vendored schema for {fqn}, so a body cannot be "
                        f"validated and will not be accepted.")
-    try:
-        jsonschema.validate(doc, schema)
-    except jsonschema.ValidationError as e:
+    e = webjson.first_error(v, doc)
+    if e is not None:
         where = "/".join(str(p) for p in e.absolute_path) or "(root)"
         raise Rejected(
             400, "schema-invalid", "Body does not match its schema",

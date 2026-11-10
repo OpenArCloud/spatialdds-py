@@ -231,10 +231,10 @@ class Writer:
     """One lane's writer. Created by `Participant.writer`, never directly."""
 
     def __init__(self, p: "Participant", lane: _Lane, on_exit: Optional[str],
-                 floor_hz: Optional[float], validate: bool,
+                 floor_hz: Optional[float],
                  lifespan_sec: Optional[float]) -> None:
         self._p, self._lane = p, lane
-        self.on_exit, self.floor_hz, self.validate = on_exit, floor_hz, validate
+        self.on_exit, self.floor_hz = on_exit, floor_hz
         self._dw = DataWriter(p._dp, p._topic(lane),
                               qos=writer_qos(lane.profile, lifespan_sec))
         self._last: Dict[str, Any] = {}
@@ -289,13 +289,15 @@ class Writer:
     def write(self, sample: Any) -> Any:
         """Write a typed sample, or its N.1 document. Returns the typed sample.
 
-        Validated against the published schema first unless the writer was
-        made with `validate=False`; an invalid sample raises `SchemaInvalid`
-        and nothing reaches the bus.
+        Validated against the published schema first, always: an invalid
+        sample raises `SchemaInvalid` and nothing reaches the bus. There is
+        no unvalidated mode. 0.8.2 and earlier had one, `validate=False`,
+        because validation compiled the schema per sample (finding 75); it
+        is compiled once a type now, and an unvalidated write is a hole in
+        the write contract, not a fast path.
         """
         sample = self._coerce(sample)
-        if self.validate:
-            codec.validate(sample)
+        codec.validate(sample)
         key = codec.key_of(sample)
         with self._lock:
             self._dw.write(sample)
@@ -370,7 +372,7 @@ class Writer:
                                  f"{', '.join(unknown)}")
             terminal = self._terminal(dataclasses.replace(last, **changes),
                                       reason)
-            if changes and self.validate:
+            if changes:
                 codec.validate(terminal)
             del self._last[key]
             # Immediately: nothing of this writer's may come between the
@@ -762,7 +764,7 @@ class Participant:
     def writer(self, type_: Union[str, type], *, stream: Optional[str] = None,
                qos_profile: Union[str, Profile, None] = None,
                on_exit: Optional[str] = None,
-               floor_hz: Optional[float] = None, validate: bool = True,
+               floor_hz: Optional[float] = None,
                version: str = "v1", type_name: Optional[str] = None,
                lifespan_sec: Optional[float] = None,
                topic: Optional[str] = None) -> Writer:
@@ -810,7 +812,7 @@ class Participant:
                         f"a writer does not offer a contract it will not meet")
         if problems:
             raise ParticipantRefused(problems)
-        w = Writer(self, lane, on_exit, floor_hz, validate, lifespan_sec)
+        w = Writer(self, lane, on_exit, floor_hz, lifespan_sec)
         self._writers.append(w)
         for sid, svc in self._services.items():
             if svc["spec"]["topics"] is None:

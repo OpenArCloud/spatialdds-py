@@ -393,6 +393,16 @@ def main(argv: list[str] | None = None) -> int:
               f"{'on' if jr else 'OFF (in memory only)'}")
     else:
         print("  publish     off (read-only; --publish enables it)")
+    bare = [r for r in a.public if "/" not in r]
+    if bare:
+        # Once, at startup, and only when the bare form is used: it is
+        # deprecated (removal deferred to a major release), and the operator
+        # who wrote it is the one this line is for (finding 84).
+        print(f"  WARNING     --public {', '.join(bare)} opens "
+              f"{'that type' if len(bare) == 1 else 'those types'} in every "
+              f"scene, whoever writes there; the bare form is deprecated. "
+              f"The scene-qualified form is recommended: --public "
+              f"SCENE/{bare[0]}")
 
     # Flush before handing the process to the event loop, and here rather
     # than earlier: Python block-buffers stdout when it is not a terminal, so

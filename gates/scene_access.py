@@ -15,7 +15,9 @@ written into each:
   * a registry restarted on its journal keeps both classes;
   * with a bare `--public spatial.owm.Entity`, both worlds are public, as
     before;
-  * `spatialdds-serve` refuses a rule that is neither shape, before it binds.
+  * `spatialdds-serve` refuses a rule that is neither shape, before it binds;
+  * the bare form, deprecated, is said so once at startup, naming the
+    scene-qualified form as recommended; a scene-qualified rule says nothing.
 
 Usage:  gates/scene_access.py
 """
@@ -24,9 +26,12 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import socket
 import subprocess
 import sys
 import tempfile
+import time
+import urllib.request
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -156,10 +161,72 @@ def refused_rules(checks: list) -> None:
                        f"exit {code}: {err[-300:]}"))
 
 
+def banner(rules: list[str]) -> tuple[list[str], str]:
+    """Everything spatialdds-serve prints before it serves, with these rules.
+
+    The banner is flushed before the server starts answering, so once its
+    port answers, all of it is out: then the process is stopped by its PID
+    and its output read.
+    """
+    env = {k: v for k, v in os.environ.items() if k != "PYTHONPATH"}
+    env["PYTHONPATH"] = str(ROOT / "lib" / "spatialdds")
+    s = socket.socket()
+    s.bind(("127.0.0.1", 0))
+    port = s.getsockname()[1]
+    s.close()
+    args = [sys.executable, "-u", "-m", "spatialdds.serve", "--port",
+            str(port)]
+    for r in rules:
+        args += ["--public", r]
+    proc = subprocess.Popen(args, env=env, stdout=subprocess.PIPE,
+                            stderr=subprocess.STDOUT, text=True,
+                            stdin=subprocess.DEVNULL)
+    why = "did not answer within 60 s"
+    try:
+        deadline = time.time() + 60
+        while time.time() < deadline and proc.poll() is None:
+            try:
+                with urllib.request.urlopen(
+                        f"http://127.0.0.1:{port}/.well-known/spatialdds/"
+                        f"search", timeout=2):
+                    why = ""
+                    break
+            except OSError:
+                time.sleep(0.2)
+    finally:
+        proc.kill()
+        out, _ = proc.communicate(timeout=10)
+    return out.splitlines(), why
+
+
+def deprecation_line(checks: list) -> None:
+    def warned(lines: list[str]) -> list[str]:
+        return [l for l in lines if "WARNING" in l and "--public" in l]
+
+    bare, why = banner([FQN])
+    w = warned(bare)
+    checks.append((f"spatialdds-serve --public {FQN} says once, at startup, "
+                   f"that the bare form opens the type in every scene and is "
+                   f"deprecated, naming the scene-qualified form as "
+                   f"recommended",
+                   len(w) == 1 and "every scene" in w[0]
+                   and "deprecated" in w[0] and f"SCENE/{FQN}" in w[0]
+                   and "recommended" in w[0],
+                   f"warning lines {w}; {why or 'served'}; banner ended "
+                   f"{bare[-3:] if bare else 'with no output'}"))
+    scoped, why = banner([f"{OPEN}/{FQN}"])
+    checks.append((f"--public {OPEN}/{FQN} prints no such line",
+                   not why and warned(scoped) == []
+                   and any("publish" in l for l in scoped),
+                   f"warning lines {warned(scoped)}; {why or 'served'}; "
+                   f"{len(scoped)} lines"))
+
+
 def main() -> int:
     checks: list = []
     asyncio.run(main_async(checks))
     refused_rules(checks)
+    deprecation_line(checks)
     return report("scene access", checks,
                   "--public opens a type in the scene it names and no other")
 

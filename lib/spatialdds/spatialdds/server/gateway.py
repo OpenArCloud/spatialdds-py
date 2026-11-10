@@ -184,6 +184,11 @@ class State:
     #: by (topic, key): the interval their writer declared and the moment it
     #: lapses. `publish.Lease`. The gateway withdraws one that lapses.
     leases: dict[tuple[str, str], Any] = field(default_factory=dict)
+    #: Compiled validators for the deployment's own publishable types, by
+    #: fqn, built from the model the first time a body of one arrives
+    #: (`publish.validate_schema`; a vendored type's is the process's,
+    #: `webjson.vendored_validator`). Finding 75.
+    validators: dict[str, Any] = field(default_factory=dict)
 
     def resource_for(self, path: str) -> Resource | None:
         return self.resources.get(path.rstrip("/"))

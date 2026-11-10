@@ -17,6 +17,19 @@ Which release this is is decided when it is tagged.
   integrator's world no longer opens everyone's. A bare `FQN` still opens it
   in every scene, as before, and is **deprecated**; its removal is deferred
   to a major release.
+- **Behavior change: `Participant.writer(validate=...)` is removed.** Every
+  write is validated and there is no unvalidated mode; passing `validate=`
+  (either value) raises `TypeError`. A caller that passed `validate=False`
+  drops the argument. This is the web binding design note's write contract,
+  promise 2: every write validated, its cost bounded.
+- **Validation is cheap (finding 75).** The vendored schemas are read once a
+  process and each type's validator is compiled once, for the native writer
+  and the gateway's `PUT` alike: a validated `ModelPose` write costs about
+  0.12 ms, where it cost 5 to 7 ms. `webjson.schemas()` still returns a copy
+  the caller owns.
+- **The bare `--public FQN` says so at startup.** One `WARNING` line in the
+  banner when the bare form is used, naming the scene-qualified form as
+  recommended.
 - **The SDK says when an endpoint misadvertises its origin (finding 83).**
   `AdvertisedOriginWarning`, once per endpoint, naming both origins, when
   search results or resolver metadata advertise URLs on another origin than
@@ -28,7 +41,7 @@ Which release this is is decided when it is tagged.
 
 New gates: `gates/mcp_server.py`, `gates/mcp_guide.py`,
 `gates/scene_access.py`, `gates/search_pages.py`,
-`gates/advertised_origin.py`. `gates/examples.py`
+`gates/advertised_origin.py`, `gates/write_validation_cost.py`. `gates/examples.py`
 compares a refusal with its own indent (finding 85).
 
 ## 0.8.2: no phantom lanes, every writable type listed

@@ -3191,3 +3191,49 @@ to be set, three fail.
 deprecated**, still meaning what it always did, with its removal deferred to
 a major release. Said in `serve --help`, `docs/PUBLISH.md`, the `State.public`
 comment and the changelog. Nothing at run time warns of the bare form.
+
+## 75 closed, and the bare `--public` says so, 2026-11-09
+
+**75, fixed, and closed per the write contract.** `webjson._vendored_schemas()`
+reads the vendored schemas once a process; `schemas()` returns a deep copy, so
+no caller can edit the cache. `webjson.vendored_validator(fqn)` compiles each
+type's validator once (`validator_for(schema)`, the schema checked as
+`jsonschema.validate` checks it), and `webjson.first_error` picks the error
+`jsonschema.validate` would have raised (`best_match`), so refusals read as
+before. The native codec and the gateway's write surface both validate through
+it; a deployment's own type's validator is compiled from its model once and
+kept on the `State`. With the cost bounded, the unvalidated mode is gone:
+`Participant.writer` has no `validate=`. That deletion is the point of the
+closure, not a side effect of the speedup: it fulfils promise 2 of the write
+contract in the web binding design note (`directions/web-binding-design-note.md`
+§5): "Every write is validated, and validation cost is bounded", where "an
+unvalidated write path is not a fast mode, it is a hole". The cache is what
+makes the promise affordable; removing `validate=False` is the promise kept. It
+is an API surface going away, and the changelog says so in a line of its own.
+
+`gates/write_validation_cost.py` states its budget and fails on it: a validated
+`ModelPose` `write()` at most 1.0 ms, median of 500, and the gateway's
+validation of an `Entity` body at most 1.0 ms. Measured on this host: 0.120 ms
+against 0.009 ms for the same sample written to the bus unvalidated, and 0.140
+ms for the `Entity` body; finding 75 measured 7.04 against 0.01 ms on 0.7.4,
+and this branch before the fix 5.11 against 0.009 ms. Fifty calls of
+`schemas()` and fifty validator lookups read the 112 schema files once each. A
+refused body carries `jsonschema.validate`'s message, the cached validator
+picks its error and path on three invalid documents, and editing a copy from
+`schemas()` changes neither the next answer nor what is validated. With both
+caches planted out, the gate fails: 11,200 reads, 5.138 ms a pose write and
+9.005 ms a body, each over budget.
+
+**The demo's hot lane moved.** SpatialDDS-demo branch `validated-pose-lane`
+(`aa45106`) drops the crossing scene's `validate=False`. It lands with the pin
+that carries this fix; on 0.7.4 a validated pose lane lags. Under the pinned
+SUMO the scene's suite passes as before, 72 passed and 39 subtests on 0.7.4
+with the lane unvalidated and on this branch with it validated. With the
+caches planted out of that SDK, the session test fails, mmwave-ut-04 0.759 s
+behind the world and a claim's latency 109 ms, so the suite holds the lane's
+cost. No recorded demo behavior changed.
+
+**The bare `--public` is said at startup.** One `WARNING` banner line when a
+bare `FQN` is given, naming the scene-qualified form as recommended, and none
+for `SCENE/FQN`; `gates/scene_access.py` holds both. With the line planted
+silent, its check fails.

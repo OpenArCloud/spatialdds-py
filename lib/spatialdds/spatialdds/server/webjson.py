@@ -27,6 +27,7 @@ together.
 from __future__ import annotations
 
 import base64
+import copy
 import json
 from functools import lru_cache
 from pathlib import Path
@@ -57,6 +58,7 @@ from ..canonjson import canon, digest, ecma262
 #: answers to `webjson.canon`" is a statement rather than an accident.
 __all__ = ["canon", "digest", "ecma262", "ARTIFACTS", "Lifter", "Projector",
            "OCTET_RUN", "tables", "schemas", "schema_file_for",
+           "compile_validator", "vendored_validator", "first_error",
            "schema_from_model", "served_schemas"]
 
 
@@ -73,17 +75,57 @@ def tables() -> dict:
     return _TABLES
 
 
-def schemas() -> dict[str, dict]:
-    """Every vendored JSON Schema, keyed by its `title` (the dotted FQN).
-
-    Keyed the way the specification repository's conformance runner keys them,
-    so "the schema for this type" means the same thing on both sides.
-    """
+@lru_cache(maxsize=1)
+def _vendored_schemas() -> dict[str, dict]:
+    """The vendored schemas as read, once a process. Never handed out: every
+    caller of `schemas()` gets its own copy, so nothing can edit the cache."""
     out: dict[str, dict] = {}
     for p in sorted((ARTIFACTS / "schemas").glob("*.json")):
         doc = json.loads(p.read_text())
         out[doc.get("title") or p.stem] = doc
     return out
+
+
+def schemas() -> dict[str, dict]:
+    """Every vendored JSON Schema, keyed by its `title` (the dotted FQN).
+
+    Keyed the way the specification repository's conformance runner keys them,
+    so "the schema for this type" means the same thing on both sides. Read
+    from disk once a process (finding 75: 0.8.2 and earlier re-read all 112
+    files per call, and a validated write called it per sample); the copy
+    returned is the caller's own.
+    """
+    return copy.deepcopy(_vendored_schemas())
+
+
+def compile_validator(schema: dict) -> Any:
+    """A validator for `schema`, its class chosen by the schema's dialect and
+    the schema itself checked, as `jsonschema.validate` does on every call."""
+    import jsonschema
+    cls = jsonschema.validators.validator_for(schema)
+    cls.check_schema(schema)
+    return cls(schema)
+
+
+@lru_cache(maxsize=None)
+def vendored_validator(fqn: str) -> Any:
+    """The compiled validator for a vendored type, built once a process, or
+    None for a type with no vendored schema.
+
+    Finding 75: `jsonschema.validate` builds a validator and its reference
+    resolver per call, so a validated write paid compilation per sample. Every
+    validated path, the native writer's and the gateway's write surface,
+    validates through one of these.
+    """
+    schema = _vendored_schemas().get(fqn)
+    return None if schema is None else compile_validator(schema)
+
+
+def first_error(validator: Any, doc: Any) -> Any:
+    """The error `jsonschema.validate` would raise for `doc`, or None: the
+    same choice among several (`best_match`), so a refusal reads as before."""
+    from jsonschema.exceptions import best_match
+    return best_match(validator.iter_errors(doc))
 
 
 def schema_file_for(fqn: str) -> str:

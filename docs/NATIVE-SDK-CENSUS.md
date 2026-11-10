@@ -449,7 +449,7 @@ All refusals are collected and raised together, ROS's pattern.
 | autodispose | not a parameter | always off |
 | `on_exit` | **required** for latched keyed types: `"keep"` or `"withdraw"` | refuse. Both answers are claims, and the library cannot know which is true (ruling 2) |
 | `floor_hz` | optional; republishes each key's last sample with a fresh stamp | no floor. Refused below the profile's deadline rate, rather than offering a contract the writer will not meet |
-| `validate` | on: every sample against the published schema | — |
+| `validate` | on: every sample against the published schema. **Removed after 0.8.2**: every write is validated and the parameter is gone (finding 75; the write contract) | — |
 
 **`w.withdraw(key, *, reason)`**: `reason` is required and must not be empty.
 

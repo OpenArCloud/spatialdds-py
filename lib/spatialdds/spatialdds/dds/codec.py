@@ -363,7 +363,7 @@ def validate(sample: Any) -> Dict[str, Any]:
     check stops at the second: representable in N.1.
     """
     try:
-        import jsonschema
+        import jsonschema  # noqa: F401
     except ImportError as e:
         from ._extra import EXTRA, MissingExtra
         raise MissingExtra(f"validation needs jsonschema: {EXTRA}") from e
@@ -371,14 +371,16 @@ def validate(sample: Any) -> Dict[str, Any]:
     fqn = fqn_of(sample)
     if fqn in _EXT_FQN:
         return doc
-    schema = webjson.schemas().get(fqn)
-    if schema is None:
+    # Compiled once a type, a process (finding 75): a validated pose write
+    # cost 5-7 ms when this compiled the schema, and read every vendored
+    # schema from disk, per sample.
+    v = webjson.vendored_validator(fqn)
+    if v is None:
         raise SchemaInvalid(f"no published schema for {fqn}, so a sample "
-                            f"cannot be validated; pass validate=False to "
-                            f"write it unchecked")
-    try:
-        jsonschema.validate(doc, schema)
-    except jsonschema.ValidationError as e:
+                            f"cannot be validated, and nothing is written "
+                            f"unvalidated")
+    e = webjson.first_error(v, doc)
+    if e is not None:
         where = "/".join(str(p) for p in e.absolute_path) or "(root)"
         raise SchemaInvalid(f"{fqn} at {where}: {e.message}") from e
     return doc
