@@ -14,8 +14,15 @@ against the code in the repository.
 pip install spatialdds                       # the client: two dependencies
 pip install "spatialdds[server]"             # and the registry
 pip install "spatialdds[dds]"                # and a native DDS participant
+pip install "spatialdds[mcp]"                # and an MCP server (Python 3.10+)
 pip install "./lib/spatialdds[server]"       # from a checkout of this repo
 ```
+
+The `[mcp]` extra adds `spatialdds-mcp`, a read-only MCP server through which
+Claude Desktop, Claude Code or any MCP client reads live world models over the
+same binding; the
+[MCP server guide](https://github.com/OpenArCloud/spatialdds-py/blob/main/docs/mcp-server.md)
+sets it up.
 
 `fetch` and a WebSocket really are the whole client -- the endpoint's own
 README shows that in three lines of `curl`, and nothing here replaces it. This

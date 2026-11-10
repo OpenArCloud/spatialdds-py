@@ -142,6 +142,14 @@ def gates() -> list[dict]:
         "needs node to execute the browser console snippets in "
         "examples/browser.md; the gate fails rather than passes on an "
         "unverified example, so the absence is stated here")
+    # The extras gate builds the wheel it reads, without build isolation so
+    # it needs no network, which needs the build backend installed here.
+    try:
+        import setuptools     # noqa: F401
+        no_setuptools = None
+    except ImportError:
+        no_setuptools = ("needs setuptools, the build backend, to build the "
+                         "wheel it reads: pip install setuptools")
     return [
         {"name": "wire_model", "what": "the recording's IDL and the published tables agree",
          "cmd": ["gates/wire_model.py"], "skip": no_mcap},
@@ -343,6 +351,8 @@ def gates() -> list[dict]:
         {"name": "mcp_guide", "what": "the MCP server guide runs as printed, through the MCP SDK's own client",
          "cmd": ["gates/mcp_guide.py"],
          "skip": no_mcp or no_dds or no_web or no_lsof},
+        {"name": "readme_extras", "what": "every extra the wheel declares is on the install block PyPI shows",
+         "cmd": ["gates/readme_extras.py"], "skip": no_setuptools},
     ]
 
 
