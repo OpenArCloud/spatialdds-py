@@ -3,7 +3,7 @@
 This guide takes you from nothing to reading, watching and publishing on a
 SpatialDDS registry over plain HTTPS and WebSocket: content, live entities, and
 claims about them. It is written against the public sandbox,
-`https://demo.spatialdds.org`, which runs `spatialdds` 0.8.3 and speaks
+`https://demo.spatialdds.org`, which runs `spatialdds` 0.8.3.post1 and speaks
 SpatialDDS 1.8's web binding (Appendix N). Any registry that runs the same
 package answers the same way; only the base URL and your token change.
 
@@ -29,7 +29,7 @@ WebSocket and Python sections also need the client library, which brings the
 
 <!-- guide: install -->
 ```sh
-pip install "spatialdds==0.8.3"
+pip install "spatialdds==0.8.3.post1"
 ```
 
 **Three variables.** Every command below uses them. Set them once in your
@@ -756,7 +756,7 @@ which another registry may set differently.
 | --- | --- |
 | Base URL | `https://demo.spatialdds.org`, HTTPS and WSS only; plain HTTP redirects |
 | Authority | `demo.spatialdds.org`: every `spatialdds://` URI you publish there names it |
-| Served by | `spatialdds` 0.8.3, SpatialDDS 1.8 web binding, with the `oarc.relationship` claim lane |
+| Served by | `spatialdds` 0.8.3.post1, SpatialDDS 1.8 web binding, with the `oarc.relationship` claim lane |
 | Sample scene | `ut-austin-south-mall`: 1 service, 5 surveyed anchors, 2 content records at UT Austin. Readable by everyone, writable by its operator only |
 | Your lane | One scene, named when your token is issued. Anywhere on Earth: the server's name is an address, not a location |
 | Quota | 500 records in your lane (instances plus manifests); replacing a record never counts against it |

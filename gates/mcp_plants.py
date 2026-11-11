@@ -121,7 +121,7 @@ PLANTS = [
      ["gates/mcp_guide.py"],
      '`get_claims` {"scene": "ut-austin-littlefield"} prints'),
     ("guide-install-without-extra", GUIDE,
-     'pip install "spatialdds[mcp]==0.8.3"', 'pip install "spatialdds==0.8.3"',
+     'pip install "spatialdds[mcp]==0.8.3.post1"', 'pip install "spatialdds==0.8.3.post1"',
      ["gates/mcp_guide.py"],
      "the install line names the extra"),
     ("days-rounded", SERVER,

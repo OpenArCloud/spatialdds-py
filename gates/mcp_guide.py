@@ -514,7 +514,10 @@ def main() -> int:
                    len(install) == 1 and install[0].body.strip()
                    == f'pip install "spatialdds[mcp]=={v}"',
                    install[0].body if install else "no install block"))
-    named = set(re.findall(r"spatialdds(?:\[mcp\])?(?:`|==)\s?(\d+\.\d+\.\d+)",
+    # The whole PEP 440 version: three numbers alone read 0.8.3.post1
+    # as 0.8.3, which failed a page that named its version exactly.
+    named = set(re.findall(r"spatialdds(?:\[mcp\])?(?:`|==)\s?"
+                           r"(\d+\.\d+\.\d+(?:(?:a|b|rc)\d+)?(?:\.post\d+)?(?:\.dev\d+)?)",
                            GUIDE.read_text()))
     checks.append((f"every spatialdds version the page names is {v}",
                    named == {v}, f"named: {sorted(named)}"))

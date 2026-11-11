@@ -3247,3 +3247,12 @@ startup), 82 (`search()` reads every page), 83's SDK half
 (`AdvertisedOriginWarning`), 85 (the examples gate), and 75 (validation cached,
 `validate=False` removed). 81 waits on the binding. SpatialDDS-demo's pin bump
 and its `validated-pose-lane` land together with it.
+
+## 0.8.3.post1, 2026-11-10
+
+Tagged `spatialdds-v0.8.3.post1` from `main`. The package's own page: 0.8.3
+shipped `[mcp]` with no install line on it, and `gates/readme_extras.py` now
+holds every declared extra to the page's install block. The code is 0.8.3's;
+the version string and the OpenAPI `info.version` read from it are the only
+other change in the package. The guides pin and name 0.8.3.post1, as their
+gates require, and the box bundles move to its wheel.

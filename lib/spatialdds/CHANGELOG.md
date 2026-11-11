@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.8.3.post1: the `[mcp]` extra on the package's own page
+
+- **The install block names `[mcp]`.** 0.8.3 shipped the MCP server with no
+  install line on this page, so a reader on the index could not learn it
+  existed. The block now carries `pip install "spatialdds[mcp]"`, and one
+  sentence points at the MCP server guide. The code is 0.8.3's: only the
+  version string and the OpenAPI document's `info.version`, which is read
+  from it, change.
+- **No extra ships undocumented again.** `gates/readme_extras.py` builds the
+  wheel and requires every extra its METADATA declares to appear in the
+  install block of its long description, and every extra named there to be
+  declared. It plants a hidden extra in a copy on every run; the 0.8.3 page
+  fails it, naming `mcp`.
+
 ## 0.8.3: every write validated, one scene public, and an MCP server
 
 - **`spatialdds-mcp`, an MCP server over the web binding.** `pip install
